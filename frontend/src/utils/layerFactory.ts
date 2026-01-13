@@ -1,0 +1,116 @@
+import { GeoJsonLayer } from '@deck.gl/layers';
+import { TileLayer } from '@deck.gl/geo-layers';
+import { BitmapLayer } from '@deck.gl/layers';
+import { Dataset, GeoJSONFeatureCollection } from '../api/types';
+import { getGeoJSONUrl, getRasterTileUrl } from '../api/datasets';
+
+type LayerType = GeoJsonLayer | TileLayer | null;
+
+const DEFAULT_VECTOR_STYLE = {
+  fillColor: [0, 128, 255, 128] as [number, number, number, number],
+  lineColor: [0, 0, 0, 255] as [number, number, number, number],
+  pointRadius: 5,
+  lineWidth: 2,
+};
+
+export function createLayerFromDataset(
+  dataset: Dataset,
+  data?: GeoJSONFeatureCollection | null
+): LayerType {
+  if (dataset.data_type === 'vector') {
+    return createVectorLayer(dataset, data);
+  }
+
+  if (dataset.data_type === 'raster') {
+    return createRasterLayer(dataset);
+  }
+
+  return null;
+}
+
+function createVectorLayer(
+  dataset: Dataset,
+  data?: GeoJSONFeatureCollection | null
+): GeoJsonLayer {
+  const style = {
+    ...DEFAULT_VECTOR_STYLE,
+    ...dataset.style_config,
+  };
+
+  // Get auth token for fetching GeoJSON
+  const token = localStorage.getItem('access_token');
+
+  return new GeoJsonLayer({
+    id: `vector-${dataset.id}`,
+    data: data || getGeoJSONUrl(dataset.id),
+    // Include auth header in fetch requests
+    loadOptions: {
+      fetch: {
+        headers: {
+          Authorization: token ? `Bearer ${token}` : '',
+        },
+      },
+    },
+    pickable: true,
+    stroked: true,
+    filled: true,
+    extruded: false,
+    pointType: 'circle',
+    lineWidthScale: 1,
+    lineWidthMinPixels: 1,
+    getFillColor: style.fillColor,
+    getLineColor: style.lineColor,
+    getPointRadius: style.pointRadius,
+    getLineWidth: style.lineWidth,
+    updateTriggers: {
+      getFillColor: [style.fillColor],
+      getLineColor: [style.lineColor],
+    },
+  });
+}
+
+function createRasterLayer(dataset: Dataset): TileLayer {
+  // Get auth token for fetching tiles
+  const token = localStorage.getItem('access_token');
+
+  return new TileLayer({
+    id: `raster-${dataset.id}`,
+    data: getRasterTileUrl(dataset.id),
+    minZoom: dataset.min_zoom,
+    maxZoom: dataset.max_zoom,
+    tileSize: 256,
+    loadOptions: {
+      fetch: {
+        headers: {
+          Authorization: token ? `Bearer ${token}` : '',
+        },
+      },
+    },
+    renderSubLayers: (props) => {
+      const { boundingBox } = props.tile;
+      const [west, south] = boundingBox[0];
+      const [east, north] = boundingBox[1];
+
+      return new BitmapLayer({
+        ...props,
+        data: undefined,
+        image: props.data,
+        bounds: [west, south, east, north],
+      });
+    },
+  });
+}
+
+export function getLayerColor(index: number): [number, number, number, number] {
+  const colors: [number, number, number, number][] = [
+    [66, 133, 244, 180],
+    [52, 168, 83, 180],
+    [251, 188, 4, 180],
+    [234, 67, 53, 180],
+    [154, 160, 166, 180],
+    [255, 112, 67, 180],
+    [0, 172, 193, 180],
+    [124, 77, 255, 180],
+  ];
+  return colors[index % colors.length];
+}
