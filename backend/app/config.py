@@ -20,6 +20,22 @@ class Settings(BaseSettings):
     RASTER_DIR: str = "/app/data/rasters"
     UPLOAD_MAX_SIZE_MB: int = 500
 
+    # Email settings
+    SMTP_HOST: str = ""
+    SMTP_PORT: int = 587
+    SMTP_USER: str = ""
+    SMTP_PASSWORD: str = ""
+    SMTP_FROM_EMAIL: str = "noreply@example.com"
+    SMTP_FROM_NAME: str = "GIS Application"
+    ADMIN_EMAIL: str = "admin@example.com"
+    APP_URL: str = "http://localhost:5173"
+
+    # Initial admin setup (required for first run)
+    INITIAL_ADMIN_EMAIL: str | None = None
+    INITIAL_ADMIN_PASSWORD: str | None = None
+    INITIAL_ADMIN_FULL_NAME: str = "Administrator"
+    EMAIL_CONFIRMATION_TOKEN_EXPIRE_HOURS: int = 24
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]

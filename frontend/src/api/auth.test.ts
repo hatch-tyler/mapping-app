@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { login, logout, refreshToken, getCurrentUser } from './auth';
+import { login, logout, refreshToken, getCurrentUser, confirmEmail, resendConfirmation } from './auth';
 import { apiClient } from './client';
 
 // Mock the apiClient
@@ -121,6 +121,72 @@ describe('auth API', () => {
       vi.mocked(apiClient.get).mockRejectedValue(new Error('Unauthorized'));
 
       await expect(getCurrentUser()).rejects.toThrow('Unauthorized');
+    });
+  });
+
+  describe('confirmEmail', () => {
+    it('should send email confirmation request with token', async () => {
+      const mockResponse = {
+        message: 'Email confirmed successfully',
+        email: 'test@example.com',
+      };
+      vi.mocked(apiClient.get).mockResolvedValue({ data: mockResponse });
+
+      const result = await confirmEmail('test-confirmation-token');
+
+      expect(apiClient.get).toHaveBeenCalledWith('/auth/confirm/test-confirmation-token');
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('should return email in response', async () => {
+      const mockResponse = {
+        message: 'Success',
+        email: 'user@example.com',
+      };
+      vi.mocked(apiClient.get).mockResolvedValue({ data: mockResponse });
+
+      const result = await confirmEmail('valid-token');
+
+      expect(result.email).toBe('user@example.com');
+    });
+
+    it('should propagate errors on failed confirmation', async () => {
+      vi.mocked(apiClient.get).mockRejectedValue(new Error('Invalid or expired token'));
+
+      await expect(confirmEmail('invalid-token')).rejects.toThrow('Invalid or expired token');
+    });
+  });
+
+  describe('resendConfirmation', () => {
+    it('should send resend confirmation request with email', async () => {
+      const mockResponse = {
+        message: 'Confirmation email sent successfully',
+      };
+      vi.mocked(apiClient.post).mockResolvedValue({ data: mockResponse });
+
+      const result = await resendConfirmation('test@example.com');
+
+      expect(apiClient.post).toHaveBeenCalledWith('/auth/resend-confirmation', {
+        email: 'test@example.com',
+      });
+      expect(result).toEqual(mockResponse);
+    });
+
+    it('should return success message', async () => {
+      const mockResponse = {
+        message: 'Email sent',
+      };
+      vi.mocked(apiClient.post).mockResolvedValue({ data: mockResponse });
+
+      const result = await resendConfirmation('user@example.com');
+
+      expect(result.message).toBe('Email sent');
+    });
+
+    it('should propagate errors on failed resend', async () => {
+      vi.mocked(apiClient.post).mockRejectedValue(new Error('Email not found'));
+
+      await expect(resendConfirmation('unknown@example.com')).rejects.toThrow('Email not found');
     });
   });
 });

@@ -2,6 +2,7 @@ from datetime import datetime
 from uuid import UUID
 from typing import Any
 from pydantic import BaseModel, Field
+from enum import Enum
 
 
 class DatasetBase(BaseModel):
@@ -70,3 +71,57 @@ class UploadJobResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ===== Feature Query Schemas =====
+
+class FieldMetadata(BaseModel):
+    """Metadata about a field/column in a dataset."""
+    name: str
+    field_type: str  # "string", "number", "boolean", "date", "null"
+
+
+class FieldMetadataResponse(BaseModel):
+    """Response containing field metadata for a dataset."""
+    dataset_id: UUID
+    fields: list[FieldMetadata]
+
+
+class FeatureRow(BaseModel):
+    """A single feature row (without geometry)."""
+    id: int
+    properties: dict[str, Any]
+
+
+class FeatureQueryResponse(BaseModel):
+    """Paginated response for feature queries."""
+    features: list[FeatureRow]
+    total_count: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class FilterOperator(str, Enum):
+    """Supported filter operators."""
+    eq = "eq"
+    ne = "ne"
+    gt = "gt"
+    gte = "gte"
+    lt = "lt"
+    lte = "lte"
+    contains = "contains"
+    startswith = "startswith"
+
+
+class ColumnFilter(BaseModel):
+    """A filter to apply to a column."""
+    field: str
+    operator: FilterOperator
+    value: str | float | int | bool
+
+
+class ExportSelectedRequest(BaseModel):
+    """Request to export selected features."""
+    feature_ids: list[int]
+    format: str = "csv"  # "csv" or "geojson"

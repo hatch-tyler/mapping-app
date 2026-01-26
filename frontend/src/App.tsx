@@ -1,8 +1,11 @@
 import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { LoginPage } from './pages/LoginPage';
+import { RegisterPage } from './pages/RegisterPage';
+import { ConfirmEmailPage } from './pages/ConfirmEmailPage';
 import { MapPage } from './pages/MapPage';
 import { AdminPage } from './pages/AdminPage';
+import { DataPage } from './pages/DataPage';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useAuthStore } from './stores/authStore';
@@ -27,6 +30,9 @@ function App() {
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="/confirm-email" element={<ConfirmEmailPage />} />
+          <Route path="/data" element={<DataPage />} />
           <Route
             path="/"
             element={

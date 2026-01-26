@@ -20,6 +20,12 @@ export function MapPage() {
         <div className="px-4 py-3 flex items-center justify-between">
           <h1 className="text-xl font-semibold text-gray-900">GIS Application</h1>
           <div className="flex items-center gap-4">
+            <Link
+              to="/data"
+              className="text-sm text-blue-600 hover:text-blue-800"
+            >
+              Data Browser
+            </Link>
             {user?.is_admin && (
               <Link
                 to="/admin"

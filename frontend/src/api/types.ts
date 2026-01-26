@@ -95,3 +95,49 @@ export interface GeoJSONFeatureCollection {
   type: 'FeatureCollection';
   features: GeoJSONFeature[];
 }
+
+// ===== Feature Query Types =====
+
+export interface FieldMetadata {
+  name: string;
+  field_type: 'string' | 'number' | 'boolean' | 'date' | 'null';
+}
+
+export interface FieldMetadataResponse {
+  dataset_id: string;
+  fields: FieldMetadata[];
+}
+
+export interface FeatureRow {
+  id: number;
+  properties: Record<string, unknown>;
+}
+
+export interface FeatureQueryResponse {
+  features: FeatureRow[];
+  total_count: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+export type FilterOperator =
+  | 'eq'
+  | 'ne'
+  | 'gt'
+  | 'gte'
+  | 'lt'
+  | 'lte'
+  | 'contains'
+  | 'startswith';
+
+export interface ColumnFilter {
+  field: string;
+  operator: FilterOperator;
+  value: string | number | boolean;
+}
+
+export interface ExportSelectedRequest {
+  feature_ids: number[];
+  format: 'csv' | 'geojson';
+}

@@ -1,5 +1,32 @@
 import { apiClient, uploadClient, API_URL } from './client';
-import { Dataset, DatasetListResponse, GeoJSONFeatureCollection } from './types';
+import axios from 'axios';
+import {
+  Dataset,
+  DatasetListResponse,
+  GeoJSONFeatureCollection,
+  FieldMetadataResponse,
+  FeatureQueryResponse,
+  ColumnFilter,
+  ExportSelectedRequest,
+} from './types';
+
+// Create a client without auth interceptors for public endpoints
+const publicClient = axios.create({
+  baseURL: `${API_URL}/api/v1`,
+  timeout: 30000,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Add optional auth header if token exists
+publicClient.interceptors.request.use((config) => {
+  const token = localStorage.getItem('access_token');
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
 
 export async function getDatasets(
   skip = 0,
@@ -122,3 +149,76 @@ export const EXPORT_FORMATS = [
   { id: 'geojson', name: 'GeoJSON', ext: '.geojson', description: 'Web applications & APIs' },
   { id: 'kml', name: 'KML', ext: '.kml', description: 'Google Earth' },
 ] as const;
+
+// Convert dataset name to URL-safe slug
+function slugify(name: string): string {
+  return name.toLowerCase().replace(/[^\w\s-]/g, '').replace(/[-\s]+/g, '_').trim();
+}
+
+export function getArcGISFeatureServerUrl(datasetName: string): string {
+  const slug = slugify(datasetName);
+  return `${API_URL}/arcgis/rest/services/${encodeURIComponent(slug)}/FeatureServer/0`;
+}
+
+// ===== Browsable Datasets API =====
+
+export async function getBrowsableDatasets(
+  skip = 0,
+  limit = 100
+): Promise<DatasetListResponse> {
+  const response = await publicClient.get<DatasetListResponse>('/datasets/browse', {
+    params: { skip, limit },
+  });
+  return response.data;
+}
+
+export async function getDatasetFields(
+  datasetId: string
+): Promise<FieldMetadataResponse> {
+  const response = await publicClient.get<FieldMetadataResponse>(
+    `/datasets/${datasetId}/fields`
+  );
+  return response.data;
+}
+
+export async function queryFeatures(
+  datasetId: string,
+  page: number,
+  pageSize: number,
+  sortField?: string,
+  sortOrder?: 'asc' | 'desc',
+  filters?: ColumnFilter[]
+): Promise<FeatureQueryResponse> {
+  const params: Record<string, unknown> = {
+    page,
+    page_size: pageSize,
+  };
+
+  if (sortField) {
+    params.sort_field = sortField;
+    params.sort_order = sortOrder || 'asc';
+  }
+
+  if (filters && filters.length > 0) {
+    params.filters = JSON.stringify(filters);
+  }
+
+  const response = await publicClient.get<FeatureQueryResponse>(
+    `/datasets/${datasetId}/features`,
+    { params }
+  );
+  return response.data;
+}
+
+export async function exportSelectedFeatures(
+  datasetId: string,
+  featureIds: number[],
+  format: 'csv' | 'geojson'
+): Promise<Blob> {
+  const response = await publicClient.post<Blob>(
+    `/export/${datasetId}/selected`,
+    { feature_ids: featureIds, format } as ExportSelectedRequest,
+    { responseType: 'blob' }
+  );
+  return response.data;
+}

@@ -5,13 +5,20 @@ import {
   updateDataset,
   deleteDataset,
   toggleVisibility,
+  togglePublicStatus,
   getDatasetGeoJSON,
   uploadVector,
   uploadRaster,
   getGeoJSONUrl,
   getRasterTileUrl,
+  getWFSUrl,
+  getWFSFeatureTypeName,
+  getExportUrl,
+  getArcGISFeatureServerUrl,
+  EXPORT_FORMATS,
 } from './datasets';
 import { apiClient, uploadClient } from './client';
+import { createMockDataset } from '../__tests__/mockData';
 
 // Mock the apiClient and uploadClient
 vi.mock('./client', () => ({
@@ -28,18 +35,25 @@ vi.mock('./client', () => ({
   API_URL: 'http://localhost:8000',
 }));
 
-const mockDataset = {
+// Mock axios for publicClient
+vi.mock('axios', () => ({
+  default: {
+    create: vi.fn(() => ({
+      get: vi.fn(),
+      post: vi.fn(),
+      interceptors: {
+        request: { use: vi.fn() },
+        response: { use: vi.fn() },
+      },
+    })),
+  },
+}));
+
+const mockDataset = createMockDataset({
   id: '1',
   name: 'Test Dataset',
   description: 'Test description',
-  data_type: 'vector',
-  geometry_type: 'Point',
-  source_format: 'geojson',
-  srid: 4326,
-  is_visible: true,
-  style_config: {},
-  created_at: '2024-01-01T00:00:00Z',
-};
+});
 
 describe('datasets API', () => {
   beforeEach(() => {
@@ -49,7 +63,7 @@ describe('datasets API', () => {
   describe('getDatasets', () => {
     it('should fetch datasets with default params', async () => {
       vi.mocked(apiClient.get).mockResolvedValue({
-        data: { datasets: [mockDataset], total: 1, page: 1, per_page: 100 },
+        data: { datasets: [mockDataset], total: 1 },
       });
 
       const result = await getDatasets();
@@ -62,7 +76,7 @@ describe('datasets API', () => {
 
     it('should fetch datasets with custom params', async () => {
       vi.mocked(apiClient.get).mockResolvedValue({
-        data: { datasets: [], total: 0, page: 1, per_page: 20 },
+        data: { datasets: [], total: 0 },
       });
 
       await getDatasets(20, 20, true);
@@ -191,15 +205,15 @@ describe('datasets API', () => {
 
       const [, formData] = vi.mocked(uploadClient.post).mock.calls[0];
       expect(formData).toBeInstanceOf(FormData);
-      expect(formData.get('file')).toBe(file);
-      expect(formData.get('name')).toBe('My Dataset');
-      expect(formData.get('description')).toBe('My description');
+      expect((formData as FormData).get('file')).toBe(file);
+      expect((formData as FormData).get('name')).toBe('My Dataset');
+      expect((formData as FormData).get('description')).toBe('My description');
     });
   });
 
   describe('uploadRaster', () => {
     it('should upload raster file with name only using uploadClient', async () => {
-      const rasterDataset = { ...mockDataset, data_type: 'raster' };
+      const rasterDataset = createMockDataset({ data_type: 'raster' });
       vi.mocked(uploadClient.post).mockResolvedValue({ data: rasterDataset });
 
       const file = new File(['data'], 'test.tif');
@@ -215,7 +229,7 @@ describe('datasets API', () => {
     });
 
     it('should upload raster file with name and description', async () => {
-      const rasterDataset = { ...mockDataset, data_type: 'raster' };
+      const rasterDataset = createMockDataset({ data_type: 'raster' });
       vi.mocked(uploadClient.post).mockResolvedValue({ data: rasterDataset });
 
       const file = new File(['data'], 'test.tif');
@@ -226,7 +240,7 @@ describe('datasets API', () => {
     });
 
     it('should include file, name and description in FormData', async () => {
-      const rasterDataset = { ...mockDataset, data_type: 'raster' };
+      const rasterDataset = createMockDataset({ data_type: 'raster' });
       vi.mocked(uploadClient.post).mockResolvedValue({ data: rasterDataset });
 
       const file = new File(['raster content'], 'image.tif', { type: 'image/tiff' });
@@ -234,9 +248,9 @@ describe('datasets API', () => {
 
       const [, formData] = vi.mocked(uploadClient.post).mock.calls[0];
       expect(formData).toBeInstanceOf(FormData);
-      expect(formData.get('file')).toBe(file);
-      expect(formData.get('name')).toBe('My Raster');
-      expect(formData.get('description')).toBe('Raster description');
+      expect((formData as FormData).get('file')).toBe(file);
+      expect((formData as FormData).get('name')).toBe('My Raster');
+      expect((formData as FormData).get('description')).toBe('Raster description');
     });
   });
 
@@ -263,6 +277,103 @@ describe('datasets API', () => {
       expect(url).toBe(
         'http://localhost:8000/api/v1/raster/raster-456/tiles/{z}/{x}/{y}.png'
       );
+    });
+  });
+
+  describe('togglePublicStatus', () => {
+    it('should toggle public status to true', async () => {
+      const publicDataset = { ...mockDataset, is_public: true };
+      vi.mocked(apiClient.patch).mockResolvedValue({ data: publicDataset });
+
+      const result = await togglePublicStatus('1', true);
+
+      expect(apiClient.patch).toHaveBeenCalledWith('/datasets/1/public', {
+        is_public: true,
+      });
+      expect(result.is_public).toBe(true);
+    });
+
+    it('should toggle public status to false', async () => {
+      const privateDataset = { ...mockDataset, is_public: false };
+      vi.mocked(apiClient.patch).mockResolvedValue({ data: privateDataset });
+
+      const result = await togglePublicStatus('1', false);
+
+      expect(apiClient.patch).toHaveBeenCalledWith('/datasets/1/public', {
+        is_public: false,
+      });
+      expect(result.is_public).toBe(false);
+    });
+  });
+
+  describe('getWFSUrl', () => {
+    it('should return correct WFS URL', () => {
+      const url = getWFSUrl();
+      expect(url).toBe('http://localhost:8000/api/v1/wfs');
+    });
+  });
+
+  describe('getWFSFeatureTypeName', () => {
+    it('should return feature type name with gis prefix', () => {
+      const featureType = getWFSFeatureTypeName('dataset-123');
+      expect(featureType).toBe('gis:dataset-123');
+    });
+  });
+
+  describe('getExportUrl', () => {
+    it('should return correct export URL for geojson format', () => {
+      const url = getExportUrl('dataset-123', 'geojson');
+      expect(url).toBe('http://localhost:8000/api/v1/export/dataset-123/geojson');
+    });
+
+    it('should return correct export URL for gpkg format', () => {
+      const url = getExportUrl('dataset-123', 'gpkg');
+      expect(url).toBe('http://localhost:8000/api/v1/export/dataset-123/gpkg');
+    });
+
+    it('should return correct export URL for shp format', () => {
+      const url = getExportUrl('dataset-123', 'shp');
+      expect(url).toBe('http://localhost:8000/api/v1/export/dataset-123/shp');
+    });
+
+    it('should return correct export URL for kml format', () => {
+      const url = getExportUrl('dataset-123', 'kml');
+      expect(url).toBe('http://localhost:8000/api/v1/export/dataset-123/kml');
+    });
+  });
+
+  describe('getArcGISFeatureServerUrl', () => {
+    it('should return correct ArcGIS FeatureServer URL', () => {
+      const url = getArcGISFeatureServerUrl('Test Dataset');
+      expect(url).toBe('http://localhost:8000/arcgis/rest/services/test_dataset/FeatureServer/0');
+    });
+
+    it('should slugify dataset name with special characters', () => {
+      const url = getArcGISFeatureServerUrl('My Test Dataset (2024)!');
+      expect(url).toBe('http://localhost:8000/arcgis/rest/services/my_test_dataset_2024/FeatureServer/0');
+    });
+
+    it('should handle multiple spaces in dataset name', () => {
+      const url = getArcGISFeatureServerUrl('Test   Multiple   Spaces');
+      expect(url).toBe('http://localhost:8000/arcgis/rest/services/test_multiple_spaces/FeatureServer/0');
+    });
+  });
+
+  describe('EXPORT_FORMATS', () => {
+    it('should have correct export formats defined', () => {
+      expect(EXPORT_FORMATS).toHaveLength(4);
+      expect(EXPORT_FORMATS.map(f => f.id)).toEqual(['gpkg', 'shp', 'geojson', 'kml']);
+    });
+
+    it('should have gpkg as first format', () => {
+      expect(EXPORT_FORMATS[0].id).toBe('gpkg');
+      expect(EXPORT_FORMATS[0].name).toBe('GeoPackage');
+      expect(EXPORT_FORMATS[0].ext).toBe('.gpkg');
+    });
+
+    it('should have correct extensions for all formats', () => {
+      const extensions = EXPORT_FORMATS.map(f => f.ext);
+      expect(extensions).toEqual(['.gpkg', '.zip', '.geojson', '.kml']);
     });
   });
 });

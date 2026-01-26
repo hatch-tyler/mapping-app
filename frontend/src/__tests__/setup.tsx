@@ -64,18 +64,20 @@ Object.defineProperty(window, 'matchMedia', {
 });
 
 // Mock ResizeObserver
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
+const ResizeObserverMock = vi.fn().mockImplementation(() => ({
   observe: vi.fn(),
   unobserve: vi.fn(),
   disconnect: vi.fn(),
 }));
+(globalThis as unknown as { ResizeObserver: typeof ResizeObserverMock }).ResizeObserver = ResizeObserverMock;
 
 // Mock IntersectionObserver
-global.IntersectionObserver = vi.fn().mockImplementation(() => ({
+const IntersectionObserverMock = vi.fn().mockImplementation(() => ({
   observe: vi.fn(),
   unobserve: vi.fn(),
   disconnect: vi.fn(),
 }));
+(globalThis as unknown as { IntersectionObserver: typeof IntersectionObserverMock }).IntersectionObserver = IntersectionObserverMock;
 
 // Mock DataTransfer for file upload tests
 class MockDataTransfer {
@@ -103,4 +105,5 @@ class MockDataTransfer {
   }
 }
 
-global.DataTransfer = MockDataTransfer as unknown as typeof DataTransfer;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+(globalThis as unknown as { DataTransfer: unknown }).DataTransfer = MockDataTransfer as unknown;

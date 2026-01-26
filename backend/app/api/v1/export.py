@@ -1,6 +1,8 @@
 """Export endpoints for downloading datasets in various formats."""
 
+import csv
 import io
+import json
 import os
 import re
 import tempfile
@@ -14,7 +16,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.crud.dataset import get_dataset
+from app.crud.dataset import get_dataset, get_features_by_ids
+from app.schemas.dataset import ExportSelectedRequest
+from app.api.deps import get_optional_current_user
+from app.models.user import User
 
 router = APIRouter(prefix="/export", tags=["export"])
 
@@ -222,3 +227,100 @@ async def export_kml(
         # Clean up temp file
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
+
+
+@router.post("/{dataset_id}/selected")
+async def export_selected_features(
+    dataset_id: UUID,
+    request: ExportSelectedRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    """Export selected features as CSV or GeoJSON.
+
+    Access control: public datasets or authenticated user.
+    """
+    dataset = await get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # Access control
+    if not dataset.is_public and current_user is None:
+        raise HTTPException(status_code=403, detail="Dataset is not public")
+
+    if dataset.data_type != "vector":
+        raise HTTPException(status_code=400, detail="Export only available for vector datasets")
+
+    if not request.feature_ids:
+        raise HTTPException(status_code=400, detail="No features selected")
+
+    include_geometry = request.format.lower() == "geojson"
+    features = await get_features_by_ids(db, dataset, request.feature_ids, include_geometry)
+
+    if not features:
+        raise HTTPException(status_code=404, detail="No features found")
+
+    safe_name = sanitize_filename(dataset.name)
+
+    if request.format.lower() == "csv":
+        # Build CSV
+        output = io.StringIO()
+
+        # Collect all property keys
+        all_keys = set()
+        for f in features:
+            all_keys.update(f["properties"].keys())
+        all_keys = sorted(all_keys)
+
+        fieldnames = ["id"] + list(all_keys)
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+
+        for f in features:
+            row = {"id": f["id"]}
+            for key in all_keys:
+                row[key] = f["properties"].get(key, "")
+            writer.writerow(row)
+
+        content = output.getvalue()
+        filename = f"{safe_name}_selected.csv"
+
+        return StreamingResponse(
+            io.BytesIO(content.encode('utf-8')),
+            media_type="text/csv",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Access-Control-Allow-Origin": "*",
+            }
+        )
+
+    elif request.format.lower() == "geojson":
+        # Build GeoJSON FeatureCollection
+        geojson_features = []
+        for f in features:
+            geojson_features.append({
+                "type": "Feature",
+                "id": f["id"],
+                "geometry": f.get("geometry"),
+                "properties": f["properties"],
+            })
+
+        geojson = {
+            "type": "FeatureCollection",
+            "features": geojson_features,
+        }
+
+        content = json.dumps(geojson, indent=2)
+        filename = f"{safe_name}_selected.geojson"
+
+        return StreamingResponse(
+            io.BytesIO(content.encode('utf-8')),
+            media_type="application/geo+json",
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"',
+                "Access-Control-Allow-Origin": "*",
+            }
+        )
+
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported format. Use 'csv' or 'geojson'")

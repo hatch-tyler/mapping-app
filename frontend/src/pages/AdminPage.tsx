@@ -1,12 +1,16 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { DatasetTable } from '../components/admin/DatasetTable';
 import { UploadForm } from '../components/admin/UploadForm';
+import { RegistrationRequests } from '../components/admin/RegistrationRequests';
 import { useDatasetStore } from '../stores/datasetStore';
 import { useAuthStore } from '../stores/authStore';
 import * as datasetsApi from '../api/datasets';
 
+type TabType = 'datasets' | 'registrations';
+
 export function AdminPage() {
+  const [activeTab, setActiveTab] = useState<TabType>('datasets');
   const { datasets, loading, error, fetchDatasets, updateDataset, removeDataset } =
     useDatasetStore();
   const { user, logout } = useAuthStore();
@@ -42,6 +46,15 @@ export function AdminPage() {
     }
   };
 
+  const handleUpdateDataset = async (id: string, data: { name?: string; description?: string }) => {
+    try {
+      const updated = await datasetsApi.updateDataset(id, data);
+      updateDataset(id, updated);
+    } catch (err) {
+      console.error('Failed to update dataset:', err);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
       {/* Header */}
@@ -65,53 +78,95 @@ export function AdminPage() {
         </div>
       </header>
 
+      {/* Tabs */}
+      <div className="border-b border-gray-200 bg-white">
+        <div className="max-w-7xl mx-auto px-4">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              onClick={() => setActiveTab('datasets')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'datasets'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Datasets
+            </button>
+            <button
+              onClick={() => setActiveTab('registrations')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'registrations'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Registration Requests
+            </button>
+          </nav>
+        </div>
+      </div>
+
       {/* Content */}
       <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Upload Section */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow p-6">
-              <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                Upload Dataset
-              </h2>
-              <UploadForm onSuccess={fetchDatasets} />
-            </div>
-          </div>
-
-          {/* Datasets Table */}
-          <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow">
-              <div className="px-6 py-4 border-b border-gray-200">
-                <h2 className="text-lg font-semibold text-gray-900">
-                  Datasets ({datasets.length})
+        {activeTab === 'datasets' && (
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            {/* Upload Section */}
+            <div className="lg:col-span-1">
+              <div className="bg-white rounded-lg shadow p-6">
+                <h2 className="text-lg font-semibold text-gray-900 mb-4">
+                  Upload Dataset
                 </h2>
+                <UploadForm onSuccess={fetchDatasets} />
               </div>
+            </div>
 
-              {loading && (
-                <div className="flex items-center justify-center py-12">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            {/* Datasets Table */}
+            <div className="lg:col-span-2 min-w-0">
+              <div className="bg-white rounded-lg shadow overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-200">
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    Datasets ({datasets.length})
+                  </h2>
                 </div>
-              )}
 
-              {error && (
-                <div className="p-6">
-                  <div className="text-red-600 bg-red-50 p-4 rounded-md">
-                    {error}
+                {loading && (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {!loading && !error && (
-                <DatasetTable
-                  datasets={datasets}
-                  onToggleVisibility={handleToggleVisibility}
-                  onTogglePublic={handleTogglePublic}
-                  onDelete={handleDelete}
-                />
-              )}
+                {error && (
+                  <div className="p-6">
+                    <div className="text-red-600 bg-red-50 p-4 rounded-md">
+                      {error}
+                    </div>
+                  </div>
+                )}
+
+                {!loading && !error && (
+                  <DatasetTable
+                    datasets={datasets}
+                    onToggleVisibility={handleToggleVisibility}
+                    onTogglePublic={handleTogglePublic}
+                    onDelete={handleDelete}
+                    onUpdate={handleUpdateDataset}
+                  />
+                )}
+              </div>
             </div>
           </div>
-        </div>
+        )}
+
+        {activeTab === 'registrations' && (
+          <div className="bg-white rounded-lg shadow">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h2 className="text-lg font-semibold text-gray-900">
+                Registration Requests
+              </h2>
+            </div>
+            <RegistrationRequests />
+          </div>
+        )}
       </main>
     </div>
   );

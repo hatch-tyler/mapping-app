@@ -35,10 +35,12 @@ describe('apiClient', () => {
 
   it('should have correct base URL', async () => {
     const axios = await import('axios');
-    const { apiClient } = await import('./client');
+    const _client = await import('./client');
 
     // Check that create was called with expected config
     expect(axios.default.create).toHaveBeenCalled();
+    // Verify module exports exist
+    expect(_client.apiClient).toBeDefined();
   });
 
   describe('request interceptor', () => {

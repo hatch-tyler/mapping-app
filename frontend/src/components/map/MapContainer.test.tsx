@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { MapContainer } from './MapContainer';
-import { useMapStore, AVAILABLE_BASEMAPS } from '../../stores/mapStore';
+import { useMapStore } from '../../stores/mapStore';
 import { useDatasetStore } from '../../stores/datasetStore';
 
 // Mock the stores

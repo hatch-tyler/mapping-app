@@ -95,8 +95,8 @@ export function UploadForm({ onSuccess }: Props) {
       >
         <input {...getInputProps()} />
         {file ? (
-          <div>
-            <p className="text-green-600 font-medium">{file.name}</p>
+          <div className="max-w-full overflow-hidden" title={file.name}>
+            <p className="text-green-600 font-medium truncate">{file.name}</p>
             <p className="text-gray-500 text-sm mt-1">
               {(file.size / 1024 / 1024).toFixed(2)} MB
             </p>

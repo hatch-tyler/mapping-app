@@ -1,25 +1,46 @@
 import { useState, FormEvent } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, Link } from 'react-router-dom';
 import { useAuthStore } from '../stores/authStore';
+import { resendConfirmation } from '../api/auth';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const [isResending, setIsResending] = useState(false);
   const { login, isLoginLoading, error, clearError } = useAuthStore();
   const navigate = useNavigate();
   const location = useLocation();
 
   const from = (location.state as { from?: { pathname: string } })?.from?.pathname || '/';
+  const isInactiveError = error?.toLowerCase().includes('inactive');
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     clearError();
+    setResendMessage(null);
 
     try {
       await login(email, password);
       navigate(from, { replace: true });
     } catch {
       // Error is handled by the store
+    }
+  };
+
+  const handleResendConfirmation = async () => {
+    if (!email) {
+      setResendMessage('Please enter your email address first.');
+      return;
+    }
+    setIsResending(true);
+    try {
+      const response = await resendConfirmation(email);
+      setResendMessage(response.message);
+    } catch {
+      setResendMessage('Failed to resend confirmation email. Please try again.');
+    } finally {
+      setIsResending(false);
     }
   };
 
@@ -46,7 +67,7 @@ export function LoginPage() {
               onChange={(e) => setEmail(e.target.value)}
               required
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="admin@example.com"
+              placeholder="Enter your email"
             />
           </div>
 
@@ -70,7 +91,23 @@ export function LoginPage() {
 
           {error && (
             <div className="text-red-600 text-sm bg-red-50 p-3 rounded-md">
-              {error}
+              <p>{error}</p>
+              {isInactiveError && (
+                <button
+                  type="button"
+                  onClick={handleResendConfirmation}
+                  disabled={isResending}
+                  className="mt-2 text-blue-600 hover:text-blue-800 underline text-sm"
+                >
+                  {isResending ? 'Sending...' : 'Resend confirmation email'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {resendMessage && (
+            <div className="text-green-600 text-sm bg-green-50 p-3 rounded-md">
+              {resendMessage}
             </div>
           )}
 
@@ -87,9 +124,25 @@ export function LoginPage() {
           </button>
         </form>
 
-        <div className="mt-6 text-center text-sm text-gray-500">
-          <p>Default credentials:</p>
-          <p className="font-mono">admin@example.com / admin123</p>
+        <div className="mt-6 text-center space-y-2">
+          <p className="text-sm text-gray-600">
+            Don't have an account?{' '}
+            <Link
+              to="/register"
+              className="text-blue-600 hover:text-blue-800 font-medium"
+            >
+              Request Access
+            </Link>
+          </p>
+          <p className="text-sm text-gray-500">
+            or{' '}
+            <Link
+              to="/data"
+              className="text-blue-600 hover:text-blue-800"
+            >
+              Browse Public Data
+            </Link>
+          </p>
         </div>
       </div>
     </div>

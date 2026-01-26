@@ -22,9 +22,14 @@ from app.schemas.dataset import (
     DatasetUpdate,
     VisibilityUpdate,
     PublicStatusUpdate,
+    FieldMetadata,
+    FieldMetadataResponse,
+    FeatureRow,
+    FeatureQueryResponse,
+    ColumnFilter,
 )
 from app.crud import dataset as dataset_crud
-from app.api.deps import get_current_user, get_current_admin_user
+from app.api.deps import get_current_user, get_current_admin_user, get_optional_current_user
 from app.models.user import User
 
 
@@ -62,6 +67,30 @@ def dataset_to_response(dataset) -> DatasetResponse:
         created_by_id=dataset.created_by_id,
         created_at=dataset.created_at,
         updated_at=dataset.updated_at,
+    )
+
+
+@router.get("/browse", response_model=DatasetListResponse)
+async def browse_datasets(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    """Browse datasets with optional authentication.
+
+    - Anonymous users: see only public datasets (is_public=True)
+    - Authenticated users: see all visible datasets (is_visible=True)
+    """
+    datasets, total = await dataset_crud.get_browsable_datasets(
+        db,
+        user_authenticated=current_user is not None,
+        skip=skip,
+        limit=limit,
+    )
+    return DatasetListResponse(
+        datasets=[dataset_to_response(d) for d in datasets],
+        total=total,
     )
 
 
@@ -132,6 +161,113 @@ async def delete_dataset(
     return {"message": "Dataset deleted successfully"}
 
 
+@router.get("/{dataset_id}/fields", response_model=FieldMetadataResponse)
+async def get_dataset_fields(
+    dataset_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    """Get field metadata for a dataset.
+
+    Access control: public datasets or authenticated user.
+    """
+    dataset = await dataset_crud.get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    # Access control
+    if not dataset.is_public and current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Dataset is not public",
+        )
+
+    if dataset.data_type != "vector":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Field metadata only available for vector datasets",
+        )
+
+    fields_data = await dataset_crud.get_dataset_fields(db, dataset)
+    fields = [FieldMetadata(name=f["name"], field_type=f["field_type"]) for f in fields_data]
+
+    return FieldMetadataResponse(dataset_id=dataset_id, fields=fields)
+
+
+@router.get("/{dataset_id}/features", response_model=FeatureQueryResponse)
+async def query_features(
+    dataset_id: UUID,
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=1000),
+    sort_field: str | None = Query(None),
+    sort_order: str = Query("asc", pattern="^(asc|desc)$"),
+    filters: str | None = Query(None, description="JSON-encoded array of ColumnFilter objects"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    """Query features from a dataset with pagination, sorting, and filtering.
+
+    Access control: public datasets or authenticated user.
+    Returns attributes without geometry for performance.
+    """
+    import json
+
+    dataset = await dataset_crud.get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    # Access control
+    if not dataset.is_public and current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Dataset is not public",
+        )
+
+    if dataset.data_type != "vector":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Feature query only available for vector datasets",
+        )
+
+    # Parse filters if provided
+    parsed_filters = None
+    if filters:
+        try:
+            filters_data = json.loads(filters)
+            parsed_filters = [ColumnFilter(**f) for f in filters_data]
+        except (json.JSONDecodeError, ValueError) as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid filters format: {str(e)}",
+            )
+
+    features, total_count = await dataset_crud.query_features(
+        db,
+        dataset,
+        page=page,
+        page_size=page_size,
+        sort_field=sort_field,
+        sort_order=sort_order,
+        filters=parsed_filters,
+    )
+
+    total_pages = (total_count + page_size - 1) // page_size if total_count > 0 else 1
+
+    return FeatureQueryResponse(
+        features=[FeatureRow(id=f["id"], properties=f["properties"]) for f in features],
+        total_count=total_count,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
+
+
 @router.patch("/{dataset_id}/visibility", response_model=DatasetResponse)
 async def toggle_visibility(
     dataset_id: UUID,
@@ -175,8 +311,9 @@ async def get_dataset_geojson(
     bbox: str | None = Query(None, description="minx,miny,maxx,maxy"),
     limit: int = Query(10000, le=50000),
     db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
 ):
-    """Get GeoJSON data for a dataset. Only available for public datasets."""
+    """Get GeoJSON data for a dataset. Public datasets available to all, others require authentication."""
     dataset = await dataset_crud.get_dataset(db, dataset_id)
     if not dataset:
         raise HTTPException(
@@ -184,10 +321,11 @@ async def get_dataset_geojson(
             detail="Dataset not found",
         )
 
-    if not dataset.is_public:
+    # Access control: public datasets available to all, others require authentication
+    if not dataset.is_public and not current_user:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Dataset is not public",
+            detail="Authentication required for non-public datasets",
         )
 
     if dataset.data_type != "vector":

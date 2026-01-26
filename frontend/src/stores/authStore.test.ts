@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useAuthStore } from './authStore';
 import * as authApi from '../api/auth';
+import { createMockUser } from '../__tests__/mockData';
 
 // Mock the auth API module
 vi.mock('../api/auth', () => ({
@@ -42,12 +43,11 @@ describe('authStore', () => {
         refresh_token: 'refresh-token-456',
         token_type: 'bearer',
       };
-      const mockUser = {
+      const mockUser = createMockUser({
         id: '1',
         email: 'test@example.com',
         is_admin: false,
-        created_at: new Date().toISOString(),
-      };
+      });
 
       vi.mocked(authApi.login).mockResolvedValue(mockTokens);
       vi.mocked(authApi.getCurrentUser).mockResolvedValue(mockUser);
@@ -107,12 +107,11 @@ describe('authStore', () => {
         refresh_token: 'refresh-token-456',
         token_type: 'bearer',
       };
-      const mockUser = {
+      const mockUser = createMockUser({
         id: '1',
         email: 'test@example.com',
         is_admin: false,
-        created_at: new Date().toISOString(),
-      };
+      });
 
       vi.mocked(authApi.login).mockResolvedValue(mockTokens);
       vi.mocked(authApi.getCurrentUser).mockResolvedValue(mockUser);
@@ -141,7 +140,7 @@ describe('authStore', () => {
       localStorage.setItem('access_token', 'token-123');
       localStorage.setItem('refresh_token', 'refresh-123');
       useAuthStore.setState({
-        user: { id: '1', email: 'test@example.com', is_admin: false, created_at: '' },
+        user: createMockUser({ id: '1', email: 'test@example.com', is_admin: false }),
         isAuthenticated: true,
         isLoading: false,
       });
@@ -161,7 +160,7 @@ describe('authStore', () => {
       localStorage.setItem('access_token', 'token-123');
       localStorage.setItem('refresh_token', 'refresh-123');
       useAuthStore.setState({
-        user: { id: '1', email: 'test@example.com', is_admin: false, created_at: '' },
+        user: createMockUser({ id: '1', email: 'test@example.com', is_admin: false }),
         isAuthenticated: true,
       });
 
@@ -176,7 +175,7 @@ describe('authStore', () => {
 
     it('should handle logout without refresh token', async () => {
       useAuthStore.setState({
-        user: { id: '1', email: 'test@example.com', is_admin: false, created_at: '' },
+        user: createMockUser({ id: '1', email: 'test@example.com', is_admin: false }),
         isAuthenticated: true,
       });
 
@@ -190,12 +189,11 @@ describe('authStore', () => {
   describe('checkAuth', () => {
     it('should authenticate when valid token exists', async () => {
       localStorage.setItem('access_token', 'valid-token');
-      const mockUser = {
+      const mockUser = createMockUser({
         id: '1',
         email: 'test@example.com',
         is_admin: true,
-        created_at: new Date().toISOString(),
-      };
+      });
 
       vi.mocked(authApi.getCurrentUser).mockResolvedValue(mockUser);
 

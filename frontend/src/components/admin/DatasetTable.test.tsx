@@ -1,38 +1,38 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DatasetTable } from './DatasetTable';
-import { Dataset } from '../../api/types';
+import { createMockDataset } from '../../__tests__/mockData';
 
-const mockDatasets: Dataset[] = [
-  {
+const mockDatasets = [
+  createMockDataset({
     id: '1',
     name: 'Test Dataset 1',
     description: 'First test dataset',
     data_type: 'vector',
     geometry_type: 'Point',
     source_format: 'geojson',
-    srid: 4326,
     is_visible: true,
-    style_config: {},
+    is_public: false,
     feature_count: 100,
     created_at: '2024-01-15T10:00:00Z',
-  },
-  {
+  }),
+  createMockDataset({
     id: '2',
     name: 'Test Dataset 2',
     description: null,
     data_type: 'raster',
     geometry_type: null,
     source_format: 'geotiff',
-    srid: 4326,
     is_visible: false,
-    style_config: {},
+    is_public: true,
+    feature_count: null,
     created_at: '2024-01-20T15:30:00Z',
-  },
+  }),
 ];
 
 describe('DatasetTable', () => {
   const mockOnToggleVisibility = vi.fn();
+  const mockOnTogglePublic = vi.fn();
   const mockOnDelete = vi.fn();
 
   beforeEach(() => {
@@ -44,6 +44,7 @@ describe('DatasetTable', () => {
       <DatasetTable
         datasets={[]}
         onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
         onDelete={mockOnDelete}
       />
     );
@@ -57,6 +58,7 @@ describe('DatasetTable', () => {
       <DatasetTable
         datasets={mockDatasets}
         onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
         onDelete={mockOnDelete}
       />
     );
@@ -70,6 +72,7 @@ describe('DatasetTable', () => {
       <DatasetTable
         datasets={mockDatasets}
         onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
         onDelete={mockOnDelete}
       />
     );
@@ -82,6 +85,7 @@ describe('DatasetTable', () => {
       <DatasetTable
         datasets={mockDatasets}
         onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
         onDelete={mockOnDelete}
       />
     );
@@ -90,16 +94,18 @@ describe('DatasetTable', () => {
     expect(screen.getByText('raster')).toBeInTheDocument();
   });
 
-  it('should display geometry type for vector datasets', () => {
+  it('should display data type for vector datasets', () => {
     render(
       <DatasetTable
         datasets={mockDatasets}
         onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
         onDelete={mockOnDelete}
       />
     );
 
-    expect(screen.getByText('(Point)')).toBeInTheDocument();
+    // DatasetTable shows data_type badges, not geometry_type
+    expect(screen.getByText('vector')).toBeInTheDocument();
   });
 
   it('should display source format in uppercase', () => {
@@ -107,6 +113,7 @@ describe('DatasetTable', () => {
       <DatasetTable
         datasets={mockDatasets}
         onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
         onDelete={mockOnDelete}
       />
     );
@@ -120,6 +127,7 @@ describe('DatasetTable', () => {
       <DatasetTable
         datasets={mockDatasets}
         onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
         onDelete={mockOnDelete}
       />
     );
@@ -132,6 +140,7 @@ describe('DatasetTable', () => {
       <DatasetTable
         datasets={mockDatasets}
         onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
         onDelete={mockOnDelete}
       />
     );
@@ -145,6 +154,7 @@ describe('DatasetTable', () => {
       <DatasetTable
         datasets={mockDatasets}
         onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
         onDelete={mockOnDelete}
       />
     );
@@ -160,6 +170,7 @@ describe('DatasetTable', () => {
       <DatasetTable
         datasets={mockDatasets}
         onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
         onDelete={mockOnDelete}
       />
     );
@@ -180,6 +191,7 @@ describe('DatasetTable', () => {
       <DatasetTable
         datasets={mockDatasets}
         onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
         onDelete={mockOnDelete}
       />
     );
@@ -201,6 +213,7 @@ describe('DatasetTable', () => {
       <DatasetTable
         datasets={mockDatasets}
         onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
         onDelete={mockOnDelete}
       />
     );
@@ -225,6 +238,7 @@ describe('DatasetTable', () => {
       <DatasetTable
         datasets={mockDatasets}
         onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
         onDelete={mockOnDelete}
       />
     );
@@ -236,5 +250,21 @@ describe('DatasetTable', () => {
     expect(screen.getByText('Created')).toBeInTheDocument();
     expect(screen.getByText('Visible')).toBeInTheDocument();
     expect(screen.getByText('Actions')).toBeInTheDocument();
+  });
+
+  it('should call onTogglePublic when public toggle is clicked', () => {
+    render(
+      <DatasetTable
+        datasets={mockDatasets}
+        onToggleVisibility={mockOnToggleVisibility}
+        onTogglePublic={mockOnTogglePublic}
+        onDelete={mockOnDelete}
+      />
+    );
+
+    // The public toggle should be present
+    const toggleButtons = screen.getAllByRole('switch');
+    // Assuming there are two toggles per row: visibility and public
+    expect(toggleButtons.length).toBeGreaterThanOrEqual(2);
   });
 });

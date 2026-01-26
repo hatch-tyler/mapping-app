@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { UploadForm } from './UploadForm';
 import * as datasetsApi from '../../api/datasets';
+import { createMockDataset } from '../../__tests__/mockData';
 
 // Mock the datasets API
 vi.mock('../../api/datasets', () => ({
@@ -100,18 +101,15 @@ describe('UploadForm', () => {
       type: 'application/json',
     });
 
-    vi.mocked(datasetsApi.uploadVector).mockResolvedValue({
-      id: '1',
-      name: 'test',
-      description: null,
-      data_type: 'vector',
-      geometry_type: 'Point',
-      source_format: 'geojson',
-      srid: 4326,
-      is_visible: true,
-      style_config: {},
-      created_at: new Date().toISOString(),
-    });
+    vi.mocked(datasetsApi.uploadVector).mockResolvedValue(
+      createMockDataset({
+        id: '1',
+        name: 'test',
+        data_type: 'vector',
+        geometry_type: 'Point',
+        source_format: 'geojson',
+      })
+    );
 
     render(<UploadForm onSuccess={mockOnSuccess} />);
 
@@ -145,18 +143,15 @@ describe('UploadForm', () => {
       type: 'image/tiff',
     });
 
-    vi.mocked(datasetsApi.uploadRaster).mockResolvedValue({
-      id: '2',
-      name: 'test',
-      description: null,
-      data_type: 'raster',
-      geometry_type: null,
-      source_format: 'geotiff',
-      srid: 4326,
-      is_visible: true,
-      style_config: {},
-      created_at: new Date().toISOString(),
-    });
+    vi.mocked(datasetsApi.uploadRaster).mockResolvedValue(
+      createMockDataset({
+        id: '2',
+        name: 'test',
+        data_type: 'raster',
+        geometry_type: null,
+        source_format: 'geotiff',
+      })
+    );
 
     render(<UploadForm onSuccess={mockOnSuccess} />);
 
@@ -270,18 +265,15 @@ describe('UploadForm', () => {
       type: 'application/json',
     });
 
-    vi.mocked(datasetsApi.uploadVector).mockResolvedValue({
-      id: '1',
-      name: 'test',
-      description: null,
-      data_type: 'vector',
-      geometry_type: 'Point',
-      source_format: 'geojson',
-      srid: 4326,
-      is_visible: true,
-      style_config: {},
-      created_at: new Date().toISOString(),
-    });
+    vi.mocked(datasetsApi.uploadVector).mockResolvedValue(
+      createMockDataset({
+        id: '1',
+        name: 'test',
+        data_type: 'vector',
+        geometry_type: 'Point',
+        source_format: 'geojson',
+      })
+    );
 
     render(<UploadForm onSuccess={mockOnSuccess} />);
 
@@ -315,11 +307,11 @@ describe('UploadForm', () => {
       type: 'application/json',
     });
 
-    let resolveUpload: (value: unknown) => void;
+    let resolveUpload: (value: unknown) => void = () => {};
     vi.mocked(datasetsApi.uploadVector).mockImplementation(
       () =>
         new Promise((resolve) => {
-          resolveUpload = resolve;
+          resolveUpload = resolve as (value: unknown) => void;
         })
     );
 
@@ -346,18 +338,15 @@ describe('UploadForm', () => {
     });
 
     // Resolve the upload
-    resolveUpload!({
-      id: '1',
-      name: 'test',
-      description: null,
-      data_type: 'vector',
-      geometry_type: 'Point',
-      source_format: 'geojson',
-      srid: 4326,
-      is_visible: true,
-      style_config: {},
-      created_at: new Date().toISOString(),
-    });
+    resolveUpload!(
+      createMockDataset({
+        id: '1',
+        name: 'test',
+        data_type: 'vector',
+        geometry_type: 'Point',
+        source_format: 'geojson',
+      })
+    );
 
     await waitFor(() => {
       expect(screen.queryByText('Uploading...')).not.toBeInTheDocument();

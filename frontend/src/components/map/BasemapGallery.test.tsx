@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { BasemapGallery } from './BasemapGallery';
 import { useMapStore, AVAILABLE_BASEMAPS } from '../../stores/mapStore';
@@ -108,7 +108,7 @@ describe('BasemapGallery', () => {
   describe('click outside', () => {
     it('should close gallery when clicking outside', () => {
       useMapStore.setState({ isBasemapGalleryOpen: true });
-      const { container } = render(
+      render(
         <div>
           <div data-testid="outside">Outside</div>
           <BasemapGallery />

@@ -50,3 +50,22 @@ htmlcov/
 
 # Build
 frontend/dist/
+frontend/coverage/
+
+# Claude Code
+.claude/
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+*.tfvars.local
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc

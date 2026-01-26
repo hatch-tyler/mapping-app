@@ -7,9 +7,11 @@ import { getGeoJSONUrl, getRasterTileUrl } from '../api/datasets';
 type LayerType = GeoJsonLayer | TileLayer | null;
 
 const DEFAULT_VECTOR_STYLE = {
-  fillColor: [0, 128, 255, 128] as [number, number, number, number],
+  fillColor: [0, 128, 255, 180] as [number, number, number, number],
   lineColor: [0, 0, 0, 255] as [number, number, number, number],
-  pointRadius: 5,
+  pointRadius: 100,
+  pointRadiusMinPixels: 6,
+  pointRadiusMaxPixels: 30,
   lineWidth: 2,
 };
 
@@ -57,7 +59,10 @@ function createVectorLayer(
     extruded: false,
     pointType: 'circle',
     lineWidthScale: 1,
-    lineWidthMinPixels: 1,
+    lineWidthMinPixels: 2,
+    pointRadiusUnits: 'meters',
+    pointRadiusMinPixels: style.pointRadiusMinPixels || 6,
+    pointRadiusMaxPixels: style.pointRadiusMaxPixels || 30,
     getFillColor: style.fillColor,
     getLineColor: style.lineColor,
     getPointRadius: style.pointRadius,
@@ -86,7 +91,7 @@ function createRasterLayer(dataset: Dataset): TileLayer {
         },
       },
     },
-    renderSubLayers: (props) => {
+    renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
       const { boundingBox } = props.tile;
       const [west, south] = boundingBox[0];
       const [east, north] = boundingBox[1];
@@ -94,7 +99,7 @@ function createRasterLayer(dataset: Dataset): TileLayer {
       return new BitmapLayer({
         ...props,
         data: undefined,
-        image: props.data,
+        image: props.data as string,
         bounds: [west, south, east, north],
       });
     },

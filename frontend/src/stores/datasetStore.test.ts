@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { useDatasetStore } from './datasetStore';
 import * as datasetsApi from '../api/datasets';
+import { createMockDataset } from '../__tests__/mockData';
 
 // Mock the datasets API module
 vi.mock('../api/datasets', () => ({
@@ -9,30 +10,26 @@ vi.mock('../api/datasets', () => ({
 }));
 
 const mockDatasets = [
-  {
+  createMockDataset({
     id: '1',
     name: 'Dataset 1',
     description: 'First dataset',
-    data_type: 'vector' as const,
+    data_type: 'vector',
     geometry_type: 'Point',
     source_format: 'geojson',
-    srid: 4326,
     is_visible: true,
-    style_config: {},
     created_at: '2024-01-01T00:00:00Z',
-  },
-  {
+  }),
+  createMockDataset({
     id: '2',
     name: 'Dataset 2',
     description: 'Second dataset',
-    data_type: 'raster' as const,
+    data_type: 'raster',
     geometry_type: null,
     source_format: 'geotiff',
-    srid: 4326,
     is_visible: false,
-    style_config: {},
     created_at: '2024-01-02T00:00:00Z',
-  },
+  }),
 ];
 
 describe('datasetStore', () => {
@@ -61,8 +58,6 @@ describe('datasetStore', () => {
       vi.mocked(datasetsApi.getDatasets).mockResolvedValue({
         datasets: mockDatasets,
         total: 2,
-        page: 1,
-        per_page: 20,
       });
 
       await useDatasetStore.getState().fetchDatasets();
@@ -77,7 +72,7 @@ describe('datasetStore', () => {
       vi.mocked(datasetsApi.getDatasets).mockImplementation(
         () =>
           new Promise((resolve) =>
-            setTimeout(() => resolve({ datasets: [], total: 0, page: 1, per_page: 20 }), 100)
+            setTimeout(() => resolve({ datasets: [], total: 0 }), 100)
           )
       );
 
@@ -116,8 +111,6 @@ describe('datasetStore', () => {
       vi.mocked(datasetsApi.getDatasets).mockResolvedValue({
         datasets: [],
         total: 0,
-        page: 1,
-        per_page: 20,
       });
 
       await useDatasetStore.getState().fetchDatasets();

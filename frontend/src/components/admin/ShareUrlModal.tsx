@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Dataset } from '../../api/types';
-import { getGeoJSONUrl, getExportUrl, EXPORT_FORMATS } from '../../api/datasets';
+import { getGeoJSONUrl, getExportUrl, getArcGISFeatureServerUrl, EXPORT_FORMATS } from '../../api/datasets';
 
 interface Props {
   dataset: Dataset;
@@ -12,6 +12,7 @@ export function ShareUrlModal({ dataset, onClose }: Props) {
   const [downloading, setDownloading] = useState<string | null>(null);
 
   const geojsonUrl = getGeoJSONUrl(dataset.id);
+  const arcgisUrl = getArcGISFeatureServerUrl(dataset.name);
 
   const copyToClipboard = async (text: string, field: string) => {
     try {
@@ -103,16 +104,56 @@ export function ShareUrlModal({ dataset, onClose }: Props) {
           {/* Divider */}
           <div className="border-t border-gray-200"></div>
 
+          {/* ArcGIS Pro Section */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+              <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+              </svg>
+              ArcGIS Pro / QGIS
+            </h3>
+            <p className="text-sm text-gray-600 mb-3">
+              Add this layer directly in ArcGIS Pro or QGIS using the Feature Service URL.
+            </p>
+
+            {/* ArcGIS Feature Service URL */}
+            <div className="mb-3">
+              <label className="block text-xs font-medium text-gray-700 mb-1">
+                Feature Service URL
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  readOnly
+                  value={arcgisUrl}
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono text-gray-700"
+                />
+                <button
+                  onClick={() => copyToClipboard(arcgisUrl, 'arcgis')}
+                  className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium whitespace-nowrap"
+                >
+                  {copiedField === 'arcgis' ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                In ArcGIS Pro: Map tab &gt; Add Data &gt; Data From Path &gt; paste URL
+              </p>
+            </div>
+          </div>
+
+          {/* Divider */}
+          <div className="border-t border-gray-200"></div>
+
           {/* API Access Section */}
           <div>
             <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
               <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
               </svg>
-              API Access
+              Web API Access
             </h3>
             <p className="text-sm text-gray-600 mb-3">
-              Access this data programmatically via URL.
+              Access this data programmatically via GeoJSON.
             </p>
 
             {/* GeoJSON URL */}
@@ -169,11 +210,11 @@ gdf = gpd.read_file('${geojsonUrl}')`}
             <ul className="text-sm text-blue-900 space-y-2">
               <li className="flex items-start gap-2">
                 <span className="font-bold text-blue-600">ArcGIS Pro:</span>
-                <span>Download as GeoPackage, then Add Data from file</span>
+                <span>Use Feature Service URL or download GeoPackage</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="font-bold text-blue-600">QGIS:</span>
-                <span>Download as GeoPackage or drag GeoJSON URL to map</span>
+                <span>Use Feature Service URL or download GeoPackage</span>
               </li>
               <li className="flex items-start gap-2">
                 <span className="font-bold text-blue-600">Google Earth:</span>
