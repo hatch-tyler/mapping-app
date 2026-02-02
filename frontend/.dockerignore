@@ -1,0 +1,12 @@
+node_modules
+dist
+build
+.git
+*.md
+.env
+.env.*
+coverage
+.vscode
+src/**/*.test.tsx
+src/**/*.test.ts
+vitest.config.ts

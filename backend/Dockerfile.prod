@@ -1,5 +1,9 @@
 # Production Dockerfile for Backend
-FROM python:3.11-slim as builder
+# NOTE: The geospatial stack (GDAL, GEOS, PROJ, rasterio, fiona, geopandas)
+# compiles from C source, so the build takes ~10 minutes. This is expected
+# for a production GIS image. Using a pre-built GDAL base image would avoid
+# compilation but roughly quadruples the final image size (~1.2 GB vs ~300 MB).
+FROM python:3.11-slim AS builder
 
 # Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -17,7 +21,14 @@ ENV PATH="/opt/venv/bin:$PATH"
 # Install Python dependencies
 COPY pyproject.toml .
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir .
+    pip install --no-cache-dir -v \
+    fastapi uvicorn[standard] python-multipart \
+    sqlalchemy[asyncio] asyncpg geoalchemy2 alembic \
+    geopandas shapely pyproj rasterio rio-tiler fiona \
+    python-jose[cryptography] "passlib[bcrypt]" "bcrypt==4.0.1" \
+    pydantic pydantic-settings aiofiles email-validator aiosmtplib \
+    lxml defusedxml \
+    gunicorn boto3
 
 # Production image
 FROM python:3.11-slim
@@ -25,8 +36,8 @@ FROM python:3.11-slim
 # Install runtime dependencies only
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
-    libgdal32 \
-    libgeos-c1v5 \
+    libgdal36 \
+    libgeos-c1t64 \
     libproj25 \
     curl \
     && rm -rf /var/lib/apt/lists/* \
@@ -60,7 +71,7 @@ CMD ["gunicorn", "app.main:app", \
      "--bind", "0.0.0.0:8000", \
      "--workers", "4", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
-     "--timeout", "120", \
+     "--timeout", "300", \
      "--keep-alive", "5", \
      "--max-requests", "1000", \
      "--max-requests-jitter", "50", \

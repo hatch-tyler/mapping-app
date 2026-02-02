@@ -42,3 +42,10 @@ export async function resendConfirmation(email: string): Promise<ResendConfirmat
   });
   return response.data;
 }
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await apiClient.post('/users/me/change-password', {
+    current_password: currentPassword,
+    new_password: newPassword,
+  });
+}

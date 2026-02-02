@@ -1,0 +1,228 @@
+#cloud-config
+
+package_update: true
+
+packages:
+  - apt-transport-https
+  - ca-certificates
+  - curl
+  - gnupg
+  - lsb-release
+  - jq
+  - unzip
+
+# Install Docker and Docker Compose
+runcmd:
+  # Install Docker
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - |
+    echo -e "Types: deb\nURIs: https://download.docker.com/linux/ubuntu\nSuites: $$(. /etc/os-release && echo $$VERSION_CODENAME)\nComponents: stable\nSigned-By: /etc/apt/keyrings/docker.asc" > /etc/apt/sources.list.d/docker.sources
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker ${admin_username}
+
+  # Wait for data disk to be attached (LUN 0 = /dev/sdc on most Azure VMs)
+  - |
+    echo "Waiting for data disk..."
+    for i in $$(seq 1 30); do
+      if [ -b /dev/sdc ]; then
+        echo "Data disk found at /dev/sdc"
+        break
+      elif [ -b /dev/disk/azure/scsi1/lun0 ]; then
+        echo "Data disk found at /dev/disk/azure/scsi1/lun0"
+        break
+      fi
+      echo "Waiting for data disk... attempt $$i"
+      sleep 10
+    done
+
+  # Format and mount data disk (only if not already formatted)
+  - |
+    DATA_DISK=""
+    if [ -b /dev/disk/azure/scsi1/lun0 ]; then
+      DATA_DISK="/dev/disk/azure/scsi1/lun0"
+    elif [ -b /dev/sdc ]; then
+      DATA_DISK="/dev/sdc"
+    fi
+
+    if [ -n "$$DATA_DISK" ]; then
+      # Check if already has a filesystem
+      if ! blkid "$$DATA_DISK" | grep -q "TYPE="; then
+        echo "Formatting data disk..."
+        mkfs.ext4 -F "$$DATA_DISK"
+      fi
+
+      mkdir -p /mnt/data
+      DISK_UUID=$$(blkid -s UUID -o value "$$DATA_DISK")
+      if ! grep -q "$$DISK_UUID" /etc/fstab; then
+        echo "UUID=$$DISK_UUID /mnt/data ext4 defaults,nofail 0 2" >> /etc/fstab
+      fi
+      mount -a
+    else
+      echo "WARNING: Data disk not found. Using /mnt/data on OS disk."
+      mkdir -p /mnt/data
+    fi
+
+  # Create directory structure on data disk
+  - mkdir -p /mnt/data/postgres
+  - mkdir -p /mnt/data/uploads
+  - mkdir -p /mnt/data/rasters
+  - mkdir -p /mnt/data/certbot/conf
+  - mkdir -p /mnt/data/certbot/www
+  - mkdir -p /mnt/data/backups
+
+  # Create application directory
+  - mkdir -p /opt/mapping-app
+
+  # Write .env file
+  - |
+    cat > /opt/mapping-app/.env << 'ENVEOF'
+    # Database
+    DB_USER=${db_username}
+    DB_PASSWORD=${db_password}
+    DB_NAME=${db_name}
+
+    # Backend
+    SECRET_KEY=${secret_key}
+    DOMAIN_NAME=${domain_name}
+    URL_SCHEME=${url_scheme}
+
+    # Application
+    UPLOAD_MAX_SIZE_MB=${upload_max_size_mb}
+    INITIAL_ADMIN_EMAIL=${initial_admin_email}
+    INITIAL_ADMIN_PASSWORD=${initial_admin_password}
+    INITIAL_ADMIN_FULL_NAME=${initial_admin_full_name}
+
+    # Email (configure after deployment if needed)
+    SMTP_HOST=
+    SMTP_PORT=587
+    SMTP_USER=
+    SMTP_PASSWORD=
+    SMTP_FROM_EMAIL=noreply@${domain_name}
+    SMTP_FROM_NAME=GIS Application
+    ENVEOF
+
+  # Fix .env indentation (remove leading whitespace from heredoc)
+  - sed -i 's/^    //' /opt/mapping-app/.env
+  - chmod 600 /opt/mapping-app/.env
+  - chown ${admin_username}:${admin_username} /opt/mapping-app/.env
+
+  # Write nginx config from template (initial HTTP-only)
+  - mkdir -p /opt/mapping-app/nginx
+  - |
+    cat > /opt/mapping-app/nginx/nginx-active.conf << 'NGINXEOF'
+    server {
+        listen 80;
+        server_name ${domain_name} _;
+
+        location /.well-known/acme-challenge/ {
+            root /var/www/certbot;
+        }
+
+        client_max_body_size ${upload_max_size_mb}m;
+
+        gzip on;
+        gzip_vary on;
+        gzip_proxied any;
+        gzip_comp_level 6;
+        gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;
+
+        root /usr/share/nginx/html;
+        index index.html;
+
+        location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$$ {
+            expires 7d;
+            add_header Cache-Control "public";
+            try_files $$uri =404;
+        }
+
+        location / {
+            try_files $$uri $$uri/ /index.html;
+        }
+
+        location /api {
+            proxy_pass http://backend:8000;
+            proxy_set_header Host $$host;
+            proxy_set_header X-Real-IP $$remote_addr;
+            proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $$scheme;
+            proxy_read_timeout 120s;
+            proxy_send_timeout 120s;
+        }
+
+        location /rest {
+            proxy_pass http://backend:8000;
+            proxy_set_header Host $$host;
+            proxy_set_header X-Real-IP $$remote_addr;
+            proxy_set_header X-Forwarded-For $$proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $$scheme;
+        }
+
+        location /health {
+            proxy_pass http://backend:8000;
+            proxy_set_header Host $$host;
+            add_header Cache-Control "no-cache, no-store, must-revalidate";
+        }
+    }
+    NGINXEOF
+
+  # Fix nginx config indentation
+  - sed -i 's/^    //' /opt/mapping-app/nginx/nginx-active.conf
+
+  # Copy init-db.sql
+  - mkdir -p /opt/mapping-app/scripts
+  - |
+    cat > /opt/mapping-app/scripts/init-db.sql << 'SQLEOF'
+    CREATE EXTENSION IF NOT EXISTS postgis;
+    CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+    SELECT PostGIS_Version();
+    SQLEOF
+
+  # Set ownership
+  - chown -R ${admin_username}:${admin_username} /opt/mapping-app
+  - chown -R ${admin_username}:${admin_username} /mnt/data
+
+  # Write setup instructions
+  - |
+    cat > /opt/mapping-app/SETUP.md << 'SETUPEOF'
+    # Mapping App - Azure VM Setup
+
+    ## Next Steps
+
+    1. Clone the repository:
+       cd /opt/mapping-app && git clone <your-repo-url> repo
+
+    2. Copy compose file and scripts from repo:
+       cp /opt/mapping-app/repo/azure/docker-compose.prod.yml /opt/mapping-app/docker-compose.prod.yml
+       cp /opt/mapping-app/repo/azure/scripts/*.sh /opt/mapping-app/scripts/
+       chmod +x /opt/mapping-app/scripts/*.sh
+
+    3. Build the frontend:
+       cd /opt/mapping-app
+       docker compose -f docker-compose.prod.yml --profile build run --rm frontend-builder
+
+    4. Start all services:
+       docker compose -f docker-compose.prod.yml up -d
+
+    5. Check health:
+       curl http://localhost/api/health
+
+    6. After DNS propagates, set up SSL:
+       cd /opt/mapping-app && bash scripts/ssl-setup.sh
+
+    7. Get admin password from Terraform:
+       terraform output -raw initial_admin_password
+    SETUPEOF
+
+  - sed -i 's/^    //' /opt/mapping-app/SETUP.md
+  - sed -i 's/^    //' /opt/mapping-app/scripts/init-db.sql
+  - chown ${admin_username}:${admin_username} /opt/mapping-app/SETUP.md
+
+  # Add certbot email to .env for ssl-setup.sh
+  - echo "CERTBOT_EMAIL=${certbot_email}" >> /opt/mapping-app/.env
+
+  - echo "Cloud-init provisioning complete. See /opt/mapping-app/SETUP.md for next steps."

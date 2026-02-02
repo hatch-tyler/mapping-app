@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import * as datasetsApi from '../../api/datasets';
+import { UploadJob } from '../../api/types';
 
 interface Props {
   onSuccess: () => void;
@@ -16,12 +17,66 @@ const ACCEPTED_RASTER = {
   'image/tiff': ['.tif', '.tiff'],
 };
 
+type Phase = 'idle' | 'uploading' | 'processing' | 'completed' | 'failed';
+
+const POLL_INTERVAL = 2000;
+
 export function UploadForm({ onSuccess }: Props) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [file, setFile] = useState<File | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [phase, setPhase] = useState<Phase>('idle');
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [processingProgress, setProcessingProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current);
+      }
+    };
+  }, []);
+
+  const stopPolling = () => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  };
+
+  const startPolling = (jobId: string) => {
+    stopPolling();
+    pollRef.current = setInterval(async () => {
+      try {
+        const job = await datasetsApi.getUploadJobStatus(jobId);
+        setProcessingProgress(job.progress);
+
+        if (job.status === 'completed') {
+          stopPolling();
+          setPhase('completed');
+          // Reset form after brief delay so user sees success
+          setTimeout(() => {
+            setName('');
+            setDescription('');
+            setFile(null);
+            setPhase('idle');
+            setUploadProgress(0);
+            setProcessingProgress(0);
+            onSuccess();
+          }, 1500);
+        } else if (job.status === 'failed') {
+          stopPolling();
+          setPhase('failed');
+          setError(job.error_message || 'Processing failed');
+        }
+      } catch {
+        // Polling error -- keep trying, don't abort
+      }
+    }, POLL_INTERVAL);
+  };
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
@@ -58,28 +113,46 @@ export function UploadForm({ onSuccess }: Props) {
       return;
     }
 
-    setUploading(true);
+    setPhase('uploading');
+    setUploadProgress(0);
+    setProcessingProgress(0);
     setError(null);
 
     try {
+      const onUploadProgress = (event: { loaded?: number; total?: number }) => {
+        if (event.total) {
+          setUploadProgress(Math.round((event.loaded ?? 0) / event.total * 100));
+        }
+      };
+
+      let job: UploadJob;
       if (isRasterFile(file.name)) {
-        await datasetsApi.uploadRaster(file, name, description);
+        job = await datasetsApi.uploadRaster(file, name, description, onUploadProgress);
       } else {
-        await datasetsApi.uploadVector(file, name, description);
+        job = await datasetsApi.uploadVector(file, name, description, onUploadProgress);
       }
 
-      setName('');
-      setDescription('');
-      setFile(null);
-      onSuccess();
+      // Phase 2: processing
+      setPhase('processing');
+      setProcessingProgress(job.progress);
+      startPolling(job.id);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Upload failed. Please try again.'
-      );
-    } finally {
-      setUploading(false);
+      setPhase('failed');
+      const message =
+        err instanceof Error ? err.message : 'Upload failed. Please try again.';
+      setError(message);
     }
   };
+
+  const handleReset = () => {
+    stopPolling();
+    setPhase('idle');
+    setUploadProgress(0);
+    setProcessingProgress(0);
+    setError(null);
+  };
+
+  const busy = phase === 'uploading' || phase === 'processing';
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -91,9 +164,9 @@ export function UploadForm({ onSuccess }: Props) {
             : file
             ? 'border-green-500 bg-green-50'
             : 'border-gray-300 hover:border-gray-400'
-        }`}
+        } ${busy ? 'pointer-events-none opacity-60' : ''}`}
       >
-        <input {...getInputProps()} />
+        <input {...getInputProps()} disabled={busy} />
         {file ? (
           <div className="max-w-full overflow-hidden" title={file.name}>
             <p className="text-green-600 font-medium truncate">{file.name}</p>
@@ -127,7 +200,8 @@ export function UploadForm({ onSuccess }: Props) {
           id="name"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          disabled={busy}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
           placeholder="Enter dataset name"
         />
       </div>
@@ -143,29 +217,88 @@ export function UploadForm({ onSuccess }: Props) {
           id="description"
           value={description}
           onChange={(e) => setDescription(e.target.value)}
+          disabled={busy}
           rows={2}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
           placeholder="Enter description"
         />
       </div>
 
+      {/* Upload progress bar */}
+      {phase === 'uploading' && (
+        <div>
+          <div className="flex justify-between text-sm text-blue-700 mb-1">
+            <span>Uploading file...</span>
+            <span>{uploadProgress}%</span>
+          </div>
+          <div className="w-full bg-blue-100 rounded-full h-3">
+            <div
+              className="bg-blue-600 h-3 rounded-full transition-all duration-300"
+              style={{ width: `${uploadProgress}%` }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Processing progress bar */}
+      {phase === 'processing' && (
+        <div>
+          <div className="flex justify-between text-sm text-green-700 mb-1">
+            <span>Processing dataset...</span>
+            <span>{processingProgress}%</span>
+          </div>
+          <div className="w-full bg-green-100 rounded-full h-3">
+            <div
+              className="bg-green-600 h-3 rounded-full transition-all duration-300"
+              style={{ width: `${processingProgress}%` }}
+            />
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            You can close this page. Processing will continue on the server.
+          </p>
+        </div>
+      )}
+
+      {/* Completed message */}
+      {phase === 'completed' && (
+        <div className="text-green-700 text-sm bg-green-50 p-3 rounded-md">
+          Dataset uploaded and processed successfully.
+        </div>
+      )}
+
+      {/* Error / failed */}
       {error && (
         <div className="text-red-600 text-sm bg-red-50 p-3 rounded-md">
           {error}
         </div>
       )}
 
-      <button
-        type="submit"
-        disabled={uploading || !file}
-        className={`w-full py-2 px-4 rounded-md font-medium text-white transition-colors ${
-          uploading || !file
-            ? 'bg-gray-400 cursor-not-allowed'
-            : 'bg-blue-600 hover:bg-blue-700'
-        }`}
-      >
-        {uploading ? 'Uploading...' : 'Upload Dataset'}
-      </button>
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={busy || !file || phase === 'completed'}
+          className={`flex-1 py-2 px-4 rounded-md font-medium text-white transition-colors ${
+            busy || !file || phase === 'completed'
+              ? 'bg-gray-400 cursor-not-allowed'
+              : 'bg-blue-600 hover:bg-blue-700'
+          }`}
+        >
+          {phase === 'uploading'
+            ? 'Uploading...'
+            : phase === 'processing'
+            ? 'Processing...'
+            : 'Upload Dataset'}
+        </button>
+        {phase === 'failed' && (
+          <button
+            type="button"
+            onClick={handleReset}
+            className="py-2 px-4 rounded-md font-medium text-gray-700 bg-gray-200 hover:bg-gray-300 transition-colors"
+          >
+            Reset
+          </button>
+        )}
+      </div>
     </form>
   );
 }

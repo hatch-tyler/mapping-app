@@ -141,3 +141,13 @@ export interface ExportSelectedRequest {
   feature_ids: number[];
   format: 'csv' | 'geojson';
 }
+
+export interface UploadJob {
+  id: string;
+  dataset_id: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  progress: number;
+  error_message: string | null;
+  created_at: string;
+  completed_at: string | null;
+}

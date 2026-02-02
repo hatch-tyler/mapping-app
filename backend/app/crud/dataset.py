@@ -1,7 +1,8 @@
 import re
+from datetime import datetime
 from uuid import UUID
 from typing import Any
-from sqlalchemy import select, func, text
+from sqlalchemy import select, func, text, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dataset import Dataset, UploadJob
@@ -130,6 +131,7 @@ async def update_upload_job(
     status: str | None = None,
     progress: int | None = None,
     error_message: str | None = None,
+    completed_at: datetime | None = None,
 ) -> UploadJob:
     if status is not None:
         job.status = status
@@ -137,10 +139,22 @@ async def update_upload_job(
         job.progress = progress
     if error_message is not None:
         job.error_message = error_message
+    if completed_at is not None:
+        job.completed_at = completed_at
 
     await db.commit()
     await db.refresh(job)
     return job
+
+
+async def get_stale_processing_jobs(db: AsyncSession) -> list[UploadJob]:
+    """Return jobs stuck in 'pending' or 'processing' status (orphaned on restart)."""
+    result = await db.execute(
+        select(UploadJob).where(
+            or_(UploadJob.status == "pending", UploadJob.status == "processing")
+        )
+    )
+    return list(result.scalars().all())
 
 
 async def get_browsable_datasets(

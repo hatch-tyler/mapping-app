@@ -1,11 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { MapContainer } from '../components/map/MapContainer';
 import { LayerManager } from '../components/map/LayerManager';
+import { ChangePasswordModal } from '../components/common/ChangePasswordModal';
 import { useDatasetStore } from '../stores/datasetStore';
 import { useAuthStore } from '../stores/authStore';
 
 export function MapPage() {
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const { fetchDatasets } = useDatasetStore();
   const { user, logout } = useAuthStore();
 
@@ -36,6 +38,12 @@ export function MapPage() {
             )}
             <span className="text-sm text-gray-600">{user?.email}</span>
             <button
+              onClick={() => setShowChangePassword(true)}
+              className="text-sm text-blue-600 hover:text-blue-800"
+            >
+              Change Password
+            </button>
+            <button
               onClick={() => logout()}
               className="text-sm text-gray-500 hover:text-gray-700"
             >
@@ -44,6 +52,10 @@ export function MapPage() {
           </div>
         </div>
       </header>
+
+      {showChangePassword && (
+        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
+      )}
 
       {/* Map */}
       <div className="flex-1 relative">

@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { DatasetTable } from '../components/admin/DatasetTable';
 import { UploadForm } from '../components/admin/UploadForm';
 import { RegistrationRequests } from '../components/admin/RegistrationRequests';
+import { ChangePasswordModal } from '../components/common/ChangePasswordModal';
 import { useDatasetStore } from '../stores/datasetStore';
 import { useAuthStore } from '../stores/authStore';
 import * as datasetsApi from '../api/datasets';
@@ -10,6 +11,7 @@ import * as datasetsApi from '../api/datasets';
 type TabType = 'datasets' | 'registrations';
 
 export function AdminPage() {
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('datasets');
   const { datasets, loading, error, fetchDatasets, updateDataset, removeDataset } =
     useDatasetStore();
@@ -69,6 +71,12 @@ export function AdminPage() {
           <div className="flex items-center gap-4">
             <span className="text-sm text-gray-600">{user?.email}</span>
             <button
+              onClick={() => setShowChangePassword(true)}
+              className="text-sm text-blue-600 hover:text-blue-800"
+            >
+              Change Password
+            </button>
+            <button
               onClick={() => logout()}
               className="text-sm text-gray-500 hover:text-gray-700"
             >
@@ -77,6 +85,10 @@ export function AdminPage() {
           </div>
         </div>
       </header>
+
+      {showChangePassword && (
+        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
+      )}
 
       {/* Tabs */}
       <div className="border-b border-gray-200 bg-white">

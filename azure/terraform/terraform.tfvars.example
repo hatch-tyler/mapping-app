@@ -1,0 +1,35 @@
+# Azure VM Deployment Configuration
+# Copy this file to terraform.tfvars and fill in values
+
+# Project
+project_name = "mapping-app"
+environment  = "prod"
+location     = "East US"
+
+# VM
+vm_size             = "Standard_B2s"   # 2 vCPU, 4 GB RAM (~$33/month)
+admin_username      = "azureuser"
+ssh_public_key_path = "~/.ssh/id_rsa.pub"
+ssh_allowed_cidr    = "0.0.0.0/0"      # CHANGE: restrict to your IP, e.g. "203.0.113.10/32"
+
+# Domain & SSL
+domain_name   = "maps.example.com"     # CHANGE: your domain
+certbot_email = "admin@example.com"    # CHANGE: your email for Let's Encrypt
+
+# Database
+db_name     = "gis_db"
+db_username = "gis_user"
+
+# Data Disk
+data_disk_size_gb = 64                 # ~$10/month for Premium SSD
+
+# Application
+upload_max_size_mb      = 500
+initial_admin_email     = "admin@example.com"   # CHANGE: your admin email
+initial_admin_full_name = "Administrator"
+gunicorn_workers        = 4
+
+# Tags (optional)
+tags = {
+  managed_by = "terraform"
+}

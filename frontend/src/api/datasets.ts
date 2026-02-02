@@ -1,5 +1,5 @@
 import { apiClient, uploadClient, API_URL } from './client';
-import axios from 'axios';
+import axios, { AxiosProgressEvent } from 'axios';
 import {
   Dataset,
   DatasetListResponse,
@@ -8,6 +8,7 @@ import {
   FeatureQueryResponse,
   ColumnFilter,
   ExportSelectedRequest,
+  UploadJob,
 } from './types';
 
 // Create a client without auth interceptors for public endpoints
@@ -92,8 +93,9 @@ export async function getDatasetGeoJSON(
 export async function uploadVector(
   file: File,
   name: string,
-  description?: string
-): Promise<Dataset> {
+  description?: string,
+  onUploadProgress?: (event: AxiosProgressEvent) => void
+): Promise<UploadJob> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('name', name);
@@ -101,15 +103,18 @@ export async function uploadVector(
     formData.append('description', description);
   }
 
-  const response = await uploadClient.post<Dataset>('/upload/vector', formData);
+  const response = await uploadClient.post<UploadJob>('/upload/vector', formData, {
+    onUploadProgress,
+  });
   return response.data;
 }
 
 export async function uploadRaster(
   file: File,
   name: string,
-  description?: string
-): Promise<Dataset> {
+  description?: string,
+  onUploadProgress?: (event: AxiosProgressEvent) => void
+): Promise<UploadJob> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('name', name);
@@ -117,7 +122,14 @@ export async function uploadRaster(
     formData.append('description', description);
   }
 
-  const response = await uploadClient.post<Dataset>('/upload/raster', formData);
+  const response = await uploadClient.post<UploadJob>('/upload/raster', formData, {
+    onUploadProgress,
+  });
+  return response.data;
+}
+
+export async function getUploadJobStatus(jobId: string): Promise<UploadJob> {
+  const response = await apiClient.get<UploadJob>(`/upload/status/${jobId}`);
   return response.data;
 }
 

@@ -1,6 +1,6 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+const API_URL = import.meta.env.VITE_API_URL ?? '';
 
 export const apiClient = axios.create({
   baseURL: `${API_URL}/api/v1`,
@@ -13,7 +13,7 @@ export const apiClient = axios.create({
 // Separate client for file uploads (no default Content-Type)
 export const uploadClient = axios.create({
   baseURL: `${API_URL}/api/v1`,
-  timeout: 120000, // 2 minutes for uploads
+  timeout: 600000, // 10 minutes for large file uploads
 });
 
 // Add auth token to upload client

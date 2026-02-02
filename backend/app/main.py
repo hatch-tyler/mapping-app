@@ -1,91 +1,118 @@
+import logging
+import shutil
 from contextlib import asynccontextmanager
+from pathlib import Path
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text, func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.config import settings
 from app.database import engine, AsyncSessionLocal
 from app.api.v1.router import api_router
 from app.api.arcgis.feature_server import router as arcgis_router
 from app.models.user import User
-from app.models.email_confirmation import EmailConfirmationToken, TokenType
 from app.core.security import get_password_hash
-from app.crud import email_confirmation as token_crud
-from app.services.email import email_service
+from app.crud import dataset as dataset_crud
+
+logger = logging.getLogger(__name__)
+
+# Arbitrary constant used as the PostgreSQL advisory lock ID to ensure
+# only one gunicorn worker runs schema initialisation at a time.
+SCHEMA_INIT_LOCK_ID = 294837
 
 
 async def setup_initial_admin(db):
     """Set up the initial admin user if configured and no users exist."""
-    # Check if INITIAL_ADMIN_EMAIL is configured
     if not settings.INITIAL_ADMIN_EMAIL or not settings.INITIAL_ADMIN_PASSWORD:
-        print("No INITIAL_ADMIN_EMAIL/PASSWORD configured. Skipping admin setup.")
+        logger.info("No INITIAL_ADMIN_EMAIL/PASSWORD configured. Skipping admin setup.")
         return
 
-    # Check if any users exist
     result = await db.execute(select(func.count()).select_from(User))
-    user_count = result.scalar()
-
-    if user_count > 0:
-        print(f"Database has {user_count} existing user(s). Skipping admin setup.")
+    if result.scalar() > 0:
         return
 
-    # Create admin user with is_active=False (requires email confirmation)
     admin_user = User(
         email=settings.INITIAL_ADMIN_EMAIL,
         hashed_password=get_password_hash(settings.INITIAL_ADMIN_PASSWORD),
         full_name=settings.INITIAL_ADMIN_FULL_NAME,
         is_admin=True,
-        is_active=False,  # Requires email confirmation
-    )
-    db.add(admin_user)
-    await db.commit()
-    await db.refresh(admin_user)
-
-    print(f"\nCreated initial admin user: {settings.INITIAL_ADMIN_EMAIL}")
-    print("Account is INACTIVE until email is confirmed.")
-
-    # Create confirmation token
-    confirmation_token = await token_crud.create_confirmation_token(
-        db,
-        admin_user.id,
-        TokenType.ADMIN_SETUP,
-        settings.EMAIL_CONFIRMATION_TOKEN_EXPIRE_HOURS,
+        is_active=True,
     )
 
-    # Try to send confirmation email
-    sent = await email_service.send_email_confirmation(
-        admin_user.email,
-        admin_user.full_name,
-        confirmation_token.token,
-        settings.EMAIL_CONFIRMATION_TOKEN_EXPIRE_HOURS,
-    )
-
-    confirmation_url = email_service.get_confirmation_url(confirmation_token.token)
-
-    if sent:
-        print(f"Confirmation email sent to {admin_user.email}")
-    else:
-        # SMTP not configured, print URL to console
-        print(f"\n{'='*70}")
-        print("IMPORTANT: SMTP is not configured. Use this URL to confirm admin email:")
-        print(f"\n  {confirmation_url}")
-        print(f"\nThis link expires in {settings.EMAIL_CONFIRMATION_TOKEN_EXPIRE_HOURS} hours.")
-        print(f"{'='*70}\n")
+    try:
+        db.add(admin_user)
+        await db.commit()
+        logger.info(f"Created initial admin user: {settings.INITIAL_ADMIN_EMAIL}")
+    except IntegrityError:
+        await db.rollback()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Create tables and seed admin user
-    async with engine.begin() as conn:
-        # Import models to register them
-        from app.models import user, dataset, registration, email_confirmation  # noqa: F401
-        from app.database import Base
+    is_postgres = settings.DATABASE_URL.startswith("postgresql")
 
-        await conn.run_sync(Base.metadata.create_all)
+    async with engine.begin() as conn:
+        if is_postgres:
+            result = await conn.execute(
+                text("SELECT pg_try_advisory_lock(:lock_id)"),
+                {"lock_id": SCHEMA_INIT_LOCK_ID},
+            )
+            acquired = result.scalar()
+        else:
+            acquired = True  # Non-PG (e.g. SQLite in tests): always run
+
+        if acquired:
+            try:
+                logger.info("Running database initialization")
+                from app.models import user, dataset, registration, email_confirmation  # noqa: F401
+                from app.database import Base
+
+                await conn.run_sync(Base.metadata.create_all)
+            finally:
+                if is_postgres:
+                    await conn.execute(
+                        text("SELECT pg_advisory_unlock(:lock_id)"),
+                        {"lock_id": SCHEMA_INIT_LOCK_ID},
+                    )
+        else:
+            # Another worker is running schema init — wait for it to finish
+            logger.info("Schema initialization completed by another worker.")
+            await conn.execute(
+                text("SELECT pg_advisory_lock(:lock_id)"),
+                {"lock_id": SCHEMA_INIT_LOCK_ID},
+            )
+            await conn.execute(
+                text("SELECT pg_advisory_unlock(:lock_id)"),
+                {"lock_id": SCHEMA_INIT_LOCK_ID},
+            )
 
     # Set up initial admin user (if configured and no users exist)
     async with AsyncSessionLocal() as db:
         await setup_initial_admin(db)
+
+    # Clean up orphaned processing jobs from previous runs
+    async with AsyncSessionLocal() as db:
+        try:
+            stale_jobs = await dataset_crud.get_stale_processing_jobs(db)
+            for job in stale_jobs:
+                await dataset_crud.update_upload_job(
+                    db,
+                    job,
+                    status="failed",
+                    error_message="Server restarted during processing",
+                )
+            if stale_jobs:
+                logger.info("Marked %d orphaned upload jobs as failed", len(stale_jobs))
+        except Exception:
+            logger.exception("Failed to clean up orphaned upload jobs")
+
+    # Clean up leftover processing temp files
+    processing_dir = Path(settings.UPLOAD_DIR) / "processing"
+    if processing_dir.exists():
+        shutil.rmtree(str(processing_dir), ignore_errors=True)
+        logger.info("Cleaned up processing temp directory")
 
     yield
 
