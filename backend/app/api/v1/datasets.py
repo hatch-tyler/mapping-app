@@ -361,15 +361,18 @@ async def get_dataset_geojson(
                     'features', COALESCE(jsonb_agg(
                         jsonb_build_object(
                             'type', 'Feature',
-                            'id', id,
-                            'geometry', ST_AsGeoJSON(geom)::jsonb,
-                            'properties', properties
+                            'id', sub.id,
+                            'geometry', ST_AsGeoJSON(sub.geom)::jsonb,
+                            'properties', sub.properties
                         )
                     ), '[]'::jsonb)
                 ) as geojson
-                FROM "{table_name}"
-                WHERE ST_Intersects(geom, ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326))
-                LIMIT :limit
+                FROM (
+                    SELECT id, geom, properties
+                    FROM "{table_name}"
+                    WHERE ST_Intersects(geom, ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326))
+                    LIMIT :limit
+                ) sub
             """
         except ValueError:
             raise HTTPException(
@@ -383,14 +386,17 @@ async def get_dataset_geojson(
                 'features', COALESCE(jsonb_agg(
                     jsonb_build_object(
                         'type', 'Feature',
-                        'id', id,
-                        'geometry', ST_AsGeoJSON(geom)::jsonb,
-                        'properties', properties
+                        'id', sub.id,
+                        'geometry', ST_AsGeoJSON(sub.geom)::jsonb,
+                        'properties', sub.properties
                     )
                 ), '[]'::jsonb)
             ) as geojson
-            FROM "{table_name}"
-            LIMIT :limit
+            FROM (
+                SELECT id, geom, properties
+                FROM "{table_name}"
+                LIMIT :limit
+            ) sub
         """
 
     result = await db.execute(text(query), params)

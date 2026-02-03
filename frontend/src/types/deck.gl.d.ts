@@ -68,6 +68,11 @@ declare module '@deck.gl/geo-layers' {
     id: string;
   }
 
+  export class MVTLayer {
+    constructor(props: MVTLayerProps);
+    id: string;
+  }
+
   export interface TileLayerProps {
     id: string;
     data: string;
@@ -80,6 +85,32 @@ declare module '@deck.gl/geo-layers' {
       };
     };
     renderSubLayers?: (props: TileSubLayerProps) => unknown;
+    [key: string]: unknown;
+  }
+
+  export interface MVTLayerProps {
+    id: string;
+    data: string;
+    pickable?: boolean;
+    stroked?: boolean;
+    filled?: boolean;
+    extruded?: boolean;
+    pointType?: string;
+    lineWidthScale?: number;
+    lineWidthMinPixels?: number;
+    getFillColor?: number[] | ((d: unknown) => number[]);
+    getLineColor?: number[] | ((d: unknown) => number[]);
+    getLineWidth?: number | ((d: unknown) => number);
+    getPointRadius?: number | ((d: unknown) => number);
+    pointRadiusMinPixels?: number;
+    pointRadiusMaxPixels?: number;
+    pointRadiusUnits?: string;
+    updateTriggers?: Record<string, unknown>;
+    loadOptions?: {
+      fetch?: {
+        headers?: Record<string, string>;
+      };
+    };
     [key: string]: unknown;
   }
 

@@ -161,8 +161,11 @@ export function clearClusterCache(datasetId?: string): void {
   }
 }
 
-// Check if dataset should use clustering (point geometry type)
+// Check if dataset should use clustering (point geometry type, small enough for GeoJSON)
 export function shouldUseClustering(dataset: Dataset): boolean {
-  return dataset.data_type === 'vector' &&
-         dataset.geometry_type?.toLowerCase() === 'point';
+  if (dataset.data_type !== 'vector') return false;
+  if (dataset.geometry_type?.toLowerCase() !== 'point') return false;
+  // Large datasets use MVT tiles instead of downloading everything for clustering
+  if (dataset.feature_count === null || dataset.feature_count > 10000) return false;
+  return true;
 }

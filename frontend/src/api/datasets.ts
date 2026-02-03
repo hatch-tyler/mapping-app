@@ -142,6 +142,10 @@ export function getRasterTileUrl(datasetId: string): string {
   return `${API_URL}/api/v1/raster/${datasetId}/tiles/{z}/{x}/{y}.png`;
 }
 
+export function getMVTTileUrl(datasetId: string): string {
+  return `${API_URL}/api/v1/datasets/${datasetId}/tiles/{z}/{x}/{y}.pbf`;
+}
+
 export function getWFSUrl(): string {
   return `${API_URL}/api/v1/wfs`;
 }
