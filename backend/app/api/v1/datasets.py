@@ -27,6 +27,8 @@ from app.schemas.dataset import (
     FeatureRow,
     FeatureQueryResponse,
     ColumnFilter,
+    UniqueValuesResponse,
+    FieldStatisticsResponse,
 )
 from app.crud import dataset as dataset_crud
 from app.api.deps import get_current_user, get_current_admin_user, get_optional_current_user
@@ -456,4 +458,91 @@ async def geojson_head(
     return Response(
         status_code=200,
         headers=headers,
+    )
+
+
+@router.get("/{dataset_id}/fields/{field_name}/unique-values", response_model=UniqueValuesResponse)
+async def get_unique_field_values(
+    dataset_id: UUID,
+    field_name: str,
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    """Get unique values for a specific field in a dataset.
+
+    Access control: public datasets or authenticated user.
+    Useful for categorical styling to get all unique values for a field.
+    """
+    dataset = await dataset_crud.get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    # Access control
+    if not dataset.is_public and current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Dataset is not public",
+        )
+
+    if dataset.data_type != "vector":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unique values only available for vector datasets",
+        )
+
+    values, total_count = await dataset_crud.get_unique_field_values(
+        db, dataset, field_name, limit
+    )
+
+    return UniqueValuesResponse(
+        field=field_name,
+        values=values,
+        total_count=total_count,
+    )
+
+
+@router.get("/{dataset_id}/fields/{field_name}/statistics", response_model=FieldStatisticsResponse)
+async def get_field_statistics(
+    dataset_id: UUID,
+    field_name: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    """Get statistics (min, max, mean) for a numeric field.
+
+    Access control: public datasets or authenticated user.
+    Useful for graduated styling to determine value ranges.
+    """
+    dataset = await dataset_crud.get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    # Access control
+    if not dataset.is_public and current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Dataset is not public",
+        )
+
+    if dataset.data_type != "vector":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Statistics only available for vector datasets",
+        )
+
+    stats = await dataset_crud.get_field_statistics(db, dataset, field_name)
+
+    return FieldStatisticsResponse(
+        field=field_name,
+        min=stats["min"],
+        max=stats["max"],
+        mean=stats["mean"],
+        count=stats["count"],
     )

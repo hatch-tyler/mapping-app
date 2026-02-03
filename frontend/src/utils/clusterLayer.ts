@@ -1,7 +1,8 @@
 import Supercluster from 'supercluster';
 import { GeoJsonLayer } from '@deck.gl/layers';
-import { Dataset, GeoJSONFeatureCollection, GeoJSONFeature } from '../api/types';
+import { Dataset, GeoJSONFeatureCollection, GeoJSONFeature, RGBAColor } from '../api/types';
 import { getGeoJSONUrl } from '../api/datasets';
+import { createFillColorAccessor, DEFAULT_STYLE } from './styleInterpreter';
 
 interface ClusterProperties {
   cluster: boolean;
@@ -19,10 +20,9 @@ const clusterCache = new Map<string, {
   data: GeoJSONFeatureCollection;
 }>();
 
-const DEFAULT_STYLE = {
-  fillColor: [0, 128, 255, 200] as [number, number, number, number],
-  lineColor: [255, 255, 255, 255] as [number, number, number, number],
-  clusterFillColor: [255, 140, 0, 220] as [number, number, number, number],
+const CLUSTER_DEFAULT_STYLE = {
+  lineColor: [255, 255, 255, 255] as RGBAColor,
+  clusterFillColor: [255, 140, 0, 220] as RGBAColor,
 };
 
 async function fetchGeoJSON(datasetId: string): Promise<GeoJSONFeatureCollection> {
@@ -93,10 +93,12 @@ export async function createClusteredLayer(
   // Get clusters for current zoom level
   const clusters = supercluster.getClusters([-180, -85, 180, 85], Math.floor(zoom)) as ClusterFeature[];
 
-  const style = {
-    ...DEFAULT_STYLE,
-    ...dataset.style_config,
-  };
+  // Get fill color accessor from style interpreter
+  const fillColorAccessor = createFillColorAccessor(dataset.style_config);
+  const styleConfig = dataset.style_config || {};
+  const lineColor = (styleConfig.lineColor as RGBAColor) || CLUSTER_DEFAULT_STYLE.lineColor;
+  const clusterFillColor = (styleConfig.clusterFillColor as RGBAColor) || CLUSTER_DEFAULT_STYLE.clusterFillColor;
+  const baseFillColor = (styleConfig.fillColor as RGBAColor) || DEFAULT_STYLE.fillColor;
 
   return new GeoJsonLayer({
     id: `clustered-${dataset.id}`,
@@ -116,11 +118,15 @@ export async function createClusteredLayer(
     getFillColor: (d: unknown) => {
       const feature = d as ClusterFeature;
       if (feature.properties?.cluster) {
-        return style.clusterFillColor || DEFAULT_STYLE.clusterFillColor;
+        return clusterFillColor;
       }
-      return style.fillColor;
+      // Use the style interpreter accessor for non-cluster points
+      if (typeof fillColorAccessor === 'function') {
+        return fillColorAccessor(d);
+      }
+      return fillColorAccessor;
     },
-    getLineColor: style.lineColor,
+    getLineColor: lineColor,
     getPointRadius: (d: unknown) => {
       const feature = d as ClusterFeature;
       if (feature.properties?.cluster) {
@@ -146,7 +152,14 @@ export async function createClusteredLayer(
     getTextAlignmentBaseline: 'center',
     textFontFamily: 'Arial, sans-serif',
     updateTriggers: {
-      getFillColor: [style.fillColor, style.clusterFillColor],
+      getFillColor: [
+        baseFillColor,
+        clusterFillColor,
+        styleConfig.mode,
+        styleConfig.attributeField,
+        JSON.stringify(styleConfig.categoryColors),
+        styleConfig.colorRamp,
+      ],
       getPointRadius: [zoom],
       getText: [zoom],
     },

@@ -6,6 +6,7 @@ import { RegistrationRequests } from '../components/admin/RegistrationRequests';
 import { ChangePasswordModal } from '../components/common/ChangePasswordModal';
 import { useDatasetStore } from '../stores/datasetStore';
 import { useAuthStore } from '../stores/authStore';
+import { Dataset, StyleConfig } from '../api/types';
 import * as datasetsApi from '../api/datasets';
 
 type TabType = 'datasets' | 'registrations';
@@ -48,9 +49,9 @@ export function AdminPage() {
     }
   };
 
-  const handleUpdateDataset = async (id: string, data: { name?: string; description?: string }) => {
+  const handleUpdateDataset = async (id: string, data: { name?: string; description?: string; style_config?: StyleConfig }) => {
     try {
-      const updated = await datasetsApi.updateDataset(id, data);
+      const updated = await datasetsApi.updateDataset(id, data as Partial<Dataset>);
       updateDataset(id, updated);
     } catch (err) {
       console.error('Failed to update dataset:', err);

@@ -1,16 +1,17 @@
 import { useState } from 'react';
 import { format } from 'date-fns';
-import { Dataset } from '../../api/types';
+import { Dataset, StyleConfig } from '../../api/types';
 import { VisibilityToggle } from './VisibilityToggle';
 import { PublicToggle } from './PublicToggle';
 import { ShareUrlModal } from './ShareUrlModal';
+import { StyleEditor } from '../styling/StyleEditor';
 
 interface Props {
   datasets: Dataset[];
   onToggleVisibility: (id: string, visible: boolean) => void;
   onTogglePublic: (id: string, isPublic: boolean) => void;
   onDelete: (id: string) => void;
-  onUpdate?: (id: string, data: { name?: string; description?: string }) => void;
+  onUpdate?: (id: string, data: { name?: string; description?: string; style_config?: StyleConfig }) => void;
 }
 
 interface EditState {
@@ -28,6 +29,7 @@ export function DatasetTable({
 }: Props) {
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [shareModalDataset, setShareModalDataset] = useState<Dataset | null>(null);
+  const [styleModalDataset, setStyleModalDataset] = useState<Dataset | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
 
   const handleDelete = (id: string) => {
@@ -59,6 +61,13 @@ export function DatasetTable({
 
   const handleEditCancel = () => {
     setEditState(null);
+  };
+
+  const handleStyleSave = (styleConfig: StyleConfig) => {
+    if (styleModalDataset && onUpdate) {
+      onUpdate(styleModalDataset.id, { style_config: styleConfig });
+      setStyleModalDataset(null);
+    }
   };
 
   if (datasets.length === 0) {
@@ -158,6 +167,15 @@ export function DatasetTable({
               </td>
               <td className="px-3 py-3 whitespace-nowrap text-right">
                 <div className="flex justify-end gap-1">
+                  {onUpdate && dataset.data_type === 'vector' && (
+                    <button
+                      onClick={() => setStyleModalDataset(dataset)}
+                      className="px-2 py-1 rounded text-xs font-medium text-purple-600 hover:bg-purple-50"
+                      title="Edit layer style"
+                    >
+                      Style
+                    </button>
+                  )}
                   {onUpdate && (
                     <button
                       onClick={() => handleEditClick(dataset)}
@@ -197,6 +215,14 @@ export function DatasetTable({
         <ShareUrlModal
           dataset={shareModalDataset}
           onClose={() => setShareModalDataset(null)}
+        />
+      )}
+
+      {styleModalDataset && (
+        <StyleEditor
+          dataset={styleModalDataset}
+          onSave={handleStyleSave}
+          onClose={() => setStyleModalDataset(null)}
         />
       )}
 

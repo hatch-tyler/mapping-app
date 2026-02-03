@@ -3,19 +3,11 @@ import { TileLayer, MVTLayer } from '@deck.gl/geo-layers';
 import { BitmapLayer } from '@deck.gl/layers';
 import { Dataset, GeoJSONFeatureCollection } from '../api/types';
 import { getGeoJSONUrl, getRasterTileUrl, getMVTTileUrl } from '../api/datasets';
+import { createStyleAccessors, DEFAULT_STYLE } from './styleInterpreter';
 
 const MVT_FEATURE_THRESHOLD = 10000;
 
 type LayerType = GeoJsonLayer | TileLayer | MVTLayer | null;
-
-const DEFAULT_VECTOR_STYLE = {
-  fillColor: [0, 128, 255, 180] as [number, number, number, number],
-  lineColor: [0, 0, 0, 255] as [number, number, number, number],
-  pointRadius: 100,
-  pointRadiusMinPixels: 6,
-  pointRadiusMaxPixels: 30,
-  lineWidth: 2,
-};
 
 export function shouldUseMVT(dataset: Dataset): boolean {
   return (
@@ -51,10 +43,7 @@ function createVectorLayer(
   dataset: Dataset,
   data?: GeoJSONFeatureCollection | null
 ): GeoJsonLayer {
-  const style = {
-    ...DEFAULT_VECTOR_STYLE,
-    ...dataset.style_config,
-  };
+  const styleAccessors = createStyleAccessors(dataset.style_config);
 
   // Get auth token for fetching GeoJSON
   const token = localStorage.getItem('access_token');
@@ -78,24 +67,18 @@ function createVectorLayer(
     lineWidthScale: 1,
     lineWidthMinPixels: 2,
     pointRadiusUnits: 'meters',
-    pointRadiusMinPixels: style.pointRadiusMinPixels || 6,
-    pointRadiusMaxPixels: style.pointRadiusMaxPixels || 30,
-    getFillColor: style.fillColor,
-    getLineColor: style.lineColor,
-    getPointRadius: style.pointRadius,
-    getLineWidth: style.lineWidth,
-    updateTriggers: {
-      getFillColor: [style.fillColor],
-      getLineColor: [style.lineColor],
-    },
+    pointRadiusMinPixels: styleAccessors.pointRadiusMinPixels,
+    pointRadiusMaxPixels: styleAccessors.pointRadiusMaxPixels,
+    getFillColor: styleAccessors.getFillColor,
+    getLineColor: styleAccessors.getLineColor,
+    getPointRadius: styleAccessors.getPointRadius,
+    getLineWidth: styleAccessors.getLineWidth,
+    updateTriggers: styleAccessors.updateTriggers,
   });
 }
 
 function createMVTLayer(dataset: Dataset): MVTLayer {
-  const style = {
-    ...DEFAULT_VECTOR_STYLE,
-    ...dataset.style_config,
-  };
+  const styleAccessors = createStyleAccessors(dataset.style_config);
 
   const token = localStorage.getItem('access_token');
 
@@ -117,16 +100,13 @@ function createMVTLayer(dataset: Dataset): MVTLayer {
     lineWidthScale: 1,
     lineWidthMinPixels: 2,
     pointRadiusUnits: 'meters',
-    pointRadiusMinPixels: style.pointRadiusMinPixels || 6,
-    pointRadiusMaxPixels: style.pointRadiusMaxPixels || 30,
-    getFillColor: style.fillColor,
-    getLineColor: style.lineColor,
-    getPointRadius: style.pointRadius,
-    getLineWidth: style.lineWidth,
-    updateTriggers: {
-      getFillColor: [style.fillColor],
-      getLineColor: [style.lineColor],
-    },
+    pointRadiusMinPixels: styleAccessors.pointRadiusMinPixels,
+    pointRadiusMaxPixels: styleAccessors.pointRadiusMaxPixels,
+    getFillColor: styleAccessors.getFillColor,
+    getLineColor: styleAccessors.getLineColor,
+    getPointRadius: styleAccessors.getPointRadius,
+    getLineWidth: styleAccessors.getLineWidth,
+    updateTriggers: styleAccessors.updateTriggers,
   });
 }
 
@@ -175,3 +155,5 @@ export function getLayerColor(index: number): [number, number, number, number] {
   ];
   return colors[index % colors.length];
 }
+
+export { DEFAULT_STYLE };

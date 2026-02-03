@@ -125,3 +125,21 @@ class ExportSelectedRequest(BaseModel):
     """Request to export selected features."""
     feature_ids: list[int]
     format: str = "csv"  # "csv" or "geojson"
+
+
+# ===== Style/Symbology Schemas =====
+
+class UniqueValuesResponse(BaseModel):
+    """Response containing unique values for a field."""
+    field: str
+    values: list[str | int | float | bool | None]
+    total_count: int
+
+
+class FieldStatisticsResponse(BaseModel):
+    """Response containing statistics for a numeric field."""
+    field: str
+    min: float | None
+    max: float | None
+    mean: float | None
+    count: int

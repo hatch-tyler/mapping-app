@@ -9,6 +9,8 @@ import {
   ColumnFilter,
   ExportSelectedRequest,
   UploadJob,
+  UniqueValuesResponse,
+  FieldStatisticsResponse,
 } from './types';
 
 // Create a client without auth interceptors for public endpoints
@@ -239,6 +241,30 @@ export async function exportSelectedFeatures(
     `/export/${datasetId}/selected`,
     { feature_ids: featureIds, format } as ExportSelectedRequest,
     { responseType: 'blob' }
+  );
+  return response.data;
+}
+
+// ===== Style/Symbology API =====
+
+export async function getUniqueValues(
+  datasetId: string,
+  fieldName: string,
+  limit: number = 100
+): Promise<UniqueValuesResponse> {
+  const response = await publicClient.get<UniqueValuesResponse>(
+    `/datasets/${datasetId}/fields/${encodeURIComponent(fieldName)}/unique-values`,
+    { params: { limit } }
+  );
+  return response.data;
+}
+
+export async function getFieldStatistics(
+  datasetId: string,
+  fieldName: string
+): Promise<FieldStatisticsResponse> {
+  const response = await publicClient.get<FieldStatisticsResponse>(
+    `/datasets/${datasetId}/fields/${encodeURIComponent(fieldName)}/statistics`
   );
   return response.data;
 }

@@ -372,3 +372,93 @@ async def get_features_by_ids(
         return [{"id": row[0], "properties": row[1] or {}, "geometry": row[2]} for row in rows]
     else:
         return [{"id": row[0], "properties": row[1] or {}} for row in rows]
+
+
+async def get_unique_field_values(
+    db: AsyncSession,
+    dataset: Dataset,
+    field_name: str,
+    limit: int = 100,
+) -> tuple[list[Any], int]:
+    """Get unique values for a specific field in a dataset."""
+    if not dataset.table_name or not _validate_table_name(dataset.table_name):
+        return [], 0
+
+    if not _validate_field_name(field_name):
+        return [], 0
+
+    # Count total unique values
+    count_query = text(f"""
+        SELECT COUNT(DISTINCT properties->>:field_name)
+        FROM "{dataset.table_name}"
+        WHERE properties->>:field_name IS NOT NULL
+    """)
+    count_result = await db.execute(count_query, {"field_name": field_name})
+    total_count = count_result.scalar() or 0
+
+    # Get unique values with limit
+    query = text(f"""
+        SELECT DISTINCT properties->>:field_name as value
+        FROM "{dataset.table_name}"
+        WHERE properties->>:field_name IS NOT NULL
+        ORDER BY value
+        LIMIT :limit
+    """)
+
+    result = await db.execute(query, {"field_name": field_name, "limit": limit})
+    rows = result.fetchall()
+
+    # Try to parse numeric values
+    values = []
+    for row in rows:
+        val = row[0]
+        if val is not None:
+            # Try to parse as number
+            try:
+                if '.' in val:
+                    values.append(float(val))
+                else:
+                    values.append(int(val))
+            except (ValueError, TypeError):
+                values.append(val)
+        else:
+            values.append(None)
+
+    return values, total_count
+
+
+async def get_field_statistics(
+    db: AsyncSession,
+    dataset: Dataset,
+    field_name: str,
+) -> dict[str, Any]:
+    """Get statistics (min, max, mean) for a numeric field."""
+    if not dataset.table_name or not _validate_table_name(dataset.table_name):
+        return {"min": None, "max": None, "mean": None, "count": 0}
+
+    if not _validate_field_name(field_name):
+        return {"min": None, "max": None, "mean": None, "count": 0}
+
+    query = text(f"""
+        SELECT
+            MIN((properties->>:field_name)::numeric) as min_val,
+            MAX((properties->>:field_name)::numeric) as max_val,
+            AVG((properties->>:field_name)::numeric) as mean_val,
+            COUNT(*) as count
+        FROM "{dataset.table_name}"
+        WHERE properties->>:field_name IS NOT NULL
+          AND properties->>:field_name ~ '^-?[0-9]+(\\.[0-9]+)?$'
+    """)
+
+    result = await db.execute(query, {"field_name": field_name})
+    row = result.fetchone()
+
+    if row:
+        return {
+            "min": float(row[0]) if row[0] is not None else None,
+            "max": float(row[1]) if row[1] is not None else None,
+            "mean": float(row[2]) if row[2] is not None else None,
+            "count": row[3] or 0,
+        }
+
+    return {"min": None, "max": None, "mean": None, "count": 0}

@@ -151,3 +151,52 @@ export interface UploadJob {
   created_at: string;
   completed_at: string | null;
 }
+
+// ===== Style Configuration Types =====
+
+export type RGBAColor = [number, number, number, number];
+
+export type StyleMode = 'uniform' | 'categorical' | 'graduated';
+
+export interface ColorRampConfig {
+  name: string;
+  minValue?: number;
+  maxValue?: number;
+  numClasses?: number;
+}
+
+export interface StyleConfig {
+  mode: StyleMode;
+
+  // Uniform styling (base colors)
+  fillColor: RGBAColor;
+  lineColor: RGBAColor;
+  lineWidth: number;
+  pointRadius: number;
+  pointRadiusMinPixels: number;
+  pointRadiusMaxPixels: number;
+
+  // Attribute-based styling
+  attributeField?: string;
+
+  // Categorical mode
+  categoryColors?: Record<string, RGBAColor>;
+  defaultCategoryColor?: RGBAColor;
+
+  // Graduated mode
+  colorRamp?: ColorRampConfig;
+}
+
+export interface UniqueValuesResponse {
+  field: string;
+  values: (string | number | boolean | null)[];
+  total_count: number;
+}
+
+export interface FieldStatisticsResponse {
+  field: string;
+  min: number | null;
+  max: number | null;
+  mean: number | null;
+  count: number;
+}
