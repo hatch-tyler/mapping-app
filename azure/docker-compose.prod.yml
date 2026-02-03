@@ -81,7 +81,7 @@ services:
       - build
     volumes:
       - frontend_dist:/output
-    entrypoint: "/bin/sh -c 'cp -r /app/dist/* /output/ && echo Frontend build copied to volume'"
+    entrypoint: "/bin/sh -c 'cp -r /usr/share/nginx/html/* /output/ && echo Frontend build copied to volume'"
 
 volumes:
   frontend_dist:
