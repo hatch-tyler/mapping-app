@@ -134,7 +134,9 @@ export async function getUploadJobStatus(jobId: string): Promise<UploadJob> {
 }
 
 export function getGeoJSONUrl(datasetId: string, bbox?: string): string {
-  const url = `${API_URL}/api/v1/datasets/${datasetId}/geojson`;
+  // Use window.location.origin for share URLs so users get a full URL they can copy
+  const baseUrl = API_URL || window.location.origin;
+  const url = `${baseUrl}/api/v1/datasets/${datasetId}/geojson`;
   return bbox ? `${url}?bbox=${bbox}` : url;
 }
 
@@ -173,7 +175,9 @@ function slugify(name: string): string {
 
 export function getArcGISFeatureServerUrl(datasetName: string): string {
   const slug = slugify(datasetName);
-  return `${API_URL}/arcgis/rest/services/${encodeURIComponent(slug)}/FeatureServer/0`;
+  // Use window.location.origin for share URLs so users get a full URL they can copy
+  const baseUrl = API_URL || window.location.origin;
+  return `${baseUrl}/arcgis/rest/services/${encodeURIComponent(slug)}/FeatureServer`;
 }
 
 // ===== Browsable Datasets API =====
