@@ -27,8 +27,12 @@ CORS_HEADERS = {
 
 
 def json_response(data: dict, status_code: int = 200) -> JSONResponse:
-    """Create JSON response with CORS headers."""
-    return JSONResponse(content=data, status_code=status_code, headers=CORS_HEADERS)
+    """Create JSON response with CORS headers and UTF-8 charset for ArcGIS Pro compatibility."""
+    headers = {
+        **CORS_HEADERS,
+        "Content-Type": "application/json; charset=utf-8",
+    }
+    return JSONResponse(content=data, status_code=status_code, headers=headers)
 
 
 @router.get("")
