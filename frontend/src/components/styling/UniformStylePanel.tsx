@@ -7,15 +7,16 @@ interface Props {
   geometryType: string | null;
 }
 
+const LINE_TYPES = ['linestring', 'multilinestring'];
+
 export function UniformStylePanel({ styleConfig, onChange, geometryType }: Props) {
-  const isPoint = geometryType?.toLowerCase() === 'point';
-  const isLine = geometryType?.toLowerCase() === 'linestring' || geometryType?.toLowerCase() === 'multilinestring';
-  const isPolygon = geometryType?.toLowerCase() === 'polygon' || geometryType?.toLowerCase() === 'multipolygon';
+  const geoLower = geometryType?.toLowerCase() || '';
+  const isLineOnly = LINE_TYPES.includes(geoLower);
 
   return (
     <div className="space-y-6">
-      {/* Fill Color - for points and polygons */}
-      {(isPoint || isPolygon || !geometryType) && (
+      {/* Fill Color - shown for all types except pure line geometries */}
+      {!isLineOnly && (
         <ColorPicker
           label="Fill Color"
           color={styleConfig.fillColor}
@@ -23,9 +24,9 @@ export function UniformStylePanel({ styleConfig, onChange, geometryType }: Props
         />
       )}
 
-      {/* Line/Stroke Color - for all geometry types */}
+      {/* Line/Stroke Color */}
       <ColorPicker
-        label={isLine ? 'Line Color' : 'Outline Color'}
+        label={isLineOnly ? 'Line Color' : 'Outline Color'}
         color={styleConfig.lineColor}
         onChange={(color) => onChange({ ...styleConfig, lineColor: color })}
       />
@@ -33,7 +34,7 @@ export function UniformStylePanel({ styleConfig, onChange, geometryType }: Props
       {/* Line Width */}
       <div className="space-y-2">
         <label className="block text-sm font-medium text-gray-700">
-          {isLine ? 'Line Width' : 'Outline Width'}
+          {isLineOnly ? 'Line Width' : 'Outline Width'}
         </label>
         <div className="flex items-center gap-3">
           <input
@@ -53,8 +54,8 @@ export function UniformStylePanel({ styleConfig, onChange, geometryType }: Props
         </div>
       </div>
 
-      {/* Point-specific settings */}
-      {(isPoint || !geometryType) && (
+      {/* Point size - shown unless we know it's a line or polygon */}
+      {!isLineOnly && (
         <>
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">
