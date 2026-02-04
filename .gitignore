@@ -58,6 +58,9 @@ frontend/coverage/
 # Terraform
 *.tfstate
 *.tfstate.*
+tfstate_temp*
+tfplan
+*.tfplan
 .terraform/
 .terraform.lock.hcl
 *.tfvars.local
