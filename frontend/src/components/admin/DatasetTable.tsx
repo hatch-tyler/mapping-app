@@ -170,39 +170,52 @@ export function DatasetTable({
                   {onUpdate && dataset.data_type === 'vector' && (
                     <button
                       onClick={() => setStyleModalDataset(dataset)}
-                      className="px-2 py-1 rounded text-xs font-medium text-purple-600 hover:bg-purple-50"
+                      className="p-1.5 rounded text-purple-600 hover:bg-purple-50"
                       title="Edit layer style"
                     >
-                      Style
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
+                      </svg>
                     </button>
                   )}
                   {onUpdate && (
                     <button
                       onClick={() => handleEditClick(dataset)}
-                      className="px-2 py-1 rounded text-xs font-medium text-blue-600 hover:bg-blue-50"
+                      className="p-1.5 rounded text-blue-600 hover:bg-blue-50"
                       title="Edit dataset"
                     >
-                      Edit
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
                     </button>
                   )}
                   {dataset.is_public && dataset.data_type === 'vector' && (
                     <button
                       onClick={() => setShareModalDataset(dataset)}
-                      className="px-2 py-1 rounded text-xs font-medium text-green-600 hover:bg-green-50"
+                      className="p-1.5 rounded text-green-600 hover:bg-green-50"
                       title="Share & Download"
                     >
-                      Share
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
+                      </svg>
                     </button>
                   )}
                   <button
                     onClick={() => handleDelete(dataset.id)}
-                    className={`px-2 py-1 rounded text-xs font-medium ${
+                    className={`p-1.5 rounded ${
                       deleteConfirm === dataset.id
                         ? 'bg-red-600 text-white'
                         : 'text-red-600 hover:bg-red-50'
                     }`}
+                    title={deleteConfirm === dataset.id ? 'Click to confirm deletion' : 'Delete dataset'}
                   >
-                    {deleteConfirm === dataset.id ? 'Confirm?' : 'Delete'}
+                    {deleteConfirm === dataset.id ? (
+                      <span className="text-xs font-medium px-0.5">Confirm?</span>
+                    ) : (
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    )}
                   </button>
                 </div>
               </td>
