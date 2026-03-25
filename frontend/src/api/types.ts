@@ -7,6 +7,10 @@ export interface User {
   created_at: string;
 }
 
+export type DatasetCategory = 'reference' | 'project';
+export type GeographicScope = 'federal' | 'state' | 'county' | 'local';
+export type SourceType = 'local' | 'external';
+
 export interface Dataset {
   id: string;
   name: string;
@@ -27,10 +31,81 @@ export interface Dataset {
   created_by_id: string | null;
   created_at: string;
   updated_at: string;
+  // Organization fields
+  source_type: SourceType;
+  category: DatasetCategory;
+  geographic_scope: GeographicScope | null;
+  service_url: string | null;
+  service_type: string | null;
+  service_layer_id: string | null;
+  project_id: string | null;
+  is_privileged: boolean;
+  tags: string[];
+}
+
+export interface DatasetFilters {
+  search?: string;
+  category?: DatasetCategory;
+  source_type?: SourceType;
+  geographic_scope?: GeographicScope;
+  data_type?: 'vector' | 'raster';
+  tags?: string;
+  project_id?: string;
 }
 
 export interface DatasetListResponse {
   datasets: Dataset[];
+  total: number;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description: string | null;
+  is_active: boolean;
+  created_by_id: string;
+  created_at: string;
+  updated_at: string;
+  member_count: number;
+  dataset_count: number;
+}
+
+export interface ProjectMember {
+  id: string;
+  user_id: string;
+  role: 'owner' | 'editor' | 'viewer';
+  created_at: string;
+  user_email: string | null;
+  user_name: string | null;
+}
+
+export interface ProjectDetail extends Project {
+  members: ProjectMember[];
+}
+
+export interface ServiceCatalog {
+  id: string;
+  name: string;
+  base_url: string;
+  description: string | null;
+  created_at: string;
+}
+
+export interface BrowseServiceInfo {
+  name: string;
+  full_name: string;
+  type: string;
+  url: string;
+}
+
+export interface BrowseResponse {
+  url: string;
+  folders: string[];
+  services: BrowseServiceInfo[];
+}
+
+export interface ProjectListResponse {
+  projects: Project[];
   total: number;
 }
 

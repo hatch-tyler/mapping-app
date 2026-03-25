@@ -43,6 +43,7 @@ dependencies = [
     # Production
     "gunicorn>=21.0.0",
     "boto3>=1.34.0",
+    "httpx>=0.26.0",
 ]
 
 [project.optional-dependencies]

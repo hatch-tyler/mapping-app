@@ -18,7 +18,7 @@ import {
   EXPORT_FORMATS,
 } from './datasets';
 import { apiClient, uploadClient } from './client';
-import { createMockDataset } from '../__tests__/mockData';
+import { createMockDataset, createMockUploadJob } from '../__tests__/mockData';
 
 // Mock the apiClient and uploadClient
 vi.mock('./client', () => ({
@@ -213,8 +213,8 @@ describe('datasets API', () => {
 
   describe('uploadRaster', () => {
     it('should upload raster file with name only using uploadClient', async () => {
-      const rasterDataset = createMockDataset({ data_type: 'raster' });
-      vi.mocked(uploadClient.post).mockResolvedValue({ data: rasterDataset });
+      const mockJob = createMockUploadJob();
+      vi.mocked(uploadClient.post).mockResolvedValue({ data: mockJob });
 
       const file = new File(['data'], 'test.tif');
       const result = await uploadRaster(file, 'Raster Dataset');
@@ -225,12 +225,12 @@ describe('datasets API', () => {
       const [url, formData] = vi.mocked(uploadClient.post).mock.calls[0];
       expect(url).toBe('/upload/raster');
       expect(formData).toBeInstanceOf(FormData);
-      expect(result.data_type).toBe('raster');
+      expect(result.status).toBe('completed');
     });
 
     it('should upload raster file with name and description', async () => {
-      const rasterDataset = createMockDataset({ data_type: 'raster' });
-      vi.mocked(uploadClient.post).mockResolvedValue({ data: rasterDataset });
+      const mockJob = createMockUploadJob();
+      vi.mocked(uploadClient.post).mockResolvedValue({ data: mockJob });
 
       const file = new File(['data'], 'test.tif');
       await uploadRaster(file, 'Raster Dataset', 'A description');
@@ -240,8 +240,8 @@ describe('datasets API', () => {
     });
 
     it('should include file, name and description in FormData', async () => {
-      const rasterDataset = createMockDataset({ data_type: 'raster' });
-      vi.mocked(uploadClient.post).mockResolvedValue({ data: rasterDataset });
+      const mockJob = createMockUploadJob();
+      vi.mocked(uploadClient.post).mockResolvedValue({ data: mockJob });
 
       const file = new File(['raster content'], 'image.tif', { type: 'image/tiff' });
       await uploadRaster(file, 'My Raster', 'Raster description');

@@ -1,7 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import * as datasetsApi from '../../api/datasets';
-import { UploadJob } from '../../api/types';
+import * as projectsApi from '../../api/projects';
+import { UploadJob, DatasetCategory, GeographicScope, Project } from '../../api/types';
 
 interface Props {
   onSuccess: () => void;
@@ -24,12 +25,22 @@ const POLL_INTERVAL = 2000;
 export function UploadForm({ onSuccess }: Props) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [category, setCategory] = useState<DatasetCategory>('reference');
+  const [geographicScope, setGeographicScope] = useState<GeographicScope | ''>('');
+  const [tagsInput, setTagsInput] = useState('');
+  const [projectId, setProjectId] = useState('');
+  const [projects, setProjects] = useState<Project[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [processingProgress, setProcessingProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Load projects for the dropdown
+  useEffect(() => {
+    projectsApi.getProjects().then((r) => setProjects(r.projects)).catch(() => {});
+  }, []);
 
   // Clean up polling on unmount
   useEffect(() => {
@@ -49,9 +60,12 @@ export function UploadForm({ onSuccess }: Props) {
 
   const startPolling = (jobId: string) => {
     stopPolling();
+    let pollFailures = 0;
+    const MAX_POLL_FAILURES = 30; // 30 attempts * 2s = 60 seconds
     pollRef.current = setInterval(async () => {
       try {
         const job = await datasetsApi.getUploadJobStatus(jobId);
+        pollFailures = 0; // Reset on success
         setProcessingProgress(job.progress);
 
         if (job.status === 'completed') {
@@ -61,6 +75,10 @@ export function UploadForm({ onSuccess }: Props) {
           setTimeout(() => {
             setName('');
             setDescription('');
+            setCategory('reference');
+            setGeographicScope('');
+            setTagsInput('');
+            setProjectId('');
             setFile(null);
             setPhase('idle');
             setUploadProgress(0);
@@ -73,7 +91,12 @@ export function UploadForm({ onSuccess }: Props) {
           setError(job.error_message || 'Processing failed');
         }
       } catch {
-        // Polling error -- keep trying, don't abort
+        pollFailures++;
+        if (pollFailures >= MAX_POLL_FAILURES) {
+          stopPolling();
+          setPhase('failed');
+          setError('Lost connection to server. Processing may still be running — check the dataset list.');
+        }
       }
     }, POLL_INTERVAL);
   };
@@ -125,11 +148,18 @@ export function UploadForm({ onSuccess }: Props) {
         }
       };
 
+      const uploadOpts: datasetsApi.UploadOptions = {
+        category,
+        geographic_scope: geographicScope || undefined,
+        project_id: projectId || undefined,
+        tags: tagsInput || undefined,
+      };
+
       let job: UploadJob;
       if (isRasterFile(file.name)) {
-        job = await datasetsApi.uploadRaster(file, name, description, onUploadProgress);
+        job = await datasetsApi.uploadRaster(file, name, description, onUploadProgress, uploadOpts);
       } else {
-        job = await datasetsApi.uploadVector(file, name, description, onUploadProgress);
+        job = await datasetsApi.uploadVector(file, name, description, onUploadProgress, uploadOpts);
       }
 
       // Phase 2: processing
@@ -222,6 +252,106 @@ export function UploadForm({ onSuccess }: Props) {
           className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
           placeholder="Enter description"
         />
+      </div>
+
+      {/* Category */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+        <div className="flex gap-4">
+          <label className="flex items-center gap-1.5 text-sm">
+            <input
+              type="radio"
+              name="category"
+              value="reference"
+              checked={category === 'reference'}
+              onChange={() => setCategory('reference')}
+              disabled={busy}
+              className="text-blue-600"
+            />
+            Reference
+          </label>
+          <label className="flex items-center gap-1.5 text-sm">
+            <input
+              type="radio"
+              name="category"
+              value="project"
+              checked={category === 'project'}
+              onChange={() => { setCategory('project'); setGeographicScope(''); }}
+              disabled={busy}
+              className="text-blue-600"
+            />
+            Project
+          </label>
+        </div>
+      </div>
+
+      {/* Geographic Scope (only for reference data) */}
+      {category === 'reference' && (
+        <div>
+          <label
+            htmlFor="geographic-scope"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
+            Geographic Scope
+          </label>
+          <select
+            id="geographic-scope"
+            value={geographicScope}
+            onChange={(e) => setGeographicScope(e.target.value as GeographicScope | '')}
+            disabled={busy}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+          >
+            <option value="">Select scope (optional)</option>
+            <option value="federal">Federal</option>
+            <option value="state">State</option>
+            <option value="county">County</option>
+            <option value="local">Local</option>
+          </select>
+        </div>
+      )}
+
+      {/* Project (only for project data) */}
+      {category === 'project' && projects.length > 0 && (
+        <div>
+          <label
+            htmlFor="project-id"
+            className="block text-sm font-medium text-gray-700 mb-1"
+          >
+            Project
+          </label>
+          <select
+            id="project-id"
+            value={projectId}
+            onChange={(e) => setProjectId(e.target.value)}
+            disabled={busy}
+            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+          >
+            <option value="">Select project</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Tags */}
+      <div>
+        <label
+          htmlFor="tags"
+          className="block text-sm font-medium text-gray-700 mb-1"
+        >
+          Tags
+        </label>
+        <input
+          type="text"
+          id="tags"
+          value={tagsInput}
+          onChange={(e) => setTagsInput(e.target.value)}
+          disabled={busy}
+          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+          placeholder="e.g. boundaries, parcels, zoning"
+        />
+        <p className="text-xs text-gray-400 mt-0.5">Comma-separated</p>
       </div>
 
       {/* Upload progress bar */}

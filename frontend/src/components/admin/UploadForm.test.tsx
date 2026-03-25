@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { UploadForm } from './UploadForm';
 import * as datasetsApi from '../../api/datasets';
-import { createMockDataset } from '../../__tests__/mockData';
+import { createMockUploadJob } from '../../__tests__/mockData';
 
 // Mock the datasets API
 vi.mock('../../api/datasets', () => ({
@@ -102,13 +102,7 @@ describe('UploadForm', () => {
     });
 
     vi.mocked(datasetsApi.uploadVector).mockResolvedValue(
-      createMockDataset({
-        id: '1',
-        name: 'test',
-        data_type: 'vector',
-        geometry_type: 'Point',
-        source_format: 'geojson',
-      })
+      createMockUploadJob({ id: 'job-1' })
     );
 
     render(<UploadForm onSuccess={mockOnSuccess} />);
@@ -144,13 +138,7 @@ describe('UploadForm', () => {
     });
 
     vi.mocked(datasetsApi.uploadRaster).mockResolvedValue(
-      createMockDataset({
-        id: '2',
-        name: 'test',
-        data_type: 'raster',
-        geometry_type: null,
-        source_format: 'geotiff',
-      })
+      createMockUploadJob({ id: 'job-2' })
     );
 
     render(<UploadForm onSuccess={mockOnSuccess} />);
@@ -266,13 +254,7 @@ describe('UploadForm', () => {
     });
 
     vi.mocked(datasetsApi.uploadVector).mockResolvedValue(
-      createMockDataset({
-        id: '1',
-        name: 'test',
-        data_type: 'vector',
-        geometry_type: 'Point',
-        source_format: 'geojson',
-      })
+      createMockUploadJob({ id: 'job-1' })
     );
 
     render(<UploadForm onSuccess={mockOnSuccess} />);
@@ -338,15 +320,7 @@ describe('UploadForm', () => {
     });
 
     // Resolve the upload
-    resolveUpload!(
-      createMockDataset({
-        id: '1',
-        name: 'test',
-        data_type: 'vector',
-        geometry_type: 'Point',
-        source_format: 'geojson',
-      })
-    );
+    resolveUpload!(createMockUploadJob({ id: 'job-1' }));
 
     await waitFor(() => {
       expect(screen.queryByText('Uploading...')).not.toBeInTheDocument();

@@ -211,6 +211,53 @@ class EmailService:
         """
         return await self.send_email(email, "Confirm Your Email Address", html)
 
+    async def send_password_reset(
+        self, email: str, full_name: str | None, token: str, expire_hours: int = 24
+    ) -> bool:
+        """Send password reset link to user.
+
+        Returns True if email sent, False if SMTP not configured (URL will be printed).
+        """
+        reset_url = f"{settings.APP_URL}/reset-password?token={token}"
+
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <style>
+                body {{ font-family: Arial, sans-serif; line-height: 1.6; color: #333; }}
+                .container {{ max-width: 600px; margin: 0 auto; padding: 20px; }}
+                .header {{ background-color: #2563eb; color: white; padding: 20px; text-align: center; }}
+                .content {{ padding: 20px; background-color: #f9fafb; }}
+                .button {{ display: inline-block; padding: 12px 24px; background-color: #2563eb; color: white; text-decoration: none; border-radius: 6px; }}
+                .warning {{ background-color: #fef3c7; border: 1px solid #f59e0b; padding: 12px; border-radius: 6px; margin: 15px 0; }}
+                .url {{ word-break: break-all; background-color: #f3f4f6; padding: 10px; border-radius: 4px; font-size: 12px; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>Reset Your Password</h1>
+                </div>
+                <div class="content">
+                    <p>Hello {full_name or 'User'},</p>
+                    <p>We received a request to reset your password. Click the button below to set a new password.</p>
+                    <p style="text-align: center; margin: 25px 0;">
+                        <a href="{reset_url}" class="button" style="display: inline-block; padding: 12px 24px; background-color: #2563eb; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold;">Reset Password</a>
+                    </p>
+                    <div class="warning">
+                        <strong>Important:</strong> This link will expire in {expire_hours} hours.
+                        If you did not request a password reset, you can safely ignore this email.
+                    </div>
+                    <p>If the button doesn't work, copy and paste this URL into your browser:</p>
+                    <p class="url">{reset_url}</p>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+        return await self.send_email(email, "Reset Your Password", html)
+
     def get_confirmation_url(self, token: str) -> str:
         """Get the confirmation URL for a token (for console output when SMTP not configured)."""
         return f"{settings.APP_URL}/confirm-email?token={token}"

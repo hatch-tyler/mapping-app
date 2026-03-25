@@ -49,3 +49,24 @@ export async function changePassword(currentPassword: string, newPassword: strin
     new_password: newPassword,
   });
 }
+
+export interface ForgotPasswordResponse {
+  message: string;
+}
+
+export async function forgotPassword(email: string): Promise<ForgotPasswordResponse> {
+  const response = await apiClient.post<ForgotPasswordResponse>('/auth/forgot-password', { email });
+  return response.data;
+}
+
+export interface ResetPasswordResponse {
+  message: string;
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<ResetPasswordResponse> {
+  const response = await apiClient.post<ResetPasswordResponse>('/auth/reset-password', {
+    token,
+    new_password: newPassword,
+  });
+  return response.data;
+}

@@ -28,7 +28,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     python-jose[cryptography] "passlib[bcrypt]" "bcrypt==4.0.1" \
     pydantic pydantic-settings aiofiles email-validator aiosmtplib \
     lxml defusedxml \
-    gunicorn boto3
+    gunicorn boto3 httpx
 
 # Production image
 FROM python:3.11-slim

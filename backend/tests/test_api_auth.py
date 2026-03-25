@@ -6,6 +6,9 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
+from app.models.email_confirmation import TokenType
+from app.crud import email_confirmation as token_crud
+from app.core.security import verify_password
 
 
 class TestLogin:
@@ -234,3 +237,131 @@ class TestLogout:
             json={"refresh_token": tokens["refresh_token"]},
         )
         assert refresh_response.status_code == 401
+
+
+class TestForgotPassword:
+    """Tests for forgot-password endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_forgot_password_valid_email(
+        self, client: AsyncClient, test_user: User
+    ):
+        """Test forgot-password with a valid email creates a reset token."""
+        response = await client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "test@example.com"},
+        )
+
+        assert response.status_code == 200
+        assert "password reset link" in response.json()["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_forgot_password_unknown_email(self, client: AsyncClient):
+        """Test forgot-password with unknown email still returns success (no leak)."""
+        response = await client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "nonexistent@example.com"},
+        )
+
+        assert response.status_code == 200
+        assert "password reset link" in response.json()["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_forgot_password_inactive_user(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
+        """Test forgot-password with inactive user returns success (no leak)."""
+        from app.crud import user as user_crud
+        from app.schemas.user import UserCreate
+
+        user_in = UserCreate(email="inactive2@example.com", password="password123")
+        user = await user_crud.create_user(db_session, user_in)
+        user.is_active = False
+        await db_session.commit()
+
+        response = await client.post(
+            "/api/v1/auth/forgot-password",
+            json={"email": "inactive2@example.com"},
+        )
+
+        assert response.status_code == 200
+
+
+class TestResetPassword:
+    """Tests for reset-password endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_reset_password_success(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ):
+        """Test successful password reset flow."""
+        # Create a reset token
+        reset_token = await token_crud.create_confirmation_token(
+            db_session, test_user.id, TokenType.PASSWORD_RESET
+        )
+
+        # Reset password
+        response = await client.post(
+            "/api/v1/auth/reset-password",
+            json={"token": reset_token.token, "new_password": "newpassword456"},
+        )
+
+        assert response.status_code == 200
+        assert "reset successfully" in response.json()["message"].lower()
+
+        # Verify new password works for login
+        login_response = await client.post(
+            "/api/v1/auth/login",
+            json={"email": "test@example.com", "password": "newpassword456"},
+        )
+        assert login_response.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_reset_password_invalid_token(self, client: AsyncClient):
+        """Test reset-password with invalid token."""
+        response = await client.post(
+            "/api/v1/auth/reset-password",
+            json={"token": "invalid-token", "new_password": "newpassword456"},
+        )
+
+        assert response.status_code == 400
+        assert "invalid or expired" in response.json()["detail"].lower()
+
+    @pytest.mark.asyncio
+    async def test_reset_password_token_used_twice(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ):
+        """Test that a reset token cannot be reused."""
+        reset_token = await token_crud.create_confirmation_token(
+            db_session, test_user.id, TokenType.PASSWORD_RESET
+        )
+
+        # First reset should succeed
+        response1 = await client.post(
+            "/api/v1/auth/reset-password",
+            json={"token": reset_token.token, "new_password": "newpassword456"},
+        )
+        assert response1.status_code == 200
+
+        # Second reset with same token should fail
+        response2 = await client.post(
+            "/api/v1/auth/reset-password",
+            json={"token": reset_token.token, "new_password": "anotherpassword789"},
+        )
+        assert response2.status_code == 400
+
+    @pytest.mark.asyncio
+    async def test_reset_password_too_short(
+        self, client: AsyncClient, test_user: User, db_session: AsyncSession
+    ):
+        """Test reset-password rejects passwords shorter than 8 characters."""
+        reset_token = await token_crud.create_confirmation_token(
+            db_session, test_user.id, TokenType.PASSWORD_RESET
+        )
+
+        response = await client.post(
+            "/api/v1/auth/reset-password",
+            json={"token": reset_token.token, "new_password": "short"},
+        )
+
+        assert response.status_code == 422

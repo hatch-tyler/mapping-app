@@ -20,6 +20,15 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _log_task_error(task: asyncio.Task) -> None:
+    """Callback to log unhandled exceptions from background tasks."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc:
+        logger.error("Background processing task failed: %s", exc, exc_info=exc)
+
+
 def _processing_dir(job_id: UUID) -> Path:
     """Return a persistent directory for a processing job's files."""
     d = Path(settings.UPLOAD_DIR) / "processing" / str(job_id)
@@ -32,6 +41,10 @@ async def upload_vector(
     file: UploadFile = File(...),
     name: str = Form(...),
     description: str = Form(None),
+    category: str = Form("reference"),
+    geographic_scope: str | None = Form(None),
+    project_id: str | None = Form(None),
+    tags: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_admin_user),
 ):
@@ -48,14 +61,25 @@ async def upload_vector(
             detail=f"Unsupported file format: {ext}. Supported: {FileProcessor.SUPPORTED_VECTOR}",
         )
 
+    # Parse tags from comma-separated string
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+
     # Create dataset record
-    dataset_in = DatasetCreate(name=name, description=description)
+    dataset_in = DatasetCreate(
+        name=name, description=description,
+        category=category, geographic_scope=geographic_scope, tags=tag_list,
+    )
+    extra_kwargs = {}
+    if project_id:
+        from uuid import UUID as PyUUID
+        extra_kwargs["project_id"] = PyUUID(project_id)
     dataset = await dataset_crud.create_dataset(
         db,
         dataset_in,
         data_type="vector",
         source_format=ext.lstrip("."),
         created_by_id=current_user.id,
+        **extra_kwargs,
     )
 
     # Create upload job
@@ -65,22 +89,37 @@ async def upload_vector(
     proc_dir = _processing_dir(job.id)
     file_path = proc_dir / file.filename
 
+    max_bytes = settings.UPLOAD_MAX_SIZE_MB * 1024 * 1024
     try:
+        size = 0
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            while chunk := await file.read(1024 * 1024):  # 1MB chunks
+                size += len(chunk)
+                if size > max_bytes:
+                    buffer.close()
+                    shutil.rmtree(str(proc_dir), ignore_errors=True)
+                    await dataset_crud.delete_dataset(db, dataset)
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"File exceeds maximum size of {settings.UPLOAD_MAX_SIZE_MB}MB",
+                    )
+                buffer.write(chunk)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Failed to save uploaded file: %s", e)
         shutil.rmtree(str(proc_dir), ignore_errors=True)
         await dataset_crud.delete_dataset(db, dataset)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to save uploaded file: {e}",
+            detail="Failed to save uploaded file",
         )
 
-    # Spawn background processing
-    asyncio.create_task(
+    # Spawn background processing with error logging
+    task = asyncio.create_task(
         file_processor.process_vector_background(file_path, dataset.id, job.id)
     )
+    task.add_done_callback(_log_task_error)
 
     return job
 
@@ -90,6 +129,10 @@ async def upload_raster(
     file: UploadFile = File(...),
     name: str = Form(...),
     description: str = Form(None),
+    category: str = Form("reference"),
+    geographic_scope: str | None = Form(None),
+    project_id: str | None = Form(None),
+    tags: str = Form(""),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_admin_user),
 ):
@@ -106,14 +149,25 @@ async def upload_raster(
             detail=f"Unsupported file format: {ext}. Supported: {FileProcessor.SUPPORTED_RASTER}",
         )
 
+    # Parse tags from comma-separated string
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+
     # Create dataset record
-    dataset_in = DatasetCreate(name=name, description=description)
+    dataset_in = DatasetCreate(
+        name=name, description=description,
+        category=category, geographic_scope=geographic_scope, tags=tag_list,
+    )
+    extra_kwargs = {}
+    if project_id:
+        from uuid import UUID as PyUUID
+        extra_kwargs["project_id"] = PyUUID(project_id)
     dataset = await dataset_crud.create_dataset(
         db,
         dataset_in,
         data_type="raster",
         source_format=ext.lstrip("."),
         created_by_id=current_user.id,
+        **extra_kwargs,
     )
 
     # Create upload job
@@ -123,22 +177,36 @@ async def upload_raster(
     proc_dir = _processing_dir(job.id)
     file_path = proc_dir / file.filename
 
+    max_bytes = settings.UPLOAD_MAX_SIZE_MB * 1024 * 1024
     try:
+        size = 0
         with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+            while chunk := await file.read(1024 * 1024):
+                size += len(chunk)
+                if size > max_bytes:
+                    buffer.close()
+                    shutil.rmtree(str(proc_dir), ignore_errors=True)
+                    await dataset_crud.delete_dataset(db, dataset)
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"File exceeds maximum size of {settings.UPLOAD_MAX_SIZE_MB}MB",
+                    )
+                buffer.write(chunk)
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Failed to save uploaded file: %s", e)
         shutil.rmtree(str(proc_dir), ignore_errors=True)
         await dataset_crud.delete_dataset(db, dataset)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to save uploaded file: {e}",
+            detail="Failed to save uploaded file",
         )
 
-    # Spawn background processing
-    asyncio.create_task(
+    task = asyncio.create_task(
         file_processor.process_raster_background(file_path, dataset.id, job.id)
     )
+    task.add_done_callback(_log_task_error)
 
     return job
 

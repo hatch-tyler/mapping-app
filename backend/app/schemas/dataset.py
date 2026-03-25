@@ -14,7 +14,9 @@ class DatasetBase(BaseModel):
 
 
 class DatasetCreate(DatasetBase):
-    pass
+    category: str = "reference"
+    geographic_scope: str | None = None
+    tags: list[str] = Field(default_factory=list)
 
 
 class DatasetUpdate(BaseModel):
@@ -25,6 +27,10 @@ class DatasetUpdate(BaseModel):
     style_config: dict[str, Any] | None = None
     min_zoom: int | None = None
     max_zoom: int | None = None
+    category: str | None = None
+    geographic_scope: str | None = None
+    project_id: UUID | None = None
+    tags: list[str] | None = None
 
 
 class DatasetResponse(DatasetBase):
@@ -42,6 +48,16 @@ class DatasetResponse(DatasetBase):
     created_by_id: UUID | None
     created_at: datetime
     updated_at: datetime
+    # Organization fields
+    source_type: str = "local"
+    category: str = "reference"
+    geographic_scope: str | None = None
+    service_url: str | None = None
+    service_type: str | None = None
+    service_layer_id: str | None = None
+    project_id: UUID | None = None
+    is_privileged: bool = False
+    tags: list[str] = Field(default_factory=list)
 
     class Config:
         from_attributes = True

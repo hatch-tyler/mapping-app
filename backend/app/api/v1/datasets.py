@@ -69,6 +69,15 @@ def dataset_to_response(dataset) -> DatasetResponse:
         created_by_id=dataset.created_by_id,
         created_at=dataset.created_at,
         updated_at=dataset.updated_at,
+        source_type=dataset.source_type,
+        category=dataset.category,
+        geographic_scope=dataset.geographic_scope,
+        service_url=dataset.service_url,
+        service_type=dataset.service_type,
+        service_layer_id=dataset.service_layer_id,
+        project_id=dataset.project_id,
+        is_privileged=dataset.is_privileged,
+        tags=[tag.name for tag in dataset.tags] if dataset.tags else [],
     )
 
 
@@ -87,6 +96,7 @@ async def browse_datasets(
     datasets, total = await dataset_crud.get_browsable_datasets(
         db,
         user_authenticated=current_user is not None,
+        user_id=current_user.id if current_user else None,
         skip=skip,
         limit=limit,
     )
@@ -101,11 +111,30 @@ async def list_datasets(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
     visible_only: bool = Query(False),
+    search: str | None = Query(None),
+    category: str | None = Query(None),
+    source_type: str | None = Query(None),
+    geographic_scope: str | None = Query(None),
+    data_type: str | None = Query(None),
+    tags: str | None = Query(None),
+    project_id: UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     datasets, total = await dataset_crud.get_datasets(
-        db, skip=skip, limit=limit, visible_only=visible_only
+        db,
+        skip=skip,
+        limit=limit,
+        visible_only=visible_only,
+        search=search,
+        category=category,
+        source_type=source_type,
+        geographic_scope=geographic_scope,
+        data_type=data_type,
+        tags=tags,
+        project_id=project_id,
+        user_id=current_user.id,
+        is_admin=current_user.is_admin,
     )
     return DatasetListResponse(
         datasets=[dataset_to_response(d) for d in datasets],

@@ -7,9 +7,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from geoalchemy2 import Geometry
 
 from app.database import Base
+from app.models.tag import Tag, dataset_tags
 
 if TYPE_CHECKING:
     from app.models.user import User
+    from app.models.project import Project
 
 
 class Dataset(Base):
@@ -39,6 +41,32 @@ class Dataset(Base):
     file_path: Mapped[str | None] = mapped_column(String(500))
     table_name: Mapped[str | None] = mapped_column(String(255))
     feature_count: Mapped[int | None] = mapped_column(Integer)
+    # Organization fields
+    source_type: Mapped[str] = mapped_column(
+        String(50), default="local", nullable=False, index=True
+    )  # 'local' or 'external'
+    category: Mapped[str] = mapped_column(
+        String(50), default="reference", nullable=False, index=True
+    )  # 'reference' or 'project'
+    geographic_scope: Mapped[str | None] = mapped_column(
+        String(50), index=True
+    )  # 'federal', 'state', 'county', 'local'
+
+    # External service fields (null for local datasets)
+    service_url: Mapped[str | None] = mapped_column(String(1000))
+    service_type: Mapped[str | None] = mapped_column(
+        String(50)
+    )  # 'wms', 'wfs', 'arcgis_feature', 'arcgis_map', 'xyz'
+    service_layer_id: Mapped[str | None] = mapped_column(String(255))
+    service_metadata: Mapped[dict | None] = mapped_column(JSONB)
+    last_service_check: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    # Project linkage
+    project_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"), index=True
+    )
+    is_privileged: Mapped[bool] = mapped_column(Boolean, default=False)
+
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id")
     )
@@ -51,6 +79,8 @@ class Dataset(Base):
 
     # Relationships
     created_by_user: Mapped["User"] = relationship(back_populates="datasets")
+    project: Mapped["Project | None"] = relationship(back_populates="datasets")
+    tags: Mapped[list["Tag"]] = relationship(secondary=dataset_tags, lazy="selectin")
 
 
 class UploadJob(Base):

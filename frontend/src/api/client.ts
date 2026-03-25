@@ -50,6 +50,25 @@ apiClient.interceptors.request.use(
   }
 );
 
+// Token refresh queue — prevents concurrent refresh attempts
+let refreshPromise: Promise<string> | null = null;
+
+async function refreshAccessToken(): Promise<string> {
+  const refreshToken = localStorage.getItem('refresh_token');
+  if (!refreshToken) {
+    throw new Error('No refresh token');
+  }
+
+  const response = await axios.post(`${API_URL}/api/v1/auth/refresh`, {
+    refresh_token: refreshToken,
+  });
+
+  const { access_token, refresh_token: newRefreshToken } = response.data;
+  localStorage.setItem('access_token', access_token);
+  localStorage.setItem('refresh_token', newRefreshToken);
+  return access_token;
+}
+
 // Response interceptor for token refresh
 apiClient.interceptors.response.use(
   (response) => response,
@@ -61,28 +80,22 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
 
-      const refreshToken = localStorage.getItem('refresh_token');
-      if (refreshToken) {
-        try {
-          const response = await axios.post(`${API_URL}/api/v1/auth/refresh`, {
-            refresh_token: refreshToken,
+      try {
+        // If a refresh is already in progress, wait for it
+        if (!refreshPromise) {
+          refreshPromise = refreshAccessToken().finally(() => {
+            refreshPromise = null;
           });
-
-          const { access_token, refresh_token: newRefreshToken } =
-            response.data;
-
-          localStorage.setItem('access_token', access_token);
-          localStorage.setItem('refresh_token', newRefreshToken);
-
-          originalRequest.headers.Authorization = `Bearer ${access_token}`;
-          return apiClient(originalRequest);
-        } catch (refreshError) {
-          // Refresh failed, clear tokens and redirect
-          console.error('Token refresh failed:', refreshError);
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('refresh_token');
-          window.location.href = '/login';
         }
+
+        const newToken = await refreshPromise;
+        originalRequest.headers.Authorization = `Bearer ${newToken}`;
+        return apiClient(originalRequest);
+      } catch {
+        // Refresh failed, clear tokens and redirect
+        localStorage.removeItem('access_token');
+        localStorage.removeItem('refresh_token');
+        window.location.href = '/login';
       }
     }
 

@@ -6,6 +6,8 @@ from sqlalchemy import select, func, text, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.dataset import Dataset, UploadJob
+from app.models.tag import Tag, dataset_tags
+from app.models.project import ProjectMember
 from app.schemas.dataset import DatasetCreate, DatasetUpdate, ColumnFilter, FilterOperator
 
 
@@ -15,8 +17,23 @@ def _validate_table_name(table_name: str) -> bool:
 
 
 def _validate_field_name(field_name: str) -> bool:
-    """Validate field name for safe use in SQL."""
-    return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', field_name))
+    """Validate field name for safe use in JSONB SQL queries.
+
+    Allows alphanumeric, spaces, hyphens, dots, and underscores — common in
+    real-world GIS data (e.g., "Well Depth", "area-sqmi", "pop.2020").
+    Rejects quotes, semicolons, and other SQL-dangerous characters.
+    """
+    if not field_name or len(field_name) > 255:
+        return False
+    return bool(re.match(r'^[a-zA-Z0-9_][a-zA-Z0-9_ .\-]*$', field_name))
+
+
+def _escape_field_name(field_name: str) -> str:
+    """Escape a field name for safe use in JSONB accessor SQL.
+
+    Doubles any single quotes to prevent SQL injection in properties->>'name' syntax.
+    """
+    return field_name.replace("'", "''")
 
 
 async def get_dataset(db: AsyncSession, dataset_id: UUID) -> Dataset | None:
@@ -29,23 +46,114 @@ async def get_datasets(
     skip: int = 0,
     limit: int = 100,
     visible_only: bool = False,
+    search: str | None = None,
+    category: str | None = None,
+    source_type: str | None = None,
+    geographic_scope: str | None = None,
+    data_type: str | None = None,
+    tags: str | None = None,
+    project_id: UUID | None = None,
+    user_id: UUID | None = None,
+    is_admin: bool = True,
 ) -> tuple[list[Dataset], int]:
     query = select(Dataset)
-    count_query = select(func.count(Dataset.id))
+    count_query = select(func.count(Dataset.id.distinct()))
 
     if visible_only:
         query = query.where(Dataset.is_visible == True)
         count_query = count_query.where(Dataset.is_visible == True)
 
+    if category:
+        query = query.where(Dataset.category == category)
+        count_query = count_query.where(Dataset.category == category)
+
+    if source_type:
+        query = query.where(Dataset.source_type == source_type)
+        count_query = count_query.where(Dataset.source_type == source_type)
+
+    if geographic_scope:
+        query = query.where(Dataset.geographic_scope == geographic_scope)
+        count_query = count_query.where(Dataset.geographic_scope == geographic_scope)
+
+    if data_type:
+        query = query.where(Dataset.data_type == data_type)
+        count_query = count_query.where(Dataset.data_type == data_type)
+
+    if project_id:
+        query = query.where(Dataset.project_id == project_id)
+        count_query = count_query.where(Dataset.project_id == project_id)
+
+    if search:
+        search_term = f"%{search}%"
+        search_filter = or_(
+            Dataset.name.ilike(search_term),
+            Dataset.description.ilike(search_term),
+        )
+        # Also search tags via join
+        tag_subquery = (
+            select(dataset_tags.c.dataset_id)
+            .join(Tag, Tag.id == dataset_tags.c.tag_id)
+            .where(Tag.name.ilike(search_term))
+        )
+        search_filter = or_(search_filter, Dataset.id.in_(tag_subquery))
+        query = query.where(search_filter)
+        count_query = count_query.where(search_filter)
+
+    if tags:
+        tag_names = [t.strip() for t in tags.split(",") if t.strip()]
+        if tag_names:
+            tag_subquery = (
+                select(dataset_tags.c.dataset_id)
+                .join(Tag, Tag.id == dataset_tags.c.tag_id)
+                .where(Tag.name.in_(tag_names))
+            )
+            query = query.where(Dataset.id.in_(tag_subquery))
+            count_query = count_query.where(Dataset.id.in_(tag_subquery))
+
+    # Non-admin users can only see project datasets they belong to
+    if not is_admin and user_id:
+        user_project_ids = (
+            select(ProjectMember.project_id)
+            .where(ProjectMember.user_id == user_id)
+        )
+        access_filter = or_(
+            Dataset.project_id.is_(None),
+            Dataset.project_id.in_(user_project_ids),
+        )
+        query = query.where(access_filter)
+        count_query = count_query.where(access_filter)
+
     query = query.order_by(Dataset.created_at.desc()).offset(skip).limit(limit)
 
     result = await db.execute(query)
-    datasets = list(result.scalars().all())
+    datasets = list(result.scalars().unique().all())
 
     count_result = await db.execute(count_query)
     total = count_result.scalar()
 
     return datasets, total
+
+
+async def get_or_create_tags(
+    db: AsyncSession, tag_names: list[str]
+) -> list[Tag]:
+    """Get existing tags or create new ones. Returns list of Tag objects."""
+    if not tag_names:
+        return []
+
+    tags = []
+    for name in tag_names:
+        name = name.strip().lower()
+        if not name:
+            continue
+        result = await db.execute(select(Tag).where(Tag.name == name))
+        tag = result.scalar_one_or_none()
+        if not tag:
+            tag = Tag(name=name)
+            db.add(tag)
+            await db.flush()
+        tags.append(tag)
+    return tags
 
 
 async def create_dataset(
@@ -64,9 +172,15 @@ async def create_dataset(
         style_config=dataset_in.style_config,
         min_zoom=dataset_in.min_zoom,
         max_zoom=dataset_in.max_zoom,
+        category=dataset_in.category,
+        geographic_scope=dataset_in.geographic_scope,
         created_by_id=created_by_id,
         **kwargs,
     )
+
+    if dataset_in.tags:
+        dataset.tags = await get_or_create_tags(db, dataset_in.tags)
+
     db.add(dataset)
     await db.commit()
     await db.refresh(dataset)
@@ -77,6 +191,12 @@ async def update_dataset(
     db: AsyncSession, dataset: Dataset, dataset_in: DatasetUpdate
 ) -> Dataset:
     update_data = dataset_in.model_dump(exclude_unset=True)
+
+    # Handle tags separately
+    tag_names = update_data.pop("tags", None)
+    if tag_names is not None:
+        dataset.tags = await get_or_create_tags(db, tag_names)
+
     for field, value in update_data.items():
         setattr(dataset, field, value)
 
@@ -160,30 +280,41 @@ async def get_stale_processing_jobs(db: AsyncSession) -> list[UploadJob]:
 async def get_browsable_datasets(
     db: AsyncSession,
     user_authenticated: bool,
+    user_id: UUID | None = None,
     skip: int = 0,
     limit: int = 100,
 ) -> tuple[list[Dataset], int]:
     """Get datasets that are browsable based on authentication status.
 
-    - Anonymous users: only public datasets (is_public=True)
-    - Authenticated users: all visible datasets (is_visible=True)
+    - Anonymous users: only public datasets (is_public=True), no project data
+    - Authenticated users: visible reference data + project data they have access to
     """
     query = select(Dataset)
     count_query = select(func.count(Dataset.id))
 
-    if user_authenticated:
-        # Authenticated users see all visible datasets
-        query = query.where(Dataset.is_visible == True)
-        count_query = count_query.where(Dataset.is_visible == True)
+    if user_authenticated and user_id:
+        # Authenticated: visible reference data OR project data where user is a member
+        user_project_ids = (
+            select(ProjectMember.project_id)
+            .where(ProjectMember.user_id == user_id)
+        )
+        visibility_filter = or_(
+            # Reference data (or uncategorized) that is visible
+            Dataset.project_id.is_(None),
+            # Project data where user is a member
+            Dataset.project_id.in_(user_project_ids),
+        )
+        query = query.where(Dataset.is_visible == True).where(visibility_filter)
+        count_query = count_query.where(Dataset.is_visible == True).where(visibility_filter)
     else:
-        # Anonymous users only see public datasets
-        query = query.where(Dataset.is_public == True)
-        count_query = count_query.where(Dataset.is_public == True)
+        # Anonymous users only see public datasets, never project data
+        query = query.where(Dataset.is_public == True).where(Dataset.project_id.is_(None))
+        count_query = count_query.where(Dataset.is_public == True).where(Dataset.project_id.is_(None))
 
     query = query.order_by(Dataset.created_at.desc()).offset(skip).limit(limit)
 
     result = await db.execute(query)
-    datasets = list(result.scalars().all())
+    datasets = list(result.scalars().unique().all())
 
     count_result = await db.execute(count_query)
     total = count_result.scalar()
@@ -268,7 +399,7 @@ async def query_features(
                 continue
 
             param_name = f"filter_val_{i}"
-            field_accessor = f"(properties->>'{f.field}')"
+            field_accessor = f"(properties->>'{_escape_field_name(f.field)}')"
 
             if f.operator == FilterOperator.eq:
                 where_clauses.append(f"{field_accessor} = :{param_name}")
@@ -311,7 +442,7 @@ async def query_features(
         if sort_field == "id":
             order_sql = f"id {sort_order.upper()}"
         elif _validate_field_name(sort_field):
-            order_sql = f"properties->>'{sort_field}' {sort_order.upper()}"
+            order_sql = f"properties->>'{_escape_field_name(sort_field)}' {sort_order.upper()}"
 
     # Calculate offset
     offset = (page - 1) * page_size

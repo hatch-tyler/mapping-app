@@ -3,11 +3,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from pydantic import Field
+
 from app.database import get_db
 from app.schemas.auth import Token, LoginRequest, RefreshRequest
 from app.schemas.user import UserCreate, UserResponse
 from app.core.security import (
     verify_password,
+    get_password_hash,
     create_access_token,
     create_refresh_token,
     verify_token,
@@ -218,3 +221,93 @@ async def resend_confirmation(
     return ResendConfirmationResponse(
         message="If an account with that email exists and is pending confirmation, a new email has been sent."
     )
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ForgotPasswordResponse(BaseModel):
+    message: str
+
+
+@router.post("/forgot-password", response_model=ForgotPasswordResponse)
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Request a password reset link. Always returns success to avoid leaking user existence."""
+    user = await user_crud.get_user_by_email(db, request.email)
+
+    if not user or not user.is_active:
+        return ForgotPasswordResponse(
+            message="If an account with that email exists, a password reset link has been sent."
+        )
+
+    # Delete any existing password reset tokens for this user
+    await token_crud.delete_user_tokens(db, user.id, TokenType.PASSWORD_RESET)
+
+    # Create a new password reset token
+    reset_token = await token_crud.create_confirmation_token(
+        db, user.id, TokenType.PASSWORD_RESET
+    )
+
+    # Try to send email, or print URL to logs
+    sent = await email_service.send_password_reset(
+        user.email,
+        user.full_name,
+        reset_token.token,
+        settings.EMAIL_CONFIRMATION_TOKEN_EXPIRE_HOURS,
+    )
+
+    if not sent:
+        reset_url = f"{settings.APP_URL}/reset-password?token={reset_token.token}"
+        print(f"\n{'='*60}")
+        print(f"PASSWORD RESET (SMTP not configured)")
+        print(f"To: {user.email}")
+        print(f"Reset URL: {reset_url}")
+        print(f"{'='*60}\n")
+
+    return ForgotPasswordResponse(
+        message="If an account with that email exists, a password reset link has been sent."
+    )
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(min_length=8)
+
+
+class ResetPasswordResponse(BaseModel):
+    message: str
+
+
+@router.post("/reset-password", response_model=ResetPasswordResponse)
+async def reset_password(
+    request: ResetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """Reset password using a valid reset token."""
+    confirmation = await token_crud.get_valid_token(
+        db, request.token, TokenType.PASSWORD_RESET
+    )
+
+    if not confirmation:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired reset token",
+        )
+
+    user = await user_crud.get_user(db, confirmation.user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    # Update password and mark token as used
+    user.hashed_password = get_password_hash(request.new_password)
+    await token_crud.mark_token_used(db, confirmation)
+    await db.commit()
+
+    return ResetPasswordResponse(message="Password has been reset successfully.")

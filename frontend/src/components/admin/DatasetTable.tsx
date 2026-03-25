@@ -1,23 +1,28 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import { Dataset, StyleConfig } from '../../api/types';
+import { Dataset, DatasetCategory, GeographicScope, StyleConfig, Project } from '../../api/types';
 import { VisibilityToggle } from './VisibilityToggle';
 import { PublicToggle } from './PublicToggle';
 import { ShareUrlModal } from './ShareUrlModal';
 import { StyleEditor } from '../styling/StyleEditor';
+import * as projectsApi from '../../api/projects';
 
 interface Props {
   datasets: Dataset[];
   onToggleVisibility: (id: string, visible: boolean) => void;
   onTogglePublic: (id: string, isPublic: boolean) => void;
   onDelete: (id: string) => void;
-  onUpdate?: (id: string, data: { name?: string; description?: string; style_config?: StyleConfig }) => void;
+  onUpdate?: (id: string, data: Partial<Dataset>) => void;
 }
 
 interface EditState {
   id: string;
   name: string;
   description: string;
+  category: DatasetCategory;
+  geographic_scope: GeographicScope | '';
+  project_id: string;
+  tags: string;
 }
 
 export function DatasetTable({
@@ -31,6 +36,11 @@ export function DatasetTable({
   const [shareModalDataset, setShareModalDataset] = useState<Dataset | null>(null);
   const [styleModalDataset, setStyleModalDataset] = useState<Dataset | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+
+  useEffect(() => {
+    projectsApi.getProjects().then((r) => setProjects(r.projects)).catch(() => {});
+  }, []);
 
   const handleDelete = (id: string) => {
     if (deleteConfirm === id) {
@@ -46,6 +56,10 @@ export function DatasetTable({
       id: dataset.id,
       name: dataset.name,
       description: dataset.description || '',
+      category: dataset.category || 'reference',
+      geographic_scope: dataset.geographic_scope || '',
+      project_id: dataset.project_id || '',
+      tags: (dataset.tags || []).join(', '),
     });
   };
 
@@ -54,7 +68,11 @@ export function DatasetTable({
       onUpdate(editState.id, {
         name: editState.name,
         description: editState.description || undefined,
-      });
+        category: editState.category,
+        geographic_scope: editState.geographic_scope || null,
+        project_id: editState.category === 'project' && editState.project_id ? editState.project_id : null,
+        tags: editState.tags ? editState.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+      } as Partial<Dataset>);
       setEditState(null);
     }
   };
@@ -65,7 +83,7 @@ export function DatasetTable({
 
   const handleStyleSave = (styleConfig: StyleConfig) => {
     if (styleModalDataset && onUpdate) {
-      onUpdate(styleModalDataset.id, { style_config: styleConfig });
+      onUpdate(styleModalDataset.id, { style_config: styleConfig as unknown as Record<string, unknown> });
       setStyleModalDataset(null);
     }
   };
@@ -116,7 +134,7 @@ export function DatasetTable({
           {datasets.map((dataset) => (
             <tr key={dataset.id} className="hover:bg-gray-50">
               <td className="px-4 py-3">
-                <div className="flex flex-col min-w-0">
+                <div className="flex flex-col min-w-0 gap-0.5">
                   <span
                     className="text-sm font-medium text-gray-900 truncate"
                     title={dataset.name}
@@ -131,6 +149,26 @@ export function DatasetTable({
                       {dataset.description}
                     </span>
                   )}
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {dataset.source_type === 'external' && (
+                      <span className="inline-flex px-1.5 py-0 text-[10px] font-medium rounded bg-green-100 text-green-700">
+                        External
+                      </span>
+                    )}
+                    {dataset.geographic_scope && (
+                      <span className="inline-flex px-1.5 py-0 text-[10px] font-medium rounded bg-amber-100 text-amber-700 capitalize">
+                        {dataset.geographic_scope}
+                      </span>
+                    )}
+                    {dataset.tags?.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex px-1.5 py-0 text-[10px] font-medium rounded bg-gray-100 text-gray-600"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
                 </div>
               </td>
               <td className="px-3 py-3 whitespace-nowrap">
@@ -277,10 +315,80 @@ export function DatasetTable({
                   onChange={(e) =>
                     setEditState({ ...editState, description: e.target.value })
                   }
-                  rows={3}
+                  rows={2}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                   placeholder="Enter description (optional)"
                 />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="radio"
+                      name="edit-category"
+                      value="reference"
+                      checked={editState.category === 'reference'}
+                      onChange={() => setEditState({ ...editState, category: 'reference', project_id: '' })}
+                    />
+                    Reference
+                  </label>
+                  <label className="flex items-center gap-1.5 text-sm">
+                    <input
+                      type="radio"
+                      name="edit-category"
+                      value="project"
+                      checked={editState.category === 'project'}
+                      onChange={() => setEditState({ ...editState, category: 'project', geographic_scope: '' })}
+                    />
+                    Project
+                  </label>
+                </div>
+              </div>
+              {editState.category === 'reference' && (
+                <div>
+                  <label htmlFor="edit-scope" className="block text-sm font-medium text-gray-700 mb-1">Geographic Scope</label>
+                  <select
+                    id="edit-scope"
+                    value={editState.geographic_scope}
+                    onChange={(e) => setEditState({ ...editState, geographic_scope: e.target.value as GeographicScope | '' })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select scope (optional)</option>
+                    <option value="federal">Federal</option>
+                    <option value="state">State</option>
+                    <option value="county">County</option>
+                    <option value="local">Local</option>
+                  </select>
+                </div>
+              )}
+              {editState.category === 'project' && projects.length > 0 && (
+                <div>
+                  <label htmlFor="edit-project" className="block text-sm font-medium text-gray-700 mb-1">Project</label>
+                  <select
+                    id="edit-project"
+                    value={editState.project_id}
+                    onChange={(e) => setEditState({ ...editState, project_id: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Select project</option>
+                    {projects.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <div>
+                <label htmlFor="edit-tags" className="block text-sm font-medium text-gray-700 mb-1">Tags</label>
+                <input
+                  type="text"
+                  id="edit-tags"
+                  value={editState.tags}
+                  onChange={(e) => setEditState({ ...editState, tags: e.target.value })}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="e.g. boundaries, parcels, zoning"
+                />
+                <p className="text-xs text-gray-400 mt-0.5">Comma-separated</p>
               </div>
             </div>
             <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">

@@ -66,7 +66,7 @@ async def lifespan(app: FastAPI):
         if acquired:
             try:
                 logger.info("Running database initialization")
-                from app.models import user, dataset, registration, email_confirmation  # noqa: F401
+                from app.models import user, dataset, registration, email_confirmation, tag, project, service_catalog  # noqa: F401
                 from app.database import Base
 
                 await conn.run_sync(Base.metadata.create_all)

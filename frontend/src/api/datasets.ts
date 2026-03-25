@@ -3,6 +3,7 @@ import axios, { AxiosProgressEvent } from 'axios';
 import {
   Dataset,
   DatasetListResponse,
+  DatasetFilters,
   GeoJSONFeatureCollection,
   FieldMetadataResponse,
   FeatureQueryResponse,
@@ -34,10 +35,21 @@ publicClient.interceptors.request.use((config) => {
 export async function getDatasets(
   skip = 0,
   limit = 100,
-  visibleOnly = false
+  visibleOnly = false,
+  filters?: DatasetFilters
 ): Promise<DatasetListResponse> {
+  const params: Record<string, unknown> = { skip, limit, visible_only: visibleOnly };
+  if (filters) {
+    if (filters.search) params.search = filters.search;
+    if (filters.category) params.category = filters.category;
+    if (filters.source_type) params.source_type = filters.source_type;
+    if (filters.geographic_scope) params.geographic_scope = filters.geographic_scope;
+    if (filters.data_type) params.data_type = filters.data_type;
+    if (filters.tags) params.tags = filters.tags;
+    if (filters.project_id) params.project_id = filters.project_id;
+  }
   const response = await apiClient.get<DatasetListResponse>('/datasets/', {
-    params: { skip, limit, visible_only: visibleOnly },
+    params,
   });
   return response.data;
 }
@@ -92,11 +104,19 @@ export async function getDatasetGeoJSON(
   return response.data;
 }
 
+export interface UploadOptions {
+  category?: string;
+  geographic_scope?: string;
+  project_id?: string;
+  tags?: string;
+}
+
 export async function uploadVector(
   file: File,
   name: string,
   description?: string,
-  onUploadProgress?: (event: AxiosProgressEvent) => void
+  onUploadProgress?: (event: AxiosProgressEvent) => void,
+  options?: UploadOptions
 ): Promise<UploadJob> {
   const formData = new FormData();
   formData.append('file', file);
@@ -104,6 +124,10 @@ export async function uploadVector(
   if (description) {
     formData.append('description', description);
   }
+  if (options?.category) formData.append('category', options.category);
+  if (options?.geographic_scope) formData.append('geographic_scope', options.geographic_scope);
+  if (options?.project_id) formData.append('project_id', options.project_id);
+  if (options?.tags) formData.append('tags', options.tags);
 
   const response = await uploadClient.post<UploadJob>('/upload/vector', formData, {
     onUploadProgress,
@@ -115,7 +139,8 @@ export async function uploadRaster(
   file: File,
   name: string,
   description?: string,
-  onUploadProgress?: (event: AxiosProgressEvent) => void
+  onUploadProgress?: (event: AxiosProgressEvent) => void,
+  options?: UploadOptions
 ): Promise<UploadJob> {
   const formData = new FormData();
   formData.append('file', file);
@@ -123,6 +148,10 @@ export async function uploadRaster(
   if (description) {
     formData.append('description', description);
   }
+  if (options?.category) formData.append('category', options.category);
+  if (options?.geographic_scope) formData.append('geographic_scope', options.geographic_scope);
+  if (options?.project_id) formData.append('project_id', options.project_id);
+  if (options?.tags) formData.append('tags', options.tags);
 
   const response = await uploadClient.post<UploadJob>('/upload/raster', formData, {
     onUploadProgress,

@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useState, useEffect } from 'react';
+import { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import DeckGL from '@deck.gl/react';
 import { Map } from 'react-map-gl/maplibre';
 import type { StyleSpecification } from 'maplibre-gl';
@@ -69,7 +69,9 @@ export function MapContainer() {
   }, [visibleDatasetsList]);
 
   // Update clustered layers when zoom or datasets change
+  const clusterRequestId = useRef(0);
   useEffect(() => {
+    const requestId = ++clusterRequestId.current;
     const updateClusters = async () => {
       const newClusteredLayers: Record<string, unknown> = {};
 
@@ -84,7 +86,10 @@ export function MapContainer() {
         }
       }
 
-      setClusteredLayers(newClusteredLayers);
+      // Only update if this is still the latest request
+      if (requestId === clusterRequestId.current) {
+        setClusteredLayers(newClusteredLayers);
+      }
     };
 
     updateClusters();

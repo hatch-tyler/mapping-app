@@ -3,6 +3,7 @@ import { TileLayer, MVTLayer } from '@deck.gl/geo-layers';
 import { BitmapLayer } from '@deck.gl/layers';
 import { Dataset, GeoJSONFeatureCollection } from '../api/types';
 import { getGeoJSONUrl, getRasterTileUrl, getMVTTileUrl } from '../api/datasets';
+import { API_URL } from '../api/client';
 import { createStyleAccessors, DEFAULT_STYLE } from './styleInterpreter';
 
 const MVT_FEATURE_THRESHOLD = 10000;
@@ -20,6 +21,11 @@ export function createLayerFromDataset(
   dataset: Dataset,
   data?: GeoJSONFeatureCollection | null
 ): LayerType {
+  // External datasets use proxy-based layers
+  if (dataset.source_type === 'external') {
+    return createExternalLayer(dataset);
+  }
+
   if (dataset.data_type === 'vector') {
     // If explicit data is passed, always use GeoJsonLayer
     if (data) {
@@ -37,6 +43,109 @@ export function createLayerFromDataset(
   }
 
   return null;
+}
+
+function createExternalLayer(dataset: Dataset): LayerType {
+  const token = localStorage.getItem('access_token');
+  const baseUrl = API_URL || window.location.origin;
+  const proxyBase = `${baseUrl}/api/v1/external-sources/${dataset.id}/proxy`;
+  const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+  switch (dataset.service_type) {
+    case 'xyz':
+      // XYZ tiles can often be loaded directly
+      return new TileLayer({
+        id: `ext-xyz-${dataset.id}`,
+        data: dataset.service_url || '',
+        tileSize: 256,
+        minZoom: dataset.min_zoom,
+        maxZoom: dataset.max_zoom,
+        renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
+          const { boundingBox } = props.tile;
+          return new BitmapLayer({
+            ...props,
+            data: undefined,
+            image: props.data as string,
+            bounds: [boundingBox[0][0], boundingBox[0][1], boundingBox[1][0], boundingBox[1][1]],
+          });
+        },
+      });
+
+    case 'arcgis_map':
+      // ArcGIS MapServer tiles: {url}/tile/{z}/{y}/{x}
+      return new TileLayer({
+        id: `ext-arcmap-${dataset.id}`,
+        data: `${dataset.service_url}/tile/{z}/{y}/{x}`,
+        tileSize: 256,
+        minZoom: dataset.min_zoom,
+        maxZoom: dataset.max_zoom,
+        renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
+          const { boundingBox } = props.tile;
+          return new BitmapLayer({
+            ...props,
+            data: undefined,
+            image: props.data as string,
+            bounds: [boundingBox[0][0], boundingBox[0][1], boundingBox[1][0], boundingBox[1][1]],
+          });
+        },
+      });
+
+    case 'wms': {
+      // WMS via proxy with GetMap requests
+      const layerId = dataset.service_layer_id || '';
+      const wmsUrl = `${proxyBase}?service=WMS&request=GetMap&layers=${encodeURIComponent(layerId)}&styles=&format=image/png&transparent=true&version=1.1.1&srs=EPSG:4326&width=256&height=256&bbox={west},{south},{east},{north}`;
+      return new TileLayer({
+        id: `ext-wms-${dataset.id}`,
+        data: wmsUrl,
+        tileSize: 256,
+        minZoom: dataset.min_zoom,
+        maxZoom: dataset.max_zoom,
+        loadOptions: { fetch: { headers: authHeaders } },
+        renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
+          const { boundingBox } = props.tile;
+          return new BitmapLayer({
+            ...props,
+            data: undefined,
+            image: props.data as string,
+            bounds: [boundingBox[0][0], boundingBox[0][1], boundingBox[1][0], boundingBox[1][1]],
+          });
+        },
+      });
+    }
+
+    case 'wfs':
+    case 'arcgis_feature': {
+      // Vector features via proxy — load as GeoJSON
+      const styleAccessors = createStyleAccessors(dataset.style_config);
+      let dataUrl: string;
+      if (dataset.service_type === 'wfs') {
+        dataUrl = `${proxyBase}?service=WFS&request=GetFeature&typeName=${encodeURIComponent(dataset.service_layer_id || '')}&outputFormat=application/json&srsName=EPSG:4326&maxFeatures=50000`;
+      } else {
+        dataUrl = `${proxyBase}?f=geojson&where=1=1&outFields=*&outSR=4326&resultRecordCount=50000`;
+      }
+      return new GeoJsonLayer({
+        id: `ext-vec-${dataset.id}`,
+        data: dataUrl,
+        loadOptions: { fetch: { headers: authHeaders } },
+        pickable: true,
+        stroked: true,
+        filled: true,
+        pointType: 'circle',
+        lineWidthMinPixels: 2,
+        pointRadiusUnits: 'meters',
+        pointRadiusMinPixels: styleAccessors.pointRadiusMinPixels,
+        pointRadiusMaxPixels: styleAccessors.pointRadiusMaxPixels,
+        getFillColor: styleAccessors.getFillColor,
+        getLineColor: styleAccessors.getLineColor,
+        getPointRadius: styleAccessors.getPointRadius,
+        getLineWidth: styleAccessors.getLineWidth,
+        updateTriggers: styleAccessors.updateTriggers,
+      });
+    }
+
+    default:
+      return null;
+  }
 }
 
 function createVectorLayer(

@@ -1,13 +1,15 @@
 import { create } from 'zustand';
-import { Dataset } from '../api/types';
+import { Dataset, DatasetFilters } from '../api/types';
 import * as datasetsApi from '../api/datasets';
 
 interface DatasetState {
   datasets: Dataset[];
   loading: boolean;
   error: string | null;
+  filters: DatasetFilters;
 
-  fetchDatasets: () => Promise<void>;
+  fetchDatasets: (filters?: DatasetFilters) => Promise<void>;
+  setFilters: (filters: DatasetFilters) => void;
   addDataset: (dataset: Dataset) => void;
   updateDataset: (id: string, updates: Partial<Dataset>) => void;
   removeDataset: (id: string) => void;
@@ -20,11 +22,13 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
   datasets: [],
   loading: false,
   error: null,
+  filters: {},
 
-  fetchDatasets: async () => {
+  fetchDatasets: async (filters?: DatasetFilters) => {
     set({ loading: true, error: null });
     try {
-      const response = await datasetsApi.getDatasets();
+      const activeFilters = filters ?? get().filters;
+      const response = await datasetsApi.getDatasets(0, 500, false, activeFilters);
       set({ datasets: response.datasets, loading: false });
     } catch (error) {
       set({
@@ -32,6 +36,11 @@ export const useDatasetStore = create<DatasetState>((set, get) => ({
         loading: false,
       });
     }
+  },
+
+  setFilters: (filters) => {
+    set({ filters });
+    get().fetchDatasets(filters);
   },
 
   addDataset: (dataset) =>

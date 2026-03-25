@@ -10,25 +10,34 @@ A production-grade Web GIS application for geospatial data visualization and man
 
 ### Frontend (from `frontend/`)
 ```bash
-npm install              # Install dependencies
-npm run dev              # Start Vite dev server (port 5173)
-npm run build            # TypeScript compile + Vite build
-npm run lint             # ESLint for TS/TSX files
-npm run test             # Vitest watch mode
-npm run test:run         # Vitest single run
-npm run test:coverage    # Vitest with coverage
+npm install                              # Install dependencies
+npm run dev                              # Start Vite dev server (port 5173)
+npm run build                            # TypeScript compile + Vite build
+npm run lint                             # ESLint for TS/TSX files
+npm run test                             # Vitest watch mode
+npm run test:run                         # Vitest single run
+npm run test:coverage                    # Vitest with coverage
+npx vitest run src/path/to/file.test.ts  # Run a single test file
 ```
 
 ### Backend (from `backend/`)
 ```bash
 pip install -e ".[dev]"              # Install with dev dependencies
 uvicorn app.main:app --reload        # Start FastAPI dev server (port 8000)
-pytest                               # Run all tests
-pytest -v                            # Verbose test output
+pytest                               # Run all tests (verbose by default via pytest.ini)
+pytest tests/test_file.py            # Run a single test file
+pytest tests/test_file.py::test_name # Run a single test function
 pytest --cov                         # Tests with coverage
 black .                              # Format code
 ruff check .                         # Lint code
 mypy .                               # Type checking
+```
+
+### Database Migrations (from `backend/`)
+```bash
+alembic upgrade head                 # Apply all migrations
+alembic revision --autogenerate -m "description"  # Generate new migration
+alembic downgrade -1                 # Rollback last migration
 ```
 
 ### Docker (local dev stack)
@@ -184,7 +193,9 @@ Key config: `azure/terraform/terraform.tfvars`
 - TypeScript strict mode
 - React 18 with hooks
 - Tailwind CSS for styling
-- 95% coverage thresholds in Vitest
+- Path alias: `@` maps to `src/` (use `@/components/...` etc.)
+- Coverage thresholds: 95% statements/lines, 90% branches/functions
+- Tests use jsdom environment with globals enabled (no need to import `describe`/`it`/`expect`)
 
 ## Key Files
 

@@ -3,18 +3,23 @@ import { Link } from 'react-router-dom';
 import { DatasetTable } from '../components/admin/DatasetTable';
 import { UploadForm } from '../components/admin/UploadForm';
 import { RegistrationRequests } from '../components/admin/RegistrationRequests';
+import { ProjectsTab } from '../components/admin/ProjectsTab';
+import { DatasetSearchBar } from '../components/admin/DatasetSearchBar';
+import { DatasetFilterPanel } from '../components/admin/DatasetFilterPanel';
+import { AddExternalSourceModal } from '../components/admin/AddExternalSourceModal';
 import { ChangePasswordModal } from '../components/common/ChangePasswordModal';
 import { useDatasetStore } from '../stores/datasetStore';
 import { useAuthStore } from '../stores/authStore';
-import { Dataset, StyleConfig } from '../api/types';
+import { Dataset } from '../api/types';
 import * as datasetsApi from '../api/datasets';
 
-type TabType = 'datasets' | 'registrations';
+type TabType = 'datasets' | 'projects' | 'registrations';
 
 export function AdminPage() {
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showAddExternal, setShowAddExternal] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('datasets');
-  const { datasets, loading, error, fetchDatasets, updateDataset, removeDataset } =
+  const { datasets, loading, error, filters, fetchDatasets, setFilters, updateDataset, removeDataset } =
     useDatasetStore();
   const { user, logout } = useAuthStore();
 
@@ -49,9 +54,9 @@ export function AdminPage() {
     }
   };
 
-  const handleUpdateDataset = async (id: string, data: { name?: string; description?: string; style_config?: StyleConfig }) => {
+  const handleUpdateDataset = async (id: string, data: Partial<Dataset>) => {
     try {
-      const updated = await datasetsApi.updateDataset(id, data as Partial<Dataset>);
+      const updated = await datasetsApi.updateDataset(id, data);
       updateDataset(id, updated);
     } catch (err) {
       console.error('Failed to update dataset:', err);
@@ -106,6 +111,16 @@ export function AdminPage() {
               Datasets
             </button>
             <button
+              onClick={() => setActiveTab('projects')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'projects'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Projects
+            </button>
+            <button
               onClick={() => setActiveTab('registrations')}
               className={`py-4 px-1 border-b-2 font-medium text-sm ${
                 activeTab === 'registrations'
@@ -136,10 +151,27 @@ export function AdminPage() {
             {/* Datasets Table */}
             <div className="lg:col-span-2 min-w-0">
               <div className="bg-white rounded-lg shadow overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200">
-                  <h2 className="text-lg font-semibold text-gray-900">
-                    Datasets ({datasets.length})
-                  </h2>
+                <div className="px-6 py-4 border-b border-gray-200 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-lg font-semibold text-gray-900">
+                      Datasets ({datasets.length})
+                    </h2>
+                    <button
+                      onClick={() => setShowAddExternal(true)}
+                      className="px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
+                    >
+                      + External Source
+                    </button>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="flex-1">
+                      <DatasetSearchBar
+                        value={filters.search || ''}
+                        onChange={(search) => setFilters({ ...filters, search: search || undefined })}
+                      />
+                    </div>
+                    <DatasetFilterPanel filters={filters} onChange={setFilters} />
+                  </div>
                 </div>
 
                 {loading && (
@@ -170,6 +202,12 @@ export function AdminPage() {
           </div>
         )}
 
+        {activeTab === 'projects' && (
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <ProjectsTab />
+          </div>
+        )}
+
         {activeTab === 'registrations' && (
           <div className="bg-white rounded-lg shadow">
             <div className="px-6 py-4 border-b border-gray-200">
@@ -181,6 +219,13 @@ export function AdminPage() {
           </div>
         )}
       </main>
+
+      {showAddExternal && (
+        <AddExternalSourceModal
+          onClose={() => setShowAddExternal(false)}
+          onSuccess={() => { setShowAddExternal(false); fetchDatasets(); }}
+        />
+      )}
     </div>
   );
 }

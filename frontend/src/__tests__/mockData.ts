@@ -1,4 +1,4 @@
-import { Dataset, User, FieldMetadata, FeatureRow, FeatureQueryResponse, FieldMetadataResponse } from '../api/types';
+import { Dataset, User, UploadJob, FieldMetadata, FeatureRow, FeatureQueryResponse, FieldMetadataResponse } from '../api/types';
 
 // Helper to create a complete Dataset mock with all required fields
 export function createMockDataset(overrides: Partial<Dataset> = {}): Dataset {
@@ -22,6 +22,29 @@ export function createMockDataset(overrides: Partial<Dataset> = {}): Dataset {
     created_by_id: 'user-1',
     created_at: '2024-01-01T00:00:00Z',
     updated_at: '2024-01-01T00:00:00Z',
+    source_type: 'local',
+    category: 'reference',
+    geographic_scope: null,
+    service_url: null,
+    service_type: null,
+    service_layer_id: null,
+    project_id: null,
+    is_privileged: false,
+    tags: [],
+    ...overrides,
+  };
+}
+
+// Helper to create a complete UploadJob mock with all required fields
+export function createMockUploadJob(overrides: Partial<UploadJob> = {}): UploadJob {
+  return {
+    id: 'job-1',
+    dataset_id: 'dataset-1',
+    status: 'completed',
+    progress: 100,
+    error_message: null,
+    created_at: '2024-01-01T00:00:00Z',
+    completed_at: '2024-01-01T00:01:00Z',
     ...overrides,
   };
 }
