@@ -1,27 +1,26 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { DatasetTable } from '../components/admin/DatasetTable';
-import { UploadForm } from '../components/admin/UploadForm';
+import { UploadModal } from '../components/admin/UploadModal';
 import { RegistrationRequests } from '../components/admin/RegistrationRequests';
 import { ProjectsTab } from '../components/admin/ProjectsTab';
 import { DatasetSearchBar } from '../components/admin/DatasetSearchBar';
 import { DatasetFilterPanel } from '../components/admin/DatasetFilterPanel';
 import { AddExternalSourceModal } from '../components/admin/AddExternalSourceModal';
-import { ChangePasswordModal } from '../components/common/ChangePasswordModal';
+import { Navbar } from '@/components/layout/Navbar';
 import { useDatasetStore } from '../stores/datasetStore';
-import { useAuthStore } from '../stores/authStore';
 import { Dataset } from '../api/types';
+import { apiClient } from '../api/client';
 import * as datasetsApi from '../api/datasets';
 
 type TabType = 'datasets' | 'projects' | 'registrations';
 
 export function AdminPage() {
-  const [showChangePassword, setShowChangePassword] = useState(false);
   const [showAddExternal, setShowAddExternal] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
+  const [refreshingMetadata, setRefreshingMetadata] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('datasets');
   const { datasets, loading, error, filters, fetchDatasets, setFilters, updateDataset, removeDataset } =
     useDatasetStore();
-  const { user, logout } = useAuthStore();
 
   useEffect(() => {
     fetchDatasets();
@@ -63,38 +62,27 @@ export function AdminPage() {
     }
   };
 
+  const handleRefreshAllMetadata = async () => {
+    setRefreshingMetadata(true);
+    try {
+      const [extResult, localResult] = await Promise.all([
+        apiClient.post('/external-sources/refresh-all-metadata'),
+        apiClient.post('/datasets/refresh-local-metadata'),
+      ]);
+      const ext = extResult.data;
+      const local = localResult.data;
+      alert(`Metadata refreshed.\nExternal: ${ext.updated} updated, ${ext.failed} failed.\nLocal: ${local.updated} updated.`);
+      fetchDatasets();
+    } catch {
+      alert('Failed to refresh metadata');
+    } finally {
+      setRefreshingMetadata(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-100">
-      {/* Header */}
-      <header className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h1 className="text-2xl font-bold text-gray-900">Admin Dashboard</h1>
-            <Link to="/" className="text-sm text-blue-600 hover:text-blue-800">
-              Back to Map
-            </Link>
-          </div>
-          <div className="flex items-center gap-4">
-            <span className="text-sm text-gray-600">{user?.email}</span>
-            <button
-              onClick={() => setShowChangePassword(true)}
-              className="text-sm text-blue-600 hover:text-blue-800"
-            >
-              Change Password
-            </button>
-            <button
-              onClick={() => logout()}
-              className="text-sm text-gray-500 hover:text-gray-700"
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {showChangePassword && (
-        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
-      )}
+      <Navbar />
 
       {/* Tabs */}
       <div className="border-b border-gray-200 bg-white">
@@ -137,25 +125,29 @@ export function AdminPage() {
       {/* Content */}
       <main className="max-w-7xl mx-auto px-4 py-8">
         {activeTab === 'datasets' && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Upload Section */}
-            <div className="lg:col-span-1">
-              <div className="bg-white rounded-lg shadow p-6">
-                <h2 className="text-lg font-semibold text-gray-900 mb-4">
-                  Upload Dataset
-                </h2>
-                <UploadForm onSuccess={fetchDatasets} />
-              </div>
-            </div>
-
-            {/* Datasets Table */}
-            <div className="lg:col-span-2 min-w-0">
-              <div className="bg-white rounded-lg shadow overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-200 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-lg font-semibold text-gray-900">
-                      Datasets ({datasets.length})
-                    </h2>
+          <div>
+            {/* Datasets Table - Full Width */}
+            <div className="bg-white rounded-lg shadow overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-200 space-y-3">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-gray-900">
+                    Datasets ({datasets.length})
+                  </h2>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleRefreshAllMetadata}
+                      disabled={refreshingMetadata}
+                      className="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50"
+                      title="Re-fetch metadata for all datasets"
+                    >
+                      {refreshingMetadata ? 'Refreshing...' : 'Refresh Metadata'}
+                    </button>
+                    <button
+                      onClick={() => setShowUpload(true)}
+                      className="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
+                    >
+                      + Upload Dataset
+                    </button>
                     <button
                       onClick={() => setShowAddExternal(true)}
                       className="px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
@@ -163,6 +155,7 @@ export function AdminPage() {
                       + External Source
                     </button>
                   </div>
+                </div>
                   <div className="flex items-start gap-3">
                     <div className="flex-1">
                       <DatasetSearchBar
@@ -197,7 +190,6 @@ export function AdminPage() {
                     onUpdate={handleUpdateDataset}
                   />
                 )}
-              </div>
             </div>
           </div>
         )}
@@ -219,6 +211,13 @@ export function AdminPage() {
           </div>
         )}
       </main>
+
+      {showUpload && (
+        <UploadModal
+          onClose={() => setShowUpload(false)}
+          onSuccess={() => { setShowUpload(false); fetchDatasets(); }}
+        />
+      )}
 
       {showAddExternal && (
         <AddExternalSourceModal

@@ -324,3 +324,161 @@ async def export_selected_features(
 
     else:
         raise HTTPException(status_code=400, detail="Unsupported format. Use 'csv' or 'geojson'")
+
+
+@router.get("/external/{dataset_id}/{format}")
+async def export_external_dataset(
+    dataset_id: UUID,
+    format: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    """Export an external vector dataset by fetching features from the remote service.
+
+    Supported formats: geojson, gpkg, shp, kml
+    Features are fetched with pagination, capped at 10,000 features.
+    """
+    from app.services.external_source import fetch_all_features
+    from shapely.geometry import shape
+
+    if format not in ("geojson", "gpkg", "shp", "kml"):
+        raise HTTPException(status_code=400, detail="Unsupported format")
+
+    dataset = await get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    if dataset.source_type != "external":
+        raise HTTPException(status_code=400, detail="Not an external dataset")
+
+    if dataset.service_type not in ("arcgis_feature", "wfs"):
+        raise HTTPException(status_code=400, detail="Export only available for vector external sources")
+
+    # Access control
+    if not dataset.is_public and current_user is None:
+        raise HTTPException(status_code=403, detail="Dataset is not public")
+
+    # Fetch all features from the external service
+    geojson_data = await fetch_all_features(
+        service_url=dataset.service_url,
+        service_type=dataset.service_type,
+        layer_id=dataset.service_layer_id or "0",
+        max_features=10000,
+    )
+
+    features = geojson_data.get("features", [])
+    if not features:
+        raise HTTPException(status_code=404, detail="No features returned from external service")
+
+    name = re.sub(r'[^\w\s-]', '', dataset.name)[:64].strip() or "export"
+    safe_name = name.replace(' ', '_')
+
+    # GeoJSON: return directly
+    if format == "geojson":
+        content = json.dumps(geojson_data, indent=2)
+        return StreamingResponse(
+            io.BytesIO(content.encode("utf-8")),
+            media_type="application/geo+json",
+            headers={
+                "Content-Disposition": f'attachment; filename="{safe_name}.geojson"',
+                "Access-Control-Allow-Origin": "*",
+            },
+        )
+
+    # Build GeoDataFrame for other formats
+    rows = []
+    geometries = []
+    for feat in features:
+        props = feat.get("properties", {}) or {}
+        geom = feat.get("geometry")
+        if geom:
+            try:
+                geometries.append(shape(geom))
+                rows.append(props)
+            except Exception:
+                continue
+
+    if not rows:
+        raise HTTPException(status_code=400, detail="No valid features to export")
+
+    gdf = gpd.GeoDataFrame(rows, geometry=geometries, crs="EPSG:4326")
+
+    if format == "gpkg":
+        tmp_path = tempfile.mktemp(suffix=".gpkg")
+        try:
+            gdf.to_file(tmp_path, driver="GPKG", layer=safe_name)
+            data = open(tmp_path, "rb").read()
+            return StreamingResponse(
+                io.BytesIO(data),
+                media_type="application/geopackage+sqlite3",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{safe_name}.gpkg"',
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+
+    elif format == "shp":
+        tmp_dir = tempfile.mkdtemp()
+        shp_path = os.path.join(tmp_dir, f"{safe_name}.shp")
+        try:
+            # Truncate field names to 10 chars for Shapefile
+            rename_map = {}
+            seen = set()
+            for col in gdf.columns:
+                if col == "geometry":
+                    continue
+                short = col[:10]
+                if short in seen:
+                    for i in range(1, 100):
+                        candidate = f"{col[:8]}{i:02d}"
+                        if candidate not in seen:
+                            short = candidate
+                            break
+                seen.add(short)
+                if short != col:
+                    rename_map[col] = short
+            if rename_map:
+                gdf = gdf.rename(columns=rename_map)
+
+            gdf.to_file(shp_path, driver="ESRI Shapefile")
+
+            zip_buffer = io.BytesIO()
+            with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+                for fname in os.listdir(tmp_dir):
+                    fpath = os.path.join(tmp_dir, fname)
+                    zf.write(fpath, fname)
+            zip_buffer.seek(0)
+
+            return StreamingResponse(
+                zip_buffer,
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{safe_name}.zip"',
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
+        finally:
+            import shutil
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    elif format == "kml":
+        tmp_path = tempfile.mktemp(suffix=".kml")
+        try:
+            if gdf.crs and gdf.crs.to_epsg() != 4326:
+                gdf = gdf.to_crs(epsg=4326)
+            gdf.to_file(tmp_path, driver="KML")
+            data = open(tmp_path, "rb").read()
+            return StreamingResponse(
+                io.BytesIO(data),
+                media_type="application/vnd.google-earth.kml+xml",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{safe_name}.kml"',
+                    "Access-Control-Allow-Origin": "*",
+                },
+            )
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)

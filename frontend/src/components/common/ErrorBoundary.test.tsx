@@ -48,18 +48,16 @@ describe('ErrorBoundary', () => {
     ).toBeInTheDocument();
   });
 
-  it('should display error message in details', () => {
+  it('should show contact support message instead of raw error details', () => {
     render(
       <ErrorBoundary>
         <ThrowingComponent shouldThrow={true} />
       </ErrorBoundary>
     );
 
-    // Click to expand details
-    const details = screen.getByText('Error details');
-    fireEvent.click(details);
-
-    expect(screen.getByText('Test error message')).toBeInTheDocument();
+    expect(screen.getByText('If the problem persists, please contact support.')).toBeInTheDocument();
+    // Should NOT expose raw error message
+    expect(screen.queryByText('Test error message')).not.toBeInTheDocument();
   });
 
   it('should render custom fallback when provided', () => {
@@ -137,17 +135,14 @@ describe('ErrorBoundary', () => {
     expect(container).toBeInTheDocument();
   });
 
-  it('should have expandable error details', () => {
+  it('should not have expandable error details (no stack trace exposure)', () => {
     render(
       <ErrorBoundary>
         <ThrowingComponent shouldThrow={true} />
       </ErrorBoundary>
     );
 
-    const details = document.querySelector('details');
-    expect(details).toBeInTheDocument();
-
-    const summary = document.querySelector('summary');
-    expect(summary?.textContent).toBe('Error details');
+    expect(document.querySelector('details')).not.toBeInTheDocument();
+    expect(document.querySelector('summary')).not.toBeInTheDocument();
   });
 });

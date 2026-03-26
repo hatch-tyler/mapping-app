@@ -80,7 +80,7 @@ async def get_feature_server(
     except Exception as e:
         logger.exception(f"Error getting feature server info for {service_name}")
         return json_response(
-            {"error": {"code": 500, "message": str(e)}},
+            {"error": {"code": 500, "message": "An error occurred processing the request"}},
             status_code=500,
         )
 
@@ -147,7 +147,7 @@ async def get_layer(
     except Exception as e:
         logger.exception(f"Error getting layer info for {service_name}/{layer_id}")
         return json_response(
-            {"error": {"code": 500, "message": str(e)}},
+            {"error": {"code": 500, "message": "An error occurred processing the request"}},
             status_code=500,
         )
 
@@ -297,7 +297,7 @@ async def query_layer(
     except Exception as e:
         logger.exception(f"Error querying layer {service_name}/{layer_id}")
         return json_response(
-            {"error": {"code": 500, "message": str(e)}},
+            {"error": {"code": 500, "message": "An error occurred processing the request"}},
             status_code=500,
         )
 

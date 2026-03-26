@@ -3,9 +3,13 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { DataPage } from './DataPage';
 import { useAuthStore } from '../stores/authStore';
-import { createMockDataset, createMockUser } from '../__tests__/mockData';
+import { createMockDataset } from '../__tests__/mockData';
 
 // Mock child components
+vi.mock('../components/layout/Navbar', () => ({
+  Navbar: () => <nav data-testid="navbar">Navbar</nav>,
+}));
+
 vi.mock('../components/data/DatasetList', () => ({
   DatasetList: ({ selectedDataset, onSelectDataset }: {
     selectedDataset: unknown;
@@ -51,70 +55,10 @@ describe('DataPage', () => {
     );
   };
 
-  it('should render header with Data Browser title', () => {
+  it('should render Navbar', () => {
     renderDataPage();
 
-    expect(screen.getByText('Data Browser')).toBeInTheDocument();
-  });
-
-  it('should render Back to Map link', () => {
-    renderDataPage();
-
-    expect(screen.getByText('Back to Map')).toBeInTheDocument();
-  });
-
-  it('should render Login link when not authenticated', () => {
-    renderDataPage();
-
-    expect(screen.getByText('Login')).toBeInTheDocument();
-  });
-
-  it('should render user email and logout when authenticated', () => {
-    useAuthStore.setState({
-      user: createMockUser({ email: 'user@example.com', is_admin: false }),
-      logout: mockLogout,
-    });
-
-    renderDataPage();
-
-    expect(screen.getByText('user@example.com')).toBeInTheDocument();
-    expect(screen.getByText('Logout')).toBeInTheDocument();
-    expect(screen.queryByText('Login')).not.toBeInTheDocument();
-  });
-
-  it('should render Admin Dashboard link for admin users', () => {
-    useAuthStore.setState({
-      user: createMockUser({ email: 'admin@example.com', is_admin: true }),
-      logout: mockLogout,
-    });
-
-    renderDataPage();
-
-    expect(screen.getByText('Admin Dashboard')).toBeInTheDocument();
-  });
-
-  it('should not render Admin Dashboard link for non-admin users', () => {
-    useAuthStore.setState({
-      user: createMockUser({ email: 'user@example.com', is_admin: false }),
-      logout: mockLogout,
-    });
-
-    renderDataPage();
-
-    expect(screen.queryByText('Admin Dashboard')).not.toBeInTheDocument();
-  });
-
-  it('should call logout when logout button clicked', () => {
-    useAuthStore.setState({
-      user: createMockUser({ email: 'user@example.com', is_admin: false }),
-      logout: mockLogout,
-    });
-
-    renderDataPage();
-
-    fireEvent.click(screen.getByText('Logout'));
-
-    expect(mockLogout).toHaveBeenCalled();
+    expect(screen.getByTestId('navbar')).toBeInTheDocument();
   });
 
   it('should render DatasetList component', () => {

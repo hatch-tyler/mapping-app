@@ -56,7 +56,14 @@ class DatasetResponse(DatasetBase):
     service_type: str | None = None
     service_layer_id: str | None = None
     project_id: UUID | None = None
+    project_name: str | None = None
+    linked_project_ids: list[UUID] = Field(default_factory=list)
+    linked_project_names: list[str] = Field(default_factory=list)
+    service_metadata: dict | None = None
     is_privileged: bool = False
+    file_hash: str | None = None
+    snapshot_source_id: UUID | None = None
+    snapshot_date: str | None = None
     tags: list[str] = Field(default_factory=list)
 
     class Config:

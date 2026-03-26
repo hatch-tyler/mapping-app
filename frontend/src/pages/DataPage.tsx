@@ -1,57 +1,37 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Dataset } from '../api/types';
-import { useAuthStore } from '../stores/authStore';
+import { Navbar } from '@/components/layout/Navbar';
 import { DatasetList } from '../components/data/DatasetList';
 import { FeatureTable } from '../components/data/FeatureTable';
 import { ServiceUrlsPanel } from '../components/data/ServiceUrlsPanel';
 
 export function DataPage() {
-  const { user, logout } = useAuthStore();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [selectedDataset, setSelectedDataset] = useState<Dataset | null>(null);
   const [showServiceUrls, setShowServiceUrls] = useState(true);
 
+  // Read initial dataset ID from URL param (e.g., /data?dataset=xxx from catalog)
+  const initialDatasetId = searchParams.get('dataset');
+
+  const handleSelectDataset = (dataset: Dataset) => {
+    setSelectedDataset(dataset);
+    // Clear the URL param once a dataset is selected
+    if (searchParams.has('dataset')) {
+      searchParams.delete('dataset');
+      setSearchParams(searchParams, { replace: true });
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col">
-      {/* Header */}
-      <header className="bg-white shadow-sm z-10 flex-shrink-0">
-        <div className="px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <h1 className="text-xl font-semibold text-gray-900">Data Browser</h1>
-            <Link to="/" className="text-sm text-blue-600 hover:text-blue-800">
-              Back to Map
-            </Link>
-          </div>
-          <div className="flex items-center gap-4">
-            {user ? (
-              <>
-                {user.is_admin && (
-                  <Link to="/admin" className="text-sm text-blue-600 hover:text-blue-800">
-                    Admin Dashboard
-                  </Link>
-                )}
-                <span className="text-sm text-gray-600">{user.email}</span>
-                <button
-                  onClick={() => logout()}
-                  className="text-sm text-gray-500 hover:text-gray-700"
-                >
-                  Logout
-                </button>
-              </>
-            ) : (
-              <Link to="/login" className="text-sm text-blue-600 hover:text-blue-800">
-                Login
-              </Link>
-            )}
-          </div>
-        </div>
-      </header>
+      <Navbar />
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Sidebar - Dataset List */}
         <div className="w-80 flex-shrink-0 border-r border-gray-200 bg-white">
-          <DatasetList selectedDataset={selectedDataset} onSelectDataset={setSelectedDataset} />
+          <DatasetList selectedDataset={selectedDataset} onSelectDataset={handleSelectDataset} initialDatasetId={initialDatasetId} />
         </div>
 
         {/* Center - Feature Table */}

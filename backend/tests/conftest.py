@@ -32,6 +32,13 @@ sys.modules['rio_tiler'] = mock_rio_tiler
 sys.modules['rio_tiler.io'] = MagicMock()
 sys.modules['rio_tiler.errors'] = MagicMock()
 
+# Patch GeoAlchemy2 Geometry to Text for SQLite compatibility
+import geoalchemy2
+from sqlalchemy import Text as _Text
+geoalchemy2._original_Geometry = geoalchemy2.Geometry
+geoalchemy2.Geometry = lambda *args, **kwargs: _Text()
+
+
 from app.database import Base, get_db
 from app.main import app
 from app.models.user import User, RefreshToken

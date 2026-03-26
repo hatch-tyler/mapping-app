@@ -8,6 +8,10 @@ import * as datasetsApi from '../api/datasets';
 import { createMockDataset, createMockUser } from '../__tests__/mockData';
 
 // Mock child components
+vi.mock('../components/layout/Navbar', () => ({
+  Navbar: () => <nav data-testid="navbar">Navbar</nav>,
+}));
+
 vi.mock('../components/admin/DatasetTable', () => ({
   DatasetTable: ({
     datasets,
@@ -29,10 +33,11 @@ vi.mock('../components/admin/DatasetTable', () => ({
   ),
 }));
 
-vi.mock('../components/admin/UploadForm', () => ({
-  UploadForm: ({ onSuccess }: { onSuccess: () => void }) => (
-    <div data-testid="upload-form">
+vi.mock('../components/admin/UploadModal', () => ({
+  UploadModal: ({ onClose, onSuccess }: { onClose: () => void; onSuccess: () => void }) => (
+    <div data-testid="upload-modal">
       <button onClick={onSuccess}>Upload Success</button>
+      <button onClick={onClose}>Close Upload</button>
     </div>
   ),
 }));
@@ -83,25 +88,9 @@ describe('AdminPage', () => {
     );
   };
 
-  it('should render Admin Dashboard header', () => {
+  it('should render Navbar', () => {
     renderAdminPage();
-    expect(screen.getByText('Admin Dashboard')).toBeInTheDocument();
-  });
-
-  it('should render Back to Map link', () => {
-    renderAdminPage();
-    expect(screen.getByText('Back to Map')).toBeInTheDocument();
-  });
-
-  it('should render user email', () => {
-    renderAdminPage();
-    expect(screen.getByText('admin@example.com')).toBeInTheDocument();
-  });
-
-  it('should call logout when Logout button clicked', () => {
-    renderAdminPage();
-    fireEvent.click(screen.getByText('Logout'));
-    expect(mockLogout).toHaveBeenCalled();
+    expect(screen.getByTestId('navbar')).toBeInTheDocument();
   });
 
   it('should call fetchDatasets on mount', () => {
@@ -112,7 +101,7 @@ describe('AdminPage', () => {
   it('should render Datasets tab by default', () => {
     renderAdminPage();
     expect(screen.getByTestId('dataset-table')).toBeInTheDocument();
-    expect(screen.getByTestId('upload-form')).toBeInTheDocument();
+    expect(screen.getByText('+ Upload Dataset')).toBeInTheDocument();
   });
 
   it('should show datasets count', () => {
@@ -239,6 +228,10 @@ describe('AdminPage', () => {
 
   it('should call fetchDatasets when upload succeeds', () => {
     renderAdminPage();
+    // Open the upload modal first
+    fireEvent.click(screen.getByText('+ Upload Dataset'));
+    expect(screen.getByTestId('upload-modal')).toBeInTheDocument();
+    // Simulate successful upload
     fireEvent.click(screen.getByText('Upload Success'));
     expect(mockFetchDatasets).toHaveBeenCalledTimes(2); // Once on mount, once on success
   });

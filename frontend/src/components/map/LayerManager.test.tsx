@@ -122,7 +122,7 @@ describe('LayerManager', () => {
       datasets: [createMockDataset({ id: '1', name: 'Vector Dataset', is_visible: true, data_type: 'vector' })],
     });
     render(<LayerManager />);
-    expect(screen.getByText('vector')).toBeInTheDocument();
+    expect(screen.getByText('vec')).toBeInTheDocument();
   });
 
   it('should display data type badge for raster dataset', () => {
@@ -130,7 +130,7 @@ describe('LayerManager', () => {
       datasets: [createMockDataset({ id: '1', name: 'Raster Dataset', is_visible: true, data_type: 'raster' })],
     });
     render(<LayerManager />);
-    expect(screen.getByText('raster')).toBeInTheDocument();
+    expect(screen.getByText('rst')).toBeInTheDocument();
   });
 
   it('should have correct checkbox ID with dataset ID', () => {

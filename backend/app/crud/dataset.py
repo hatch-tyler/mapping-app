@@ -4,6 +4,7 @@ from uuid import UUID
 from typing import Any
 from sqlalchemy import select, func, text, or_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.dataset import Dataset, UploadJob
 from app.models.tag import Tag, dataset_tags
@@ -192,6 +193,10 @@ async def update_dataset(
 ) -> Dataset:
     update_data = dataset_in.model_dump(exclude_unset=True)
 
+    # Geographic scope is only valid for reference category
+    if update_data.get("category") == "project":
+        update_data["geographic_scope"] = None
+
     # Handle tags separately
     tag_names = update_data.pop("tags", None)
     if tag_names is not None:
@@ -208,7 +213,9 @@ async def update_dataset(
 async def delete_dataset(db: AsyncSession, dataset: Dataset) -> None:
     # If vector dataset, drop the data table
     if dataset.table_name:
-        await db.execute(text(f'DROP TABLE IF EXISTS "{dataset.table_name}" CASCADE'))
+        dialect = db.bind.dialect.name if db.bind else "postgresql"
+        cascade = " CASCADE" if dialect != "sqlite" else ""
+        await db.execute(text(f'DROP TABLE IF EXISTS "{dataset.table_name}"{cascade}'))
 
     await db.delete(dataset)
     await db.commit()
@@ -289,20 +296,28 @@ async def get_browsable_datasets(
     - Anonymous users: only public datasets (is_public=True), no project data
     - Authenticated users: visible reference data + project data they have access to
     """
-    query = select(Dataset)
+    query = select(Dataset).options(selectinload(Dataset.project))
     count_query = select(func.count(Dataset.id))
 
     if user_authenticated and user_id:
         # Authenticated: visible reference data OR project data where user is a member
+        from app.models.dataset import dataset_projects
+
         user_project_ids = (
             select(ProjectMember.project_id)
             .where(ProjectMember.user_id == user_id)
+        )
+        linked_to_user_projects = (
+            select(dataset_projects.c.dataset_id)
+            .where(dataset_projects.c.project_id.in_(user_project_ids))
         )
         visibility_filter = or_(
             # Reference data (or uncategorized) that is visible
             Dataset.project_id.is_(None),
             # Project data where user is a member
             Dataset.project_id.in_(user_project_ids),
+            # Datasets linked to user's projects via junction table
+            Dataset.id.in_(linked_to_user_projects),
         )
         query = query.where(Dataset.is_visible == True).where(visibility_filter)
         count_query = count_query.where(Dataset.is_visible == True).where(visibility_filter)
@@ -322,11 +337,167 @@ async def get_browsable_datasets(
     return datasets, total
 
 
+async def get_external_dataset_fields(dataset) -> list[dict]:
+    """Get field metadata from an external vector dataset by fetching a sample feature."""
+    from app.services.external_source import proxy_request
+
+    if dataset.service_type not in ("arcgis_feature", "wfs"):
+        return []
+
+    # Check cached fields in service_metadata
+    if dataset.service_metadata and dataset.service_metadata.get("fields"):
+        return dataset.service_metadata["fields"]
+
+    # Fetch a single feature to introspect field names/types
+    try:
+        if dataset.service_type == "arcgis_feature":
+            url = f"{dataset.service_url.rstrip('/')}/{dataset.service_layer_id or '0'}/query"
+            params = {
+                "f": "json",
+                "where": "1=1",
+                "outFields": "*",
+                "resultRecordCount": "1",
+                "returnGeometry": "false",
+            }
+        else:  # wfs
+            params = {
+                "service": "WFS",
+                "request": "GetFeature",
+                "typeName": dataset.service_layer_id or "",
+                "outputFormat": "application/json",
+                "maxFeatures": "1",
+                "srsName": "EPSG:4326",
+            }
+            url = dataset.service_url
+
+        resp = await proxy_request(url, dataset.service_type, params)
+        data = resp.json()
+
+        # ArcGIS returns fields in metadata
+        if dataset.service_type == "arcgis_feature" and "fields" in data:
+            fields = []
+            for f in data["fields"]:
+                field_type = "string"
+                esri_type = f.get("type", "")
+                if "Integer" in esri_type or "SmallInteger" in esri_type:
+                    field_type = "integer"
+                elif "Double" in esri_type or "Single" in esri_type:
+                    field_type = "float"
+                elif "Date" in esri_type:
+                    field_type = "date"
+                fields.append({"name": f.get("name", ""), "field_type": field_type})
+            return fields
+
+        # Fallback: introspect from features
+        features = data.get("features", [])
+        if not features:
+            return []
+
+        props = features[0].get("properties") or features[0].get(
+            "attributes", {}
+        )
+        fields = []
+        for key, val in props.items():
+            if isinstance(val, int):
+                field_type = "integer"
+            elif isinstance(val, float):
+                field_type = "float"
+            elif isinstance(val, bool):
+                field_type = "boolean"
+            else:
+                field_type = "string"
+            fields.append({"name": key, "field_type": field_type})
+        return fields
+    except Exception:
+        return []
+
+
+async def query_external_features(
+    dataset,
+    page: int = 1,
+    page_size: int = 100,
+) -> tuple[list[dict], int]:
+    """Query features from an external vector dataset via proxy."""
+    from app.services.external_source import proxy_request
+
+    if dataset.service_type not in ("arcgis_feature", "wfs"):
+        return [], 0
+
+    offset = (page - 1) * page_size
+
+    try:
+        if dataset.service_type == "arcgis_feature":
+            layer_id = dataset.service_layer_id or "0"
+            base_url = f"{dataset.service_url.rstrip('/')}/{layer_id}/query"
+
+            # First get total count
+            count_params = {
+                "f": "json",
+                "where": "1=1",
+                "returnCountOnly": "true",
+            }
+            count_resp = await proxy_request(
+                base_url, dataset.service_type, count_params
+            )
+            count_data = count_resp.json()
+            total = count_data.get("count", 0)
+
+            # Then fetch the page
+            params = {
+                "f": "geojson",
+                "where": "1=1",
+                "outFields": "*",
+                "outSR": "4326",
+                "resultRecordCount": str(page_size),
+                "resultOffset": str(offset),
+            }
+            resp = await proxy_request(base_url, dataset.service_type, params)
+            data = resp.json()
+
+        else:  # wfs
+            # WFS doesn't have a standard count endpoint, estimate from first fetch
+            params = {
+                "service": "WFS",
+                "request": "GetFeature",
+                "typeName": dataset.service_layer_id or "",
+                "outputFormat": "application/json",
+                "srsName": "EPSG:4326",
+                "maxFeatures": str(page_size),
+                "startIndex": str(offset),
+            }
+            resp = await proxy_request(
+                dataset.service_url, dataset.service_type, params
+            )
+            data = resp.json()
+            # WFS may return totalFeatures or numberMatched
+            total = data.get("totalFeatures") or data.get("numberMatched") or 0
+
+        features = data.get("features", [])
+        rows = []
+        for i, feat in enumerate(features):
+            props = feat.get("properties") or feat.get("attributes", {})
+            geom = feat.get("geometry")
+            row = {
+                "id": offset + i + 1,
+                "properties": props,
+                "geometry": geom,
+            }
+            rows.append(row)
+
+        return rows, total
+
+    except Exception:
+        return [], 0
+
+
 async def get_dataset_fields(
     db: AsyncSession,
     dataset: Dataset,
 ) -> list[dict[str, str]]:
     """Introspect JSONB properties to get field names and types."""
+    if dataset.source_type == "external":
+        return await get_external_dataset_fields(dataset)
+
     if not dataset.table_name or not _validate_table_name(dataset.table_name):
         return []
 
@@ -386,6 +557,9 @@ async def query_features(
 
     Returns features without geometry for performance.
     """
+    if dataset.source_type == "external":
+        return await query_external_features(dataset, page=page, page_size=page_size)
+
     if not dataset.table_name or not _validate_table_name(dataset.table_name):
         return [], 0
 
@@ -539,21 +713,10 @@ async def get_unique_field_values(
     result = await db.execute(query, {"field_name": field_name, "limit": limit})
     rows = result.fetchall()
 
-    # Try to parse numeric values
     values = []
     for row in rows:
         val = row[0]
-        if val is not None:
-            # Try to parse as number
-            try:
-                if '.' in val:
-                    values.append(float(val))
-                else:
-                    values.append(int(val))
-            except (ValueError, TypeError):
-                values.append(val)
-        else:
-            values.append(None)
+        values.append(val)  # Keep as string from JSONB ->> operator
 
     return values, total_count
 

@@ -6,9 +6,10 @@ import { DatasetCard } from './DatasetCard';
 interface Props {
   selectedDataset: Dataset | null;
   onSelectDataset: (dataset: Dataset) => void;
+  initialDatasetId?: string | null;
 }
 
-export function DatasetList({ selectedDataset, onSelectDataset }: Props) {
+export function DatasetList({ selectedDataset, onSelectDataset, initialDatasetId }: Props) {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +32,16 @@ export function DatasetList({ selectedDataset, onSelectDataset }: Props) {
 
     fetchDatasets();
   }, []);
+
+  // Auto-select dataset from URL param (e.g., /data?dataset=xxx from catalog)
+  useEffect(() => {
+    if (initialDatasetId && datasets.length > 0 && !selectedDataset) {
+      const found = datasets.find(d => d.id === initialDatasetId);
+      if (found) {
+        onSelectDataset(found);
+      }
+    }
+  }, [initialDatasetId, datasets, selectedDataset, onSelectDataset]);
 
   const filteredDatasets = useMemo(() => {
     if (!searchQuery.trim()) {

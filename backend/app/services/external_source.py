@@ -1,3 +1,4 @@
+import json
 import logging
 from xml.etree import ElementTree
 
@@ -5,7 +6,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-TIMEOUT = 15.0
+TIMEOUT = 60.0
 
 
 async def browse_directory(url: str) -> dict:
@@ -68,6 +69,7 @@ async def probe_service(url: str) -> dict:
                 "service_type": "xyz",
                 "layers": [{"id": "tiles", "name": "Tile Layer", "geometry_type": None, "extent": None}],
                 "capabilities_url": url,
+                "metadata": None,
             }
 
         # Try ArcGIS REST
@@ -98,16 +100,40 @@ async def _try_arcgis(client: httpx.AsyncClient, url: str) -> dict | None:
             return None
         data = resp.json()
 
+        # ImageServer detection (check before MapServer/FeatureServer)
+        if "ImageServer" in url and (
+            "serviceDataType" in data or "bandCount" in data or "pixelSizeX" in data
+        ):
+            extent = _arcgis_extent(data.get("fullExtent") or data.get("extent"))
+            metadata = _extract_arcgis_metadata(data)
+            return {
+                "service_type": "arcgis_image",
+                "layers": [{
+                    "id": "0",
+                    "name": data.get("name", data.get("serviceDescription", "Image Service")[:80] or "Image Service"),
+                    "geometry_type": None,
+                    "extent": extent,
+                }],
+                "capabilities_url": f"{url}?f=json",
+                "metadata": metadata,
+            }
+
         # FeatureServer or MapServer
         if "layers" in data:
             layers = []
-            service_type = "arcgis_map"
             if "FeatureServer" in url:
                 service_type = "arcgis_feature"
             elif "MapServer" in url:
-                service_type = "arcgis_map"
+                # Check if the MapServer has a tile cache
+                has_tile_cache = data.get("singleFusedMapCache", False)
+                service_type = "arcgis_map" if has_tile_cache else "arcgis_map_export"
+            else:
+                service_type = "arcgis_map_export"
 
             for layer in data.get("layers", []):
+                # Skip group layers (containers with sub-layers)
+                if layer.get("subLayerIds"):
+                    continue
                 layers.append({
                     "id": str(layer.get("id", 0)),
                     "name": layer.get("name", "Layer"),
@@ -116,14 +142,17 @@ async def _try_arcgis(client: httpx.AsyncClient, url: str) -> dict | None:
                 })
 
             if layers:
+                metadata = _extract_arcgis_metadata(data)
                 return {
                     "service_type": service_type,
                     "layers": layers,
                     "capabilities_url": f"{url}?f=json",
+                    "metadata": metadata,
                 }
 
         # Single layer endpoint (e.g., .../FeatureServer/0)
         if "type" in data and "fields" in data:
+            metadata = _extract_arcgis_metadata(data)
             return {
                 "service_type": "arcgis_feature",
                 "layers": [{
@@ -133,10 +162,21 @@ async def _try_arcgis(client: httpx.AsyncClient, url: str) -> dict | None:
                     "extent": _arcgis_extent(data.get("extent")),
                 }],
                 "capabilities_url": f"{url}?f=json",
+                "metadata": metadata,
             }
     except (httpx.HTTPError, ValueError, KeyError):
         pass
     return None
+
+
+def _extract_arcgis_metadata(data: dict) -> dict:
+    """Extract common metadata fields from an ArcGIS REST JSON response."""
+    metadata = {}
+    for key in ("description", "serviceDescription", "copyrightText", "credits", "capabilities", "currentVersion"):
+        val = data.get(key)
+        if val:
+            metadata[key] = val
+    return metadata
 
 
 def _arcgis_extent(extent: dict | None) -> list[float] | None:
@@ -177,10 +217,19 @@ async def _try_wfs(client: httpx.AsyncClient, url: str) -> dict | None:
                 })
 
         if layers:
+            metadata = {}
+            # Extract service-level metadata from capabilities
+            for tag_name in ("Abstract", "AccessConstraints"):
+                for prefix in (ns, "{http://www.opengis.net/ows}", "{http://www.opengis.net/ows/1.1}", ""):
+                    el = root.find(f".//{prefix}{tag_name}")
+                    if el is not None and el.text:
+                        metadata[tag_name] = el.text
+                        break
             return {
                 "service_type": "wfs",
                 "layers": layers,
                 "capabilities_url": f"{url}?service=WFS&request=GetCapabilities",
+                "metadata": metadata or None,
             }
     except (httpx.HTTPError, ElementTree.ParseError):
         pass
@@ -217,10 +266,18 @@ async def _try_wms(client: httpx.AsyncClient, url: str) -> dict | None:
                 })
 
         if layers:
+            metadata = {}
+            # Extract service-level Abstract from capabilities
+            service_el = root.find(f"{ns}Service")
+            if service_el is not None:
+                abstract_el = service_el.find(f"{ns}Abstract")
+                if abstract_el is not None and abstract_el.text:
+                    metadata["Abstract"] = abstract_el.text
             return {
                 "service_type": "wms",
                 "layers": layers,
                 "capabilities_url": f"{url}?service=WMS&request=GetCapabilities",
+                "metadata": metadata or None,
             }
     except (httpx.HTTPError, ElementTree.ParseError):
         pass
@@ -282,6 +339,79 @@ def _wms_extent(layer_el: ElementTree.Element, ns: str) -> list[float] | None:
         except ValueError:
             pass
     return None
+
+
+async def fetch_all_features(
+    service_url: str,
+    service_type: str,
+    layer_id: str,
+    max_features: int = 10000,
+) -> dict:
+    """Fetch all features from an external vector service with pagination.
+
+    Returns a GeoJSON FeatureCollection dict.
+    """
+    all_features: list[dict] = []
+    page_size = 2000
+
+    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
+        if service_type == "arcgis_feature":
+            offset = 0
+            while len(all_features) < max_features:
+                remaining = min(page_size, max_features - len(all_features))
+                params = {
+                    "f": "geojson",
+                    "where": "1=1",
+                    "outFields": "*",
+                    "outSR": "4326",
+                    "resultRecordCount": str(remaining),
+                    "resultOffset": str(offset),
+                }
+                url = f"{service_url.rstrip('/')}/{layer_id}/query"
+                resp = await client.get(url, params=params)
+                if resp.status_code != 200:
+                    break
+                data = resp.json()
+                features = data.get("features", [])
+                if not features:
+                    break
+                all_features.extend(features)
+                # If we got fewer than requested, we've reached the end
+                if len(features) < remaining:
+                    break
+                offset += len(features)
+
+        elif service_type == "wfs":
+            start_index = 0
+            while len(all_features) < max_features:
+                remaining = min(page_size, max_features - len(all_features))
+                params = {
+                    "service": "WFS",
+                    "request": "GetFeature",
+                    "typeName": layer_id,
+                    "outputFormat": "application/json",
+                    "srsName": "EPSG:4326",
+                    "maxFeatures": str(remaining),
+                    "startIndex": str(start_index),
+                }
+                resp = await client.get(service_url, params=params)
+                if resp.status_code != 200:
+                    break
+                data = resp.json()
+                features = data.get("features", [])
+                if not features:
+                    break
+                all_features.extend(features)
+                if len(features) < remaining:
+                    break
+                start_index += len(features)
+        else:
+            raise ValueError(f"Cannot fetch features for service type: {service_type}")
+
+    return {
+        "type": "FeatureCollection",
+        "features": all_features,
+    }
 
 
 async def proxy_request(

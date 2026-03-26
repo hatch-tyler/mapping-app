@@ -9,6 +9,7 @@ vi.mock('../../api/datasets', () => ({
   getWFSUrl: vi.fn(() => 'http://test.com/wfs'),
   getArcGISFeatureServerUrl: vi.fn((name: string) => `http://test.com/arcgis/rest/services/${name}/FeatureServer`),
   getExportUrl: vi.fn((id: string, format: string) => `http://test.com/export/${id}/${format}`),
+  getExternalProxyUrl: vi.fn((id: string) => `http://test.com/api/v1/external-sources/${id}/proxy`),
   EXPORT_FORMATS: [
     { id: 'geojson', name: 'GeoJSON', ext: '.geojson' },
     { id: 'gpkg', name: 'GeoPackage', ext: '.gpkg' },

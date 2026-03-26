@@ -205,6 +205,13 @@ export function FeatureTable({ dataset }: Props) {
       {/* Toolbar */}
       <TableToolbar table={table} datasetId={dataset.id} totalCount={totalCount} />
 
+      {/* External data warning */}
+      {dataset.source_type === 'external' && (
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-700 text-xs">
+          Data from external service — sorting and filtering are not available
+        </div>
+      )}
+
       {/* Table */}
       <div className="flex-1 overflow-auto">
         <table className="min-w-full divide-y divide-gray-200">

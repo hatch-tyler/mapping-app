@@ -1,9 +1,15 @@
 import re
+import uuid as uuid_mod
+from datetime import datetime, timezone
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Response, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
+from sqlalchemy import text, select, insert
+import geopandas as gpd
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _get_public_cors_headers() -> dict[str, str]:
@@ -31,8 +37,9 @@ from app.schemas.dataset import (
     FieldStatisticsResponse,
 )
 from app.crud import dataset as dataset_crud
-from app.api.deps import get_current_user, get_current_admin_user, get_optional_current_user
+from app.api.deps import get_current_user, get_current_admin_user, get_optional_current_user, check_dataset_access
 from app.models.user import User
+from app.models.dataset import Dataset
 
 
 def _validate_table_name(table_name: str) -> bool:
@@ -42,12 +49,41 @@ def _validate_table_name(table_name: str) -> bool:
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
 
+def _get_project_name(dataset) -> str | None:
+    """Safely get project name without triggering lazy load."""
+    from sqlalchemy import inspect as sa_inspect
+    state = sa_inspect(dataset)
+    if 'project' not in state.dict:
+        return None
+    proj = state.dict.get('project')
+    return proj.name if proj else None
+
+
+def _get_linked_project_ids(dataset) -> list:
+    """Safely get linked project IDs without triggering lazy load."""
+    from sqlalchemy import inspect as sa_inspect
+    state = sa_inspect(dataset)
+    if 'linked_projects' not in state.dict:
+        return []
+    projects = state.dict.get('linked_projects', [])
+    return [p.id for p in projects] if projects else []
+
+
+def _get_linked_project_names(dataset) -> list:
+    """Safely get linked project names without triggering lazy load."""
+    from sqlalchemy import inspect as sa_inspect
+    state = sa_inspect(dataset)
+    if 'linked_projects' not in state.dict:
+        return []
+    projects = state.dict.get('linked_projects', [])
+    return [p.name for p in projects] if projects else []
+
+
 def dataset_to_response(dataset) -> DatasetResponse:
+    # Extract bounds from service_metadata (stored during upload/probe)
     bounds = None
-    if dataset.bounds is not None:
-        # Extract bounds from geometry - simplified approach
-        # In production, use ST_Extent or ST_Envelope
-        bounds = None  # Will be set during upload
+    if dataset.service_metadata:
+        bounds = dataset.service_metadata.get("total_bounds")
 
     return DatasetResponse(
         id=dataset.id,
@@ -75,8 +111,15 @@ def dataset_to_response(dataset) -> DatasetResponse:
         service_url=dataset.service_url,
         service_type=dataset.service_type,
         service_layer_id=dataset.service_layer_id,
+        service_metadata=dataset.service_metadata,
         project_id=dataset.project_id,
+        project_name=_get_project_name(dataset),
+        linked_project_ids=_get_linked_project_ids(dataset),
+        linked_project_names=_get_linked_project_names(dataset),
         is_privileged=dataset.is_privileged,
+        file_hash=dataset.file_hash if hasattr(dataset, 'file_hash') else None,
+        snapshot_source_id=dataset.snapshot_source_id if hasattr(dataset, 'snapshot_source_id') else None,
+        snapshot_date=dataset.snapshot_date.isoformat() if hasattr(dataset, 'snapshot_date') and dataset.snapshot_date else None,
         tags=[tag.name for tag in dataset.tags] if dataset.tags else [],
     )
 
@@ -142,6 +185,262 @@ async def list_datasets(
     )
 
 
+@router.post("/refresh-local-metadata")
+async def refresh_local_metadata(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+):
+    """Refresh metadata for all local datasets by introspecting PostGIS tables."""
+    from sqlalchemy import select
+    result = await db.execute(
+        select(Dataset).where(
+            Dataset.source_type == "local",
+            Dataset.table_name.isnot(None),
+            Dataset.service_metadata.is_(None),
+        )
+    )
+    datasets = result.scalars().all()
+
+    updated = 0
+    for ds in datasets:
+        try:
+            # Get field info from PostGIS table
+            fields_data = await dataset_crud.get_dataset_fields(db, ds)
+            metadata = {
+                "fields": fields_data,
+                "field_count": len(fields_data),
+            }
+            if ds.feature_count:
+                metadata["total_features"] = ds.feature_count
+            if ds.geometry_type:
+                metadata["geometry_types"] = [ds.geometry_type]
+            # Compute bounds from PostGIS table
+            try:
+                bounds_result = await db.execute(
+                    text(f'SELECT ST_XMin(ext), ST_YMin(ext), ST_XMax(ext), ST_YMax(ext) FROM (SELECT ST_Extent(geom) as ext FROM "{ds.table_name}") sub')
+                )
+                bounds_row = bounds_result.fetchone()
+                if bounds_row and bounds_row[0] is not None:
+                    metadata["total_bounds"] = [float(bounds_row[0]), float(bounds_row[1]), float(bounds_row[2]), float(bounds_row[3])]
+            except Exception:
+                pass
+            ds.service_metadata = metadata
+            updated += 1
+        except Exception:
+            pass
+
+    await db.commit()
+    return {"updated": updated, "total": len(datasets)}
+
+
+@router.post("/{dataset_id}/link-project")
+async def link_dataset_to_project(
+    dataset_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+):
+    """Link a dataset to a project (many-to-many)."""
+    body = await request.json()
+    project_id = body.get("project_id")
+    if not project_id:
+        raise HTTPException(400, "project_id is required")
+
+    dataset = await dataset_crud.get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(404, "Dataset not found")
+
+    from app.models.dataset import dataset_projects
+    from sqlalchemy import insert
+    from uuid import UUID as PyUUID
+
+    try:
+        await db.execute(
+            insert(dataset_projects).values(
+                dataset_id=dataset_id,
+                project_id=PyUUID(project_id),
+            )
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(400, "Dataset is already linked to this project")
+
+    await db.refresh(dataset)
+    return dataset_to_response(dataset)
+
+
+@router.delete("/{dataset_id}/unlink-project")
+async def unlink_dataset_from_project(
+    dataset_id: UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+):
+    """Unlink a dataset from a project."""
+    body = await request.json()
+    project_id = body.get("project_id")
+    if not project_id:
+        raise HTTPException(400, "project_id is required")
+
+    from app.models.dataset import dataset_projects
+    from sqlalchemy import delete
+    from uuid import UUID as PyUUID
+
+    await db.execute(
+        delete(dataset_projects).where(
+            dataset_projects.c.dataset_id == dataset_id,
+            dataset_projects.c.project_id == PyUUID(project_id),
+        )
+    )
+    await db.commit()
+
+    dataset = await dataset_crud.get_dataset(db, dataset_id)
+    return dataset_to_response(dataset)
+
+
+@router.post("/{dataset_id}/snapshot")
+async def create_dataset_snapshot(
+    dataset_id: UUID,
+    project_id: UUID = Query(..., description="Project to link the snapshot to"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_admin_user),
+):
+    """Create a point-in-time snapshot of a dataset for a project."""
+    from shapely.geometry import shape
+    from shapely import wkt
+    from shapely.ops import transform
+    from app.services.file_processor import FileProcessor
+    from app.models.dataset import dataset_projects
+    from app.services.external_source import fetch_all_features
+
+    source_dataset = await dataset_crud.get_dataset(db, dataset_id)
+    if not source_dataset:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Dataset not found",
+        )
+
+    table_name = f"snapshot_{str(uuid_mod.uuid4()).replace('-', '_')}"
+
+    try:
+        if source_dataset.table_name:
+            # Local dataset: copy from PostGIS table
+            query = text(
+                f'SELECT ST_AsText(geom) as wkt, properties FROM "{source_dataset.table_name}"'
+            )
+            result = await db.execute(query)
+            rows = result.fetchall()
+
+            geometries = [wkt.loads(row.wkt) for row in rows if row.wkt]
+            props = [row.properties or {} for row in rows if row.wkt]
+            if not geometries:
+                raise ValueError("No valid geometries found in source dataset")
+            gdf = gpd.GeoDataFrame(props, geometry=geometries, crs="EPSG:4326")
+
+        elif source_dataset.service_url:
+            # External dataset: fetch all features
+            geojson_data = await fetch_all_features(
+                source_dataset.service_url,
+                source_dataset.service_type,
+                source_dataset.service_layer_id or "0",
+                max_features=50000,
+            )
+            if not geojson_data.get("features"):
+                raise ValueError("No features returned from the external service")
+
+            rows_list = []
+            geometries = []
+            for feat in geojson_data["features"]:
+                props = feat.get("properties", {}) or {}
+                geom = feat.get("geometry")
+                if geom:
+                    geometries.append(shape(geom))
+                    rows_list.append(props)
+
+            if not geometries:
+                raise ValueError("No valid geometries found in fetched features")
+            gdf = gpd.GeoDataFrame(rows_list, geometry=geometries, crs="EPSG:4326")
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Dataset has no local data or external service URL to snapshot",
+            )
+
+        # Strip Z coordinates if present
+        if gdf.geometry.has_z.any():
+            gdf["geometry"] = gdf.geometry.apply(
+                lambda geom: transform(lambda x, y, z=None: (x, y), geom)
+                if geom and geom.has_z
+                else geom
+            )
+
+        # Create PostGIS table and insert features
+        processor = FileProcessor()
+        await processor._create_vector_table(db, table_name)
+        await processor._insert_features(db, table_name, gdf)
+
+        # Determine geometry type
+        geom_types = gdf.geometry.geom_type.unique()
+        geom_type = geom_types[0] if len(geom_types) == 1 else "Geometry"
+
+        snapshot = Dataset(
+            id=uuid_mod.uuid4(),
+            name=f"{source_dataset.name} (Snapshot)",
+            description=f"Snapshot of '{source_dataset.name}' taken on {datetime.now(timezone.utc).strftime('%Y-%m-%d')}",
+            data_type="vector",
+            geometry_type=geom_type,
+            source_format="snapshot",
+            srid=4326,
+            is_visible=True,
+            table_name=table_name,
+            feature_count=len(gdf),
+            source_type="snapshot",
+            category="project",
+            project_id=project_id,
+            snapshot_source_id=dataset_id,
+            snapshot_date=datetime.now(timezone.utc),
+            created_by_id=current_user.id,
+            service_metadata={
+                "original_name": source_dataset.name,
+                "original_service_url": source_dataset.service_url,
+                "original_service_type": source_dataset.service_type,
+                "original_source_type": source_dataset.source_type,
+                "snapshot_feature_count": len(gdf),
+            },
+        )
+        db.add(snapshot)
+        await db.flush()
+
+        # Link snapshot to project via junction table
+        await db.execute(
+            insert(dataset_projects).values(
+                dataset_id=snapshot.id,
+                project_id=project_id,
+            )
+        )
+        await db.commit()
+        await db.refresh(snapshot)
+
+        return dataset_to_response(snapshot)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception("Failed to create snapshot of dataset %s: %s", dataset_id, e)
+        # Clean up partial table on failure
+        try:
+            await db.rollback()
+            await db.execute(text(f'DROP TABLE IF EXISTS "{table_name}"'))
+            await db.commit()
+        except Exception:
+            pass
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create dataset snapshot: {str(e)}",
+        )
+
+
 @router.get("/{dataset_id}", response_model=DatasetResponse)
 async def get_dataset(
     dataset_id: UUID,
@@ -154,6 +453,7 @@ async def get_dataset(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
+    await check_dataset_access(dataset, current_user, db)
     return dataset_to_response(dataset)
 
 
@@ -216,6 +516,10 @@ async def get_dataset_fields(
             detail="Dataset is not public",
         )
 
+    # Project membership check for non-public datasets
+    if not dataset.is_public:
+        await check_dataset_access(dataset, current_user, db)
+
     if dataset.data_type != "vector":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -260,6 +564,10 @@ async def query_features(
             detail="Dataset is not public",
         )
 
+    # Project membership check for non-public datasets
+    if not dataset.is_public:
+        await check_dataset_access(dataset, current_user, db)
+
     if dataset.data_type != "vector":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -275,7 +583,7 @@ async def query_features(
         except (json.JSONDecodeError, ValueError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid filters format: {str(e)}",
+                detail="Invalid filter format",
             )
 
     features, total_count = await dataset_crud.query_features(
@@ -358,6 +666,10 @@ async def get_dataset_geojson(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Authentication required for non-public datasets",
         )
+
+    # Project membership check for non-public datasets
+    if not dataset.is_public:
+        await check_dataset_access(dataset, current_user, db)
 
     if dataset.data_type != "vector":
         raise HTTPException(
@@ -517,6 +829,10 @@ async def get_unique_field_values(
             detail="Dataset is not public",
         )
 
+    # Project membership check for non-public datasets
+    if not dataset.is_public:
+        await check_dataset_access(dataset, current_user, db)
+
     if dataset.data_type != "vector":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -559,6 +875,10 @@ async def get_field_statistics(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Dataset is not public",
         )
+
+    # Project membership check for non-public datasets
+    if not dataset.is_public:
+        await check_dataset_access(dataset, current_user, db)
 
     if dataset.data_type != "vector":
         raise HTTPException(

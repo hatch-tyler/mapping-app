@@ -39,7 +39,14 @@ export interface Dataset {
   service_type: string | null;
   service_layer_id: string | null;
   project_id: string | null;
+  project_name: string | null;
+  linked_project_ids: string[];
+  linked_project_names: string[];
+  service_metadata: Record<string, unknown> | null;
   is_privileged: boolean;
+  file_hash: string | null;
+  snapshot_source_id: string | null;
+  snapshot_date: string | null;
   tags: string[];
 }
 

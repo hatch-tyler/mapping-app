@@ -9,6 +9,7 @@ import { createMockUploadJob } from '../../__tests__/mockData';
 vi.mock('../../api/datasets', () => ({
   uploadVector: vi.fn(),
   uploadRaster: vi.fn(),
+  getUploadJobStatus: vi.fn(),
 }));
 
 // Mock react-dropzone
@@ -102,12 +103,14 @@ describe('UploadForm', () => {
     });
 
     vi.mocked(datasetsApi.uploadVector).mockResolvedValue(
-      createMockUploadJob({ id: 'job-1' })
+      createMockUploadJob({ id: 'job-1', status: 'processing' })
+    );
+    vi.mocked(datasetsApi.getUploadJobStatus).mockResolvedValue(
+      createMockUploadJob({ id: 'job-1', status: 'completed', progress: 100 })
     );
 
     render(<UploadForm onSuccess={mockOnSuccess} />);
 
-    // Simulate file drop by triggering onChange on the input
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const dataTransfer = new DataTransfer();
     dataTransfer.items.add(mockFile);
@@ -118,7 +121,6 @@ describe('UploadForm', () => {
       expect(screen.getByText('test.geojson')).toBeInTheDocument();
     });
 
-    // Submit the form
     const submitButton = screen.getByRole('button', { name: /Upload Dataset/i });
     fireEvent.click(submitButton);
 
@@ -126,10 +128,16 @@ describe('UploadForm', () => {
       expect(datasetsApi.uploadVector).toHaveBeenCalledWith(
         mockFile,
         'test',
-        ''
+        '',
+        expect.any(Function),
+        expect.any(Object)
       );
-      expect(mockOnSuccess).toHaveBeenCalled();
     });
+
+    // Wait for polling + completion delay (2s poll + 1.5s delay)
+    await waitFor(() => {
+      expect(mockOnSuccess).toHaveBeenCalled();
+    }, { timeout: 6000 });
   });
 
   it('should call uploadRaster for GeoTIFF file', async () => {
@@ -138,12 +146,14 @@ describe('UploadForm', () => {
     });
 
     vi.mocked(datasetsApi.uploadRaster).mockResolvedValue(
-      createMockUploadJob({ id: 'job-2' })
+      createMockUploadJob({ id: 'job-2', status: 'processing' })
+    );
+    vi.mocked(datasetsApi.getUploadJobStatus).mockResolvedValue(
+      createMockUploadJob({ id: 'job-2', status: 'completed', progress: 100 })
     );
 
     render(<UploadForm onSuccess={mockOnSuccess} />);
 
-    // Simulate file drop
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const dataTransfer = new DataTransfer();
     dataTransfer.items.add(mockFile);
@@ -154,7 +164,6 @@ describe('UploadForm', () => {
       expect(screen.getByText('test.tif')).toBeInTheDocument();
     });
 
-    // Submit the form
     const submitButton = screen.getByRole('button', { name: /Upload Dataset/i });
     fireEvent.click(submitButton);
 
@@ -162,10 +171,15 @@ describe('UploadForm', () => {
       expect(datasetsApi.uploadRaster).toHaveBeenCalledWith(
         mockFile,
         'test',
-        ''
+        '',
+        expect.any(Function),
+        expect.any(Object)
       );
-      expect(mockOnSuccess).toHaveBeenCalled();
     });
+
+    await waitFor(() => {
+      expect(mockOnSuccess).toHaveBeenCalled();
+    }, { timeout: 6000 });
   });
 
   it('should display error on upload failure', async () => {
@@ -254,12 +268,14 @@ describe('UploadForm', () => {
     });
 
     vi.mocked(datasetsApi.uploadVector).mockResolvedValue(
-      createMockUploadJob({ id: 'job-1' })
+      createMockUploadJob({ id: 'job-1', status: 'processing' })
+    );
+    vi.mocked(datasetsApi.getUploadJobStatus).mockResolvedValue(
+      createMockUploadJob({ id: 'job-1', status: 'completed', progress: 100 })
     );
 
     render(<UploadForm onSuccess={mockOnSuccess} />);
 
-    // Simulate file drop
     const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     const dataTransfer = new DataTransfer();
     dataTransfer.items.add(mockFile);
@@ -270,13 +286,12 @@ describe('UploadForm', () => {
       expect(screen.getByText('test.geojson')).toBeInTheDocument();
     });
 
-    // Submit the form
     const submitButton = screen.getByRole('button', { name: /Upload Dataset/i });
     fireEvent.click(submitButton);
 
     await waitFor(() => {
       expect(mockOnSuccess).toHaveBeenCalled();
-    });
+    }, { timeout: 6000 });
 
     // Form should be cleared
     await waitFor(() => {

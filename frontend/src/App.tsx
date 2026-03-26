@@ -8,6 +8,7 @@ import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { MapPage } from './pages/MapPage';
 import { AdminPage } from './pages/AdminPage';
 import { DataPage } from './pages/DataPage';
+import { CatalogPage } from './pages/CatalogPage';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
 import { useAuthStore } from './stores/authStore';
@@ -37,6 +38,14 @@ function App() {
           <Route path="/forgot-password" element={<ForgotPasswordPage />} />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/data" element={<DataPage />} />
+          <Route
+            path="/catalog"
+            element={
+              <ProtectedRoute>
+                <CatalogPage />
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/"
             element={

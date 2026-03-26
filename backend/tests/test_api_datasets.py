@@ -383,7 +383,7 @@ class TestGetDatasetGeoJSON:
         from app.crud import dataset as dataset_crud
         from app.schemas.dataset import DatasetCreate
 
-        # Create a vector dataset without table_name
+        # Create a public vector dataset without table_name
         ds = await dataset_crud.create_dataset(
             db_session,
             DatasetCreate(name="PublicTest"),
@@ -391,6 +391,8 @@ class TestGetDatasetGeoJSON:
             "geojson",
             created_by_id=admin_user.id,
         )
+        ds.is_public = True
+        await db_session.commit()
 
         # Access without auth headers - should NOT return 401/403
         response = await client.get(f"/api/v1/datasets/{ds.id}/geojson")

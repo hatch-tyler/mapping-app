@@ -91,3 +91,26 @@ async def get_optional_current_user(
         return None
 
     return user
+
+
+async def check_dataset_access(dataset, current_user, db):
+    """Verify the user can access this dataset. Raises 403 if not authorized."""
+    if not dataset.project_id:
+        return  # Reference data — accessible to all authenticated users
+    if current_user and current_user.is_admin:
+        return  # Admins can access everything
+    if not current_user:
+        raise HTTPException(status_code=403, detail="Authentication required")
+    # Check project membership
+    from app.models.project import ProjectMember
+
+    result = await db.execute(
+        select(ProjectMember).where(
+            ProjectMember.project_id == dataset.project_id,
+            ProjectMember.user_id == current_user.id,
+        )
+    )
+    if not result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=403, detail="You don't have access to this dataset"
+        )

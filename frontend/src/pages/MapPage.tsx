@@ -1,71 +1,39 @@
-import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { MapContainer } from '../components/map/MapContainer';
 import { LayerManager } from '../components/map/LayerManager';
-import { ChangePasswordModal } from '../components/common/ChangePasswordModal';
+import { Navbar } from '@/components/layout/Navbar';
 import { useDatasetStore } from '../stores/datasetStore';
-import { useAuthStore } from '../stores/authStore';
+import { useMapStore } from '../stores/mapStore';
 
 export function MapPage() {
-  const [showChangePassword, setShowChangePassword] = useState(false);
   const { fetchDatasets } = useDatasetStore();
-  const { user, logout } = useAuthStore();
+  const { setDatasetVisible } = useMapStore();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   useEffect(() => {
     fetchDatasets();
   }, [fetchDatasets]);
 
-  return (
-    <div className="h-screen flex flex-col">
-      {/* Header */}
-      <header className="bg-white shadow-sm z-10">
-        <div className="px-4 py-3 flex items-center justify-between">
-          <h1 className="text-xl font-semibold text-gray-900">GIS Application</h1>
-          <div className="flex items-center gap-4">
-            <Link
-              to="/data"
-              className="text-sm text-blue-600 hover:text-blue-800"
-            >
-              Data Browser
-            </Link>
-            {user?.is_admin && (
-              <Link
-                to="/admin"
-                className="text-sm text-blue-600 hover:text-blue-800"
-              >
-                Admin Dashboard
-              </Link>
-            )}
-            <span className="text-sm text-gray-600">{user?.email}</span>
-            <button
-              onClick={() => setShowChangePassword(true)}
-              className="text-sm text-blue-600 hover:text-blue-800"
-            >
-              Change Password
-            </button>
-            <button
-              onClick={() => logout()}
-              className="text-sm text-gray-500 hover:text-gray-700"
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-      </header>
+  // Auto-activate layer from URL param (e.g., /?dataset=xxx from catalog)
+  useEffect(() => {
+    const datasetId = searchParams.get('dataset');
+    if (datasetId) {
+      setDatasetVisible(datasetId, true);
+      searchParams.delete('dataset');
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams, setDatasetVisible]);
 
-      {showChangePassword && (
-        <ChangePasswordModal onClose={() => setShowChangePassword(false)} />
-      )}
+  return (
+    <div className="h-screen w-screen relative">
+      <Navbar variant="overlay" />
 
       {/* Map */}
-      <div className="flex-1 relative">
-        <MapContainer />
+      <MapContainer />
 
-        {/* Layer Manager Panel */}
-        <div className="absolute top-4 left-4 z-10">
-          <LayerManager />
-        </div>
-      </div>
+      {/* Layer Manager Sidebar */}
+      <LayerManager />
     </div>
   );
 }

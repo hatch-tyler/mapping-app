@@ -44,6 +44,7 @@ export function CategoricalStylePanel({ datasetId, styleConfig, onChange }: Prop
       }
 
       setLoadingValues(true);
+      setError(null);
       try {
         const response = await getUniqueValues(datasetId, styleConfig.attributeField);
         setUniqueValues(response.values);
@@ -62,6 +63,7 @@ export function CategoricalStylePanel({ datasetId, styleConfig, onChange }: Prop
         }
       } catch (err) {
         console.error('Failed to load unique values:', err);
+        setError('Could not load unique values for this field');
       } finally {
         setLoadingValues(false);
       }
@@ -138,6 +140,10 @@ export function CategoricalStylePanel({ datasetId, styleConfig, onChange }: Prop
           <label className="block text-sm font-medium text-gray-700">
             Category Colors
           </label>
+
+          {error && (
+            <div className="text-sm text-red-500 bg-red-50 p-2 rounded">{error}</div>
+          )}
 
           {loadingValues ? (
             <div className="flex items-center py-4">

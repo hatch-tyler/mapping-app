@@ -88,6 +88,7 @@ export const AVAILABLE_BASEMAPS: Basemap[] = [
 interface MapState {
   viewState: ViewState;
   visibleDatasets: Set<string>;
+  truncatedLayers: Set<string>;
   selectedFeature: unknown | null;
   currentBasemap: Basemap;
   isBasemapGalleryOpen: boolean;
@@ -96,6 +97,8 @@ interface MapState {
   toggleDatasetVisibility: (datasetId: string) => void;
   setDatasetVisible: (datasetId: string, visible: boolean) => void;
   setVisibleDatasets: (ids: string[]) => void;
+  setLayerTruncated: (datasetId: string, truncated: boolean) => void;
+  zoomToBounds: (bounds: number[]) => void;
   setSelectedFeature: (feature: unknown | null) => void;
   setBasemap: (basemap: Basemap) => void;
   toggleBasemapGallery: () => void;
@@ -112,6 +115,7 @@ export const useMapStore = create<MapState>((set) => ({
   },
 
   visibleDatasets: new Set<string>(),
+  truncatedLayers: new Set<string>(),
   selectedFeature: null,
   currentBasemap: AVAILABLE_BASEMAPS[0],
   isBasemapGalleryOpen: false,
@@ -141,6 +145,36 @@ export const useMapStore = create<MapState>((set) => ({
     }),
 
   setVisibleDatasets: (ids) => set({ visibleDatasets: new Set(ids) }),
+
+  setLayerTruncated: (datasetId, truncated) =>
+    set((state) => {
+      const newSet = new Set(state.truncatedLayers);
+      if (truncated) {
+        newSet.add(datasetId);
+      } else {
+        newSet.delete(datasetId);
+      }
+      return { truncatedLayers: newSet };
+    }),
+
+  zoomToBounds: (bounds) =>
+    set((state) => {
+      const [minx, miny, maxx, maxy] = bounds;
+      const centerLon = (minx + maxx) / 2;
+      const centerLat = (miny + maxy) / 2;
+      const latDiff = maxy - miny;
+      const lonDiff = maxx - minx;
+      const maxDiff = Math.max(latDiff, lonDiff);
+      const zoom = maxDiff > 0 ? Math.min(Math.floor(Math.log2(360 / maxDiff)), 18) : 12;
+      return {
+        viewState: {
+          ...state.viewState,
+          longitude: centerLon,
+          latitude: centerLat,
+          zoom: Math.max(zoom, 2),
+        },
+      };
+    }),
 
   setSelectedFeature: (feature) => set({ selectedFeature: feature }),
 

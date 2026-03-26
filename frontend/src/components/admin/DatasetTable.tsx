@@ -5,6 +5,7 @@ import { VisibilityToggle } from './VisibilityToggle';
 import { PublicToggle } from './PublicToggle';
 import { ShareUrlModal } from './ShareUrlModal';
 import { StyleEditor } from '../styling/StyleEditor';
+import { apiClient } from '@/api/client';
 import * as projectsApi from '../../api/projects';
 
 interface Props {
@@ -37,6 +38,7 @@ export function DatasetTable({
   const [styleModalDataset, setStyleModalDataset] = useState<Dataset | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [importing, setImporting] = useState<string | null>(null);
 
   useEffect(() => {
     projectsApi.getProjects().then((r) => setProjects(r.projects)).catch(() => {});
@@ -85,6 +87,22 @@ export function DatasetTable({
     if (styleModalDataset && onUpdate) {
       onUpdate(styleModalDataset.id, { style_config: styleConfig as unknown as Record<string, unknown> });
       setStyleModalDataset(null);
+    }
+  };
+
+  const handleImportToLocal = async (dataset: Dataset) => {
+    if (!window.confirm('Import all features from this external service to local storage? This may take a moment.')) {
+      return;
+    }
+    setImporting(dataset.id);
+    try {
+      const resp = await apiClient.post(`/external-sources/${dataset.id}/import`);
+      onUpdate?.(dataset.id, resp.data);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Import failed';
+      alert(`Import failed: ${message}`);
+    } finally {
+      setImporting(null);
     }
   };
 
@@ -205,6 +223,25 @@ export function DatasetTable({
               </td>
               <td className="px-3 py-3 whitespace-nowrap text-right">
                 <div className="flex justify-end gap-1">
+                  {onUpdate && dataset.source_type === 'external' && (dataset.service_type === 'arcgis_feature' || dataset.service_type === 'wfs') && (
+                    <button
+                      onClick={() => handleImportToLocal(dataset)}
+                      disabled={importing === dataset.id}
+                      className={`p-1.5 rounded ${importing === dataset.id ? 'text-gray-400 cursor-not-allowed' : 'text-teal-600 hover:bg-teal-50'}`}
+                      title="Import to local storage"
+                    >
+                      {importing === dataset.id ? (
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                      ) : (
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
                   {onUpdate && dataset.data_type === 'vector' && (
                     <button
                       onClick={() => setStyleModalDataset(dataset)}
@@ -227,7 +264,7 @@ export function DatasetTable({
                       </svg>
                     </button>
                   )}
-                  {dataset.is_public && dataset.data_type === 'vector' && (
+                  {dataset.is_public && (dataset.data_type === 'vector' || dataset.source_type === 'external') && (
                     <button
                       onClick={() => setShareModalDataset(dataset)}
                       className="p-1.5 rounded text-green-600 hover:bg-green-50"

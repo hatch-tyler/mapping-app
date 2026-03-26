@@ -3,8 +3,9 @@ import shutil
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.responses import JSONResponse
 from sqlalchemy import text, func, select
 from sqlalchemy.exc import IntegrityError
 
@@ -155,6 +156,12 @@ app.include_router(api_router, prefix="/api/v1")
 
 # Include ArcGIS REST API routes (separate from versioned API)
 app.include_router(arcgis_router)
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error("Unhandled exception: %s", exc, exc_info=True)
+    return JSONResponse(status_code=500, content={"detail": "An unexpected error occurred"})
 
 
 @app.get("/health")

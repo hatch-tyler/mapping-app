@@ -40,16 +40,9 @@ export class ErrorBoundary extends Component<Props, State> {
             <p className="text-gray-600 mb-4">
               An unexpected error occurred. Please try refreshing the page.
             </p>
-            {this.state.error && (
-              <details className="text-left text-sm text-gray-500 bg-gray-50 p-3 rounded">
-                <summary className="cursor-pointer font-medium">
-                  Error details
-                </summary>
-                <pre className="mt-2 whitespace-pre-wrap break-words">
-                  {this.state.error.message}
-                </pre>
-              </details>
-            )}
+            <p className="text-sm text-gray-400">
+              If the problem persists, please contact support.
+            </p>
             <button
               onClick={() => window.location.reload()}
               className="mt-6 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"

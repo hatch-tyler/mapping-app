@@ -8,6 +8,7 @@ vi.mock('../../api/datasets', () => ({
   getGeoJSONUrl: vi.fn((id: string) => `http://test.com/api/v1/datasets/${id}/geojson`),
   getArcGISFeatureServerUrl: vi.fn((name: string) => `http://test.com/arcgis/rest/services/${name}/FeatureServer`),
   getExportUrl: vi.fn((id: string, format: string) => `http://test.com/export/${id}/${format}`),
+  getExternalProxyUrl: vi.fn((id: string) => `http://test.com/api/v1/external-sources/${id}/proxy`),
   EXPORT_FORMATS: [
     { id: 'geojson', name: 'GeoJSON', description: 'Standard format', ext: '.geojson' },
     { id: 'gpkg', name: 'GeoPackage', description: 'SQLite format', ext: '.gpkg' },
@@ -25,6 +26,7 @@ describe('ShareUrlModal', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    Object.defineProperty(window, 'isSecureContext', { value: true, writable: true });
     Object.assign(navigator, {
       clipboard: {
         writeText: vi.fn().mockResolvedValue(undefined),

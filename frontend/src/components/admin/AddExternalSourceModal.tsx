@@ -35,6 +35,9 @@ export function AddExternalSourceModal({ onClose, onSuccess }: Props) {
   const [probedLayers, setProbedLayers] = useState<Record<string, externalApi.ExternalServiceLayer[]>>({});
   const [probedTypes, setProbedTypes] = useState<Record<string, string>>({});
 
+  // Browse filter
+  const [browseFilter, setBrowseFilter] = useState('');
+
   // Selection state
   const [selectedLayers, setSelectedLayers] = useState<SelectedLayer[]>([]);
 
@@ -60,6 +63,7 @@ export function AddExternalSourceModal({ onClose, onSuccess }: Props) {
       setServices(result.services);
       setBrowseHistory((prev) => [...prev, targetUrl]);
       setExpandedService(null);
+      setBrowseFilter('');
       setStep('browse');
     } catch {
       // Not a directory — try probing as a direct service
@@ -151,7 +155,7 @@ export function AddExternalSourceModal({ onClose, onSuccess }: Props) {
         ...prev,
         {
           serviceUrl: svc.url,
-          serviceType: probedTypes[svc.url] || svc.type.toLowerCase().replace('server', '_').replace('feature_', 'arcgis_feature').replace('map_', 'arcgis_map'),
+          serviceType: probedTypes[svc.url] || svc.type.toLowerCase().replace('server', '_').replace('feature_', 'arcgis_feature').replace('image_', 'arcgis_image').replace('map_', 'arcgis_map'),
           layerId: layer.id,
           layerName: layer.name,
         },
@@ -210,10 +214,24 @@ export function AddExternalSourceModal({ onClose, onSuccess }: Props) {
     return parts[parts.length - 1] || 'Services';
   });
 
+  const filteredFolders = browseFilter
+    ? folders.filter((f) => f.toLowerCase().includes(browseFilter.toLowerCase()))
+    : folders;
+  const filteredServices = browseFilter
+    ? services.filter((s) => s.name.toLowerCase().includes(browseFilter.toLowerCase()))
+    : services;
+
   const typeBadge = (type: string) => {
-    const isFeature = type.toLowerCase().includes('feature');
+    const lower = type.toLowerCase();
+    const isFeature = lower.includes('feature');
+    const isImage = lower.includes('image');
+    const badgeColor = isFeature
+      ? 'bg-blue-100 text-blue-700'
+      : isImage
+        ? 'bg-green-100 text-green-700'
+        : 'bg-purple-100 text-purple-700';
     return (
-      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${isFeature ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700'}`}>
+      <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${badgeColor}`}>
         {type}
       </span>
     );
@@ -314,12 +332,38 @@ export function AddExternalSourceModal({ onClose, onSuccess }: Props) {
                 ))}
               </div>
 
+              {/* Search filter */}
+              {(folders.length > 0 || services.length > 0) && (
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={browseFilter}
+                    onChange={(e) => setBrowseFilter(e.target.value)}
+                    className="w-full px-3 py-1.5 pl-8 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Filter folders and services..."
+                  />
+                  <svg className="absolute left-2.5 top-2 w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                  {browseFilter && (
+                    <button
+                      onClick={() => setBrowseFilter('')}
+                      className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+              )}
+
               {/* Folders */}
-              {folders.length > 0 && (
+              {filteredFolders.length > 0 && (
                 <div>
                   <div className="text-xs font-medium text-gray-500 uppercase mb-1">Folders</div>
                   <div className="grid grid-cols-2 gap-1">
-                    {folders.map((folder) => (
+                    {filteredFolders.map((folder) => (
                       <button
                         key={folder}
                         onClick={() => handleBrowseFolder(folder)}
@@ -336,13 +380,13 @@ export function AddExternalSourceModal({ onClose, onSuccess }: Props) {
               )}
 
               {/* Services */}
-              {services.length > 0 && (
+              {filteredServices.length > 0 && (
                 <div>
                   <div className="text-xs font-medium text-gray-500 uppercase mb-1">
-                    Services ({services.length})
+                    Services ({filteredServices.length}{browseFilter ? ` of ${services.length}` : ''})
                   </div>
                   <div className="border border-gray-200 rounded-md divide-y divide-gray-100 max-h-64 overflow-y-auto">
-                    {services.map((svc) => (
+                    {filteredServices.map((svc) => (
                       <div key={svc.url}>
                         <button
                           onClick={() => handleExpandService(svc)}
@@ -393,9 +437,9 @@ export function AddExternalSourceModal({ onClose, onSuccess }: Props) {
                 </div>
               )}
 
-              {folders.length === 0 && services.length === 0 && !loading && (
+              {filteredFolders.length === 0 && filteredServices.length === 0 && !loading && (
                 <div className="text-center text-gray-500 text-sm py-4">
-                  No folders or services found at this URL
+                  {browseFilter ? 'No matches found' : 'No folders or services found at this URL'}
                 </div>
               )}
             </>

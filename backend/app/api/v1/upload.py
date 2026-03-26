@@ -1,8 +1,10 @@
 import asyncio
+import hashlib
 import shutil
 from uuid import UUID
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -10,6 +12,7 @@ from app.schemas.dataset import DatasetCreate, UploadJobResponse
 from app.crud import dataset as dataset_crud
 from app.api.deps import get_current_admin_user
 from app.models.user import User
+from app.models.dataset import Dataset
 from app.services.file_processor import file_processor, FileProcessor
 from app.config import settings
 
@@ -61,6 +64,17 @@ async def upload_vector(
             detail=f"Unsupported file format: {ext}. Supported: {FileProcessor.SUPPORTED_VECTOR}",
         )
 
+    # Read file content for hashing
+    file_content = await file.read()
+    file_hash = hashlib.sha256(file_content).hexdigest()
+    await file.seek(0)  # Reset for later reading
+
+    # Check for duplicates
+    dup_result = await db.execute(
+        select(Dataset).where(Dataset.file_hash == file_hash).limit(1)
+    )
+    duplicate = dup_result.scalar_one_or_none()
+
     # Parse tags from comma-separated string
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
 
@@ -79,6 +93,7 @@ async def upload_vector(
         data_type="vector",
         source_format=ext.lstrip("."),
         created_by_id=current_user.id,
+        file_hash=file_hash,
         **extra_kwargs,
     )
 
@@ -149,6 +164,17 @@ async def upload_raster(
             detail=f"Unsupported file format: {ext}. Supported: {FileProcessor.SUPPORTED_RASTER}",
         )
 
+    # Read file content for hashing
+    file_content = await file.read()
+    file_hash = hashlib.sha256(file_content).hexdigest()
+    await file.seek(0)  # Reset for later reading
+
+    # Check for duplicates
+    dup_result = await db.execute(
+        select(Dataset).where(Dataset.file_hash == file_hash).limit(1)
+    )
+    duplicate = dup_result.scalar_one_or_none()
+
     # Parse tags from comma-separated string
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
 
@@ -167,6 +193,7 @@ async def upload_raster(
         data_type="raster",
         source_format=ext.lstrip("."),
         created_by_id=current_user.id,
+        file_hash=file_hash,
         **extra_kwargs,
     )
 

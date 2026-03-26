@@ -180,7 +180,8 @@ export function getMVTTileUrl(datasetId: string): string {
 }
 
 export function getWFSUrl(): string {
-  return `${API_URL}/api/v1/wfs`;
+  const baseUrl = API_URL || window.location.origin;
+  return `${baseUrl}/api/v1/wfs`;
 }
 
 export function getWFSFeatureTypeName(datasetId: string): string {
@@ -189,7 +190,20 @@ export function getWFSFeatureTypeName(datasetId: string): string {
 
 // Export URLs for downloading data in various formats
 export function getExportUrl(datasetId: string, format: 'geojson' | 'gpkg' | 'shp' | 'kml'): string {
-  return `${API_URL}/api/v1/export/${datasetId}/${format}`;
+  const baseUrl = API_URL || window.location.origin;
+  return `${baseUrl}/api/v1/export/${datasetId}/${format}`;
+}
+
+// Proxy URL for external data sources
+export function getExternalProxyUrl(datasetId: string): string {
+  const baseUrl = API_URL || window.location.origin;
+  return `${baseUrl}/api/v1/external-sources/${datasetId}/proxy`;
+}
+
+// Export URL for external vector datasets (fetches from remote service and converts)
+export function getExternalExportUrl(datasetId: string, format: 'geojson' | 'gpkg' | 'shp' | 'kml'): string {
+  const baseUrl = API_URL || window.location.origin;
+  return `${baseUrl}/api/v1/export/external/${datasetId}/${format}`;
 }
 
 export const EXPORT_FORMATS = [
@@ -208,7 +222,7 @@ export function getArcGISFeatureServerUrl(datasetName: string): string {
   const slug = slugify(datasetName);
   // Use window.location.origin for share URLs so users get a full URL they can copy
   const baseUrl = API_URL || window.location.origin;
-  return `${baseUrl}/arcgis/rest/services/${encodeURIComponent(slug)}/FeatureServer`;
+  return `${baseUrl}/arcgis/rest/services/${encodeURIComponent(slug)}/FeatureServer/0`;
 }
 
 // ===== Browsable Datasets API =====

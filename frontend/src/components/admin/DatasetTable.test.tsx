@@ -175,7 +175,7 @@ describe('DatasetTable', () => {
       />
     );
 
-    const deleteButtons = screen.getAllByText('Delete');
+    const deleteButtons = screen.getAllByTitle('Delete dataset');
     expect(deleteButtons.length).toBe(2);
 
     // First click should change button text to "Confirm?"
@@ -196,7 +196,7 @@ describe('DatasetTable', () => {
       />
     );
 
-    const deleteButton = screen.getAllByText('Delete')[0];
+    const deleteButton = screen.getAllByTitle('Delete dataset')[0];
 
     // First click - show confirmation
     fireEvent.click(deleteButton);
@@ -218,7 +218,7 @@ describe('DatasetTable', () => {
       />
     );
 
-    const deleteButtons = screen.getAllByText('Delete');
+    const deleteButtons = screen.getAllByTitle('Delete dataset');
 
     // Click first delete button
     fireEvent.click(deleteButtons[0]);
@@ -228,7 +228,7 @@ describe('DatasetTable', () => {
     fireEvent.click(deleteButtons[1]);
 
     // First row should be back to "Delete"
-    const allDeleteButtons = screen.getAllByText('Delete');
+    const allDeleteButtons = screen.getAllByTitle('Delete dataset');
     expect(allDeleteButtons.length).toBe(1);
     expect(screen.getByText('Confirm?')).toBeInTheDocument();
   });

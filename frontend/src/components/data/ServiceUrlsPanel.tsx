@@ -5,6 +5,8 @@ import {
   getWFSUrl,
   getArcGISFeatureServerUrl,
   getExportUrl,
+  getExternalProxyUrl,
+  getExternalExportUrl,
   EXPORT_FORMATS,
 } from '../../api/datasets';
 import { ServiceUrlCard } from './ServiceUrlCard';
@@ -17,9 +19,19 @@ export function ServiceUrlsPanel({ dataset }: Props) {
   const [collapsed, setCollapsed] = useState(false);
   const [downloading, setDownloading] = useState<string | null>(null);
 
+  const isExternal = dataset.source_type === 'external';
+  const isExternalVector = isExternal && ['arcgis_feature', 'wfs'].includes(dataset.service_type || '');
+
   const geojsonUrl = getGeoJSONUrl(dataset.id);
   const arcgisUrl = getArcGISFeatureServerUrl(dataset.name);
   const wfsUrl = getWFSUrl();
+  const proxyUrl = isExternal ? getExternalProxyUrl(dataset.id) : '';
+
+  const externalGeoJsonUrl = isExternalVector
+    ? dataset.service_type === 'arcgis_feature'
+      ? `${proxyUrl}?f=geojson&where=1%3D1&outFields=*&outSR=4326&resultRecordCount=2000`
+      : `${proxyUrl}?service=WFS&request=GetFeature&typeName=${encodeURIComponent(dataset.service_layer_id || '')}&outputFormat=application/json&srsName=EPSG:4326`
+    : '';
 
   const handleDownload = async (formatId: string) => {
     setDownloading(formatId);
@@ -31,6 +43,13 @@ export function ServiceUrlsPanel({ dataset }: Props) {
     } finally {
       setTimeout(() => setDownloading(null), 1000);
     }
+  };
+
+  const handleExternalDownload = (format: string = 'geojson') => {
+    setDownloading(format);
+    const url = getExternalExportUrl(dataset.id, format as 'geojson' | 'gpkg' | 'shp' | 'kml');
+    window.open(url, '_blank');
+    setTimeout(() => setDownloading(null), 2000);
   };
 
   return (
@@ -64,113 +83,217 @@ export function ServiceUrlsPanel({ dataset }: Props) {
       {/* Content */}
       {!collapsed && (
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
-          {/* ArcGIS Feature Service */}
-          <div>
-            <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-2">
-              <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
-                />
-              </svg>
-              ArcGIS / QGIS
-            </h3>
-            <ServiceUrlCard
-              label="Feature Service"
-              url={arcgisUrl}
-              description="Add to ArcGIS Pro: Map > Add Data > Data From Path"
-            />
-          </div>
 
-          {/* Web APIs */}
-          <div>
-            <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-2">
-              <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
-                />
-              </svg>
-              Web APIs
-            </h3>
-            <div className="space-y-2">
-              <ServiceUrlCard label="GeoJSON" url={geojsonUrl} />
+          {/* === EXTERNAL: Original Service URL === */}
+          {isExternal && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"
+                  />
+                </svg>
+                External Service
+              </h3>
               <ServiceUrlCard
-                label="WFS"
-                url={`${wfsUrl}?service=WFS&version=2.0.0&request=GetFeature&typeName=gis:${dataset.id}&outputFormat=application/json`}
-                description="OGC Web Feature Service"
+                label={dataset.service_type?.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()) || 'Service'}
+                url={dataset.service_url || ''}
+                description={dataset.service_layer_id ? `Layer ID: ${dataset.service_layer_id}` : undefined}
               />
             </div>
-          </div>
+          )}
 
-          {/* Downloads */}
-          <div>
-            <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-2">
-              <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
-                />
-              </svg>
-              Download Full Dataset
-            </h3>
-            <div className="grid grid-cols-2 gap-2">
-              {EXPORT_FORMATS.map((format) => (
-                <button
-                  key={format.id}
-                  onClick={() => handleDownload(format.id)}
-                  disabled={downloading === format.id}
-                  className="flex flex-col items-start p-2 border border-gray-200 rounded hover:border-blue-500 hover:bg-blue-50 transition-colors text-left disabled:opacity-50"
-                >
-                  <div className="flex items-center gap-1 w-full">
-                    <span className="text-sm font-medium text-gray-900">{format.name}</span>
-                    {downloading === format.id && (
-                      <svg
-                        className="w-3 h-3 animate-spin text-blue-600 ml-auto"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                      >
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                        ></circle>
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                        ></path>
-                      </svg>
-                    )}
-                  </div>
-                  <span className="text-xs text-gray-500">{format.ext}</span>
-                </button>
-              ))}
+          {/* === EXTERNAL VECTOR: Proxy GeoJSON === */}
+          {isExternalVector && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                </svg>
+                Web API
+              </h3>
+              <ServiceUrlCard
+                label="GeoJSON (via proxy)"
+                url={externalGeoJsonUrl}
+                description="Requires authentication"
+              />
             </div>
-          </div>
+          )}
+
+          {/* === LOCAL: ArcGIS Feature Service === */}
+          {!isExternal && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"
+                  />
+                </svg>
+                ArcGIS / QGIS
+              </h3>
+              <ServiceUrlCard
+                label="Feature Service"
+                url={arcgisUrl}
+                description="Add to ArcGIS Pro: Map > Add Data > Data From Path"
+              />
+            </div>
+          )}
+
+          {/* === LOCAL: Web APIs === */}
+          {!isExternal && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"
+                  />
+                </svg>
+                Web APIs
+              </h3>
+              <div className="space-y-2">
+                <ServiceUrlCard label="GeoJSON" url={geojsonUrl} />
+                <ServiceUrlCard
+                  label="WFS"
+                  url={`${wfsUrl}?service=WFS&version=2.0.0&request=GetFeature&typeName=gis:${dataset.id}&outputFormat=application/json`}
+                  description="OGC Web Feature Service"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* === EXTERNAL VECTOR: Download === */}
+          {isExternalVector && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Download (up to 10k features)
+              </h3>
+              <div className="grid grid-cols-2 gap-2">
+                {EXPORT_FORMATS.map((format) => (
+                  <button
+                    key={format.id}
+                    onClick={() => handleExternalDownload(format.id)}
+                    disabled={downloading === format.id}
+                    className="flex flex-col items-start p-2 border border-gray-200 rounded hover:border-blue-500 hover:bg-blue-50 transition-colors text-left disabled:opacity-50"
+                  >
+                    <div className="flex items-center gap-1 w-full">
+                      <span className="text-sm font-medium text-gray-900">{format.name}</span>
+                      {downloading === format.id && (
+                        <svg className="w-3 h-3 animate-spin text-blue-600 ml-auto" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-500">{format.ext}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* === EXTERNAL RASTER: Info note === */}
+          {isExternal && !isExternalVector && (
+            <div className="text-xs text-gray-500 italic px-1">
+              Data is streamed directly from the remote service.
+            </div>
+          )}
+
+          {/* === LOCAL: Downloads === */}
+          {!isExternal && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-2">
+                <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                  />
+                </svg>
+                Download Full Dataset
+              </h3>
+              <div className="grid grid-cols-2 gap-2">
+                {EXPORT_FORMATS.map((format) => (
+                  <button
+                    key={format.id}
+                    onClick={() => handleDownload(format.id)}
+                    disabled={downloading === format.id}
+                    className="flex flex-col items-start p-2 border border-gray-200 rounded hover:border-blue-500 hover:bg-blue-50 transition-colors text-left disabled:opacity-50"
+                  >
+                    <div className="flex items-center gap-1 w-full">
+                      <span className="text-sm font-medium text-gray-900">{format.name}</span>
+                      {downloading === format.id && (
+                        <svg
+                          className="w-3 h-3 animate-spin text-blue-600 ml-auto"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                        >
+                          <circle
+                            className="opacity-25"
+                            cx="12"
+                            cy="12"
+                            r="10"
+                            stroke="currentColor"
+                            strokeWidth="4"
+                          ></circle>
+                          <path
+                            className="opacity-75"
+                            fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                          ></path>
+                        </svg>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-500">{format.ext}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Info */}
           <div className="bg-blue-50 p-3 rounded-lg">
             <h4 className="text-xs font-semibold text-blue-800 mb-1">Quick Tips</h4>
             <ul className="text-xs text-blue-700 space-y-1">
-              <li>
-                <strong>ArcGIS Pro:</strong> Use Feature Service URL
-              </li>
-              <li>
-                <strong>QGIS:</strong> Add ArcGIS REST or GeoJSON layer
-              </li>
-              <li>
-                <strong>Web apps:</strong> Use GeoJSON endpoint
-              </li>
+              {isExternal ? (
+                <>
+                  <li>
+                    <strong>ArcGIS Pro:</strong> Add Data &gt; Data From Path &gt; paste service URL
+                  </li>
+                  <li>
+                    <strong>QGIS:</strong> Add as ArcGIS REST, WMS, or WFS layer
+                  </li>
+                  {isExternalVector && (
+                    <li>
+                      <strong>Web apps:</strong> Use proxy GeoJSON endpoint (auth required)
+                    </li>
+                  )}
+                </>
+              ) : (
+                <>
+                  <li>
+                    <strong>ArcGIS Pro:</strong> Use Feature Service URL
+                  </li>
+                  <li>
+                    <strong>QGIS:</strong> Add ArcGIS REST or GeoJSON layer
+                  </li>
+                  <li>
+                    <strong>Web apps:</strong> Use GeoJSON endpoint
+                  </li>
+                </>
+              )}
             </ul>
           </div>
         </div>

@@ -1,5 +1,4 @@
-from sqlalchemy import Column, Integer, String, Table, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, Integer, String, Table, ForeignKey, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -10,7 +9,7 @@ dataset_tags = Table(
     Base.metadata,
     Column(
         "dataset_id",
-        UUID(as_uuid=True),
+        Uuid(),
         ForeignKey("datasets.id", ondelete="CASCADE"),
         primary_key=True,
     ),
