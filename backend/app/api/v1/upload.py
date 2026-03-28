@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.schemas.dataset import DatasetCreate, UploadJobResponse
 from app.crud import dataset as dataset_crud
-from app.api.deps import get_current_admin_user
+from app.api.deps import get_current_editor_or_admin_user
 from app.models.user import User
 from app.models.dataset import Dataset
 from app.services.file_processor import file_processor, FileProcessor
@@ -49,7 +49,7 @@ async def upload_vector(
     project_id: str | None = Form(None),
     tags: str = Form(""),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_editor_or_admin_user),
 ):
     if not file.filename:
         raise HTTPException(
@@ -149,7 +149,7 @@ async def upload_raster(
     project_id: str | None = Form(None),
     tags: str = Form(""),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_editor_or_admin_user),
 ):
     if not file.filename:
         raise HTTPException(
@@ -158,10 +158,10 @@ async def upload_raster(
         )
 
     ext = FileProcessor.get_file_extension(file.filename)
-    if not FileProcessor.is_raster_file(file.filename):
+    if not FileProcessor.is_raster_file(file.filename) and ext != ".zip":
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file format: {ext}. Supported: {FileProcessor.SUPPORTED_RASTER}",
+            detail=f"Unsupported file format: {ext}. Supported: {FileProcessor.SUPPORTED_RASTER} or .zip archive",
         )
 
     # Read file content for hashing
@@ -242,7 +242,7 @@ async def upload_raster(
 async def get_upload_status(
     job_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_editor_or_admin_user),
 ):
     job = await dataset_crud.get_upload_job(db, job_id)
     if not job:

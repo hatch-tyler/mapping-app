@@ -64,6 +64,7 @@ export function createMockUser(overrides: Partial<User> = {}): User {
     full_name: 'Test User',
     is_active: true,
     is_admin: false,
+    role: 'viewer',
     created_at: '2024-01-01T00:00:00Z',
     ...overrides,
   };
@@ -147,6 +148,7 @@ export const mockAdminUser = createMockUser({
   email: 'admin@example.com',
   full_name: 'Admin User',
   is_admin: true,
+  role: 'admin',
 });
 
 export const mockRegularUser = createMockUser({

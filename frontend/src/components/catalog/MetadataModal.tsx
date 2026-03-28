@@ -17,14 +17,24 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+function stripHtml(text: string): string {
+  try {
+    const doc = new DOMParser().parseFromString(text, 'text/html');
+    return doc.body.textContent || '';
+  } catch {
+    return text;
+  }
+}
+
 function Field({ label, value, showNA = false }: { label: string; value: string | number | null | undefined; showNA?: boolean }) {
   const isEmpty = value === null || value === undefined || value === '';
   if (isEmpty && !showNA) return null;
+  const displayValue = isEmpty ? 'N/A' : typeof value === 'string' ? stripHtml(value) : String(value);
   return (
     <>
       <dt className="text-gray-500">{label}</dt>
-      <dd className={`truncate ${isEmpty ? 'text-gray-300 italic' : 'text-gray-900'}`} title={isEmpty ? 'N/A' : String(value)}>
-        {isEmpty ? 'N/A' : String(value)}
+      <dd className={`truncate ${isEmpty ? 'text-gray-300 italic' : 'text-gray-900'}`} title={displayValue}>
+        {displayValue}
       </dd>
     </>
   );

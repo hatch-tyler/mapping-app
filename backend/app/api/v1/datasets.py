@@ -37,7 +37,7 @@ from app.schemas.dataset import (
     FieldStatisticsResponse,
 )
 from app.crud import dataset as dataset_crud
-from app.api.deps import get_current_user, get_current_admin_user, get_optional_current_user, check_dataset_access
+from app.api.deps import get_current_user, get_current_admin_user, get_current_editor_or_admin_user, get_optional_current_user, check_dataset_access
 from app.models.user import User
 from app.models.dataset import Dataset
 
@@ -194,9 +194,7 @@ async def refresh_local_metadata(
     from sqlalchemy import select
     result = await db.execute(
         select(Dataset).where(
-            Dataset.source_type == "local",
             Dataset.table_name.isnot(None),
-            Dataset.service_metadata.is_(None),
         )
     )
     datasets = result.scalars().all()
@@ -204,17 +202,19 @@ async def refresh_local_metadata(
     updated = 0
     for ds in datasets:
         try:
-            # Get field info from PostGIS table
-            fields_data = await dataset_crud.get_dataset_fields(db, ds)
-            metadata = {
-                "fields": fields_data,
-                "field_count": len(fields_data),
-            }
+            metadata = dict(ds.service_metadata) if ds.service_metadata else {}
+
+            # Get field info from PostGIS table (only if missing)
+            if "fields" not in metadata:
+                fields_data = await dataset_crud.get_dataset_fields(db, ds)
+                metadata["fields"] = fields_data
+                metadata["field_count"] = len(fields_data)
             if ds.feature_count:
                 metadata["total_features"] = ds.feature_count
             if ds.geometry_type:
                 metadata["geometry_types"] = [ds.geometry_type]
-            # Compute bounds from PostGIS table
+
+            # Compute bounds from PostGIS table (always refresh)
             try:
                 bounds_result = await db.execute(
                     text(f'SELECT ST_XMin(ext), ST_YMin(ext), ST_XMax(ext), ST_YMax(ext) FROM (SELECT ST_Extent(geom) as ext FROM "{ds.table_name}") sub')
@@ -224,6 +224,7 @@ async def refresh_local_metadata(
                     metadata["total_bounds"] = [float(bounds_row[0]), float(bounds_row[1]), float(bounds_row[2]), float(bounds_row[3])]
             except Exception:
                 pass
+
             ds.service_metadata = metadata
             updated += 1
         except Exception:
@@ -462,7 +463,7 @@ async def update_dataset(
     dataset_id: UUID,
     dataset_in: DatasetUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_editor_or_admin_user),
 ):
     dataset = await dataset_crud.get_dataset(db, dataset_id)
     if not dataset:
@@ -479,13 +480,20 @@ async def update_dataset(
 async def delete_dataset(
     dataset_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_editor_or_admin_user),
 ):
     dataset = await dataset_crud.get_dataset(db, dataset_id)
     if not dataset:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
+        )
+
+    # Editors can only delete their own datasets
+    if current_user.role == "editor" and dataset.created_by_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Editors can only delete datasets they created",
         )
 
     await dataset_crud.delete_dataset(db, dataset)
@@ -612,7 +620,7 @@ async def toggle_visibility(
     dataset_id: UUID,
     visibility: VisibilityUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_editor_or_admin_user),
 ):
     dataset = await dataset_crud.get_dataset(db, dataset_id)
     if not dataset:
@@ -630,9 +638,8 @@ async def toggle_public_status(
     dataset_id: UUID,
     public_status: PublicStatusUpdate,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_editor_or_admin_user),
 ):
-    """Toggle the public sharing status of a dataset. Admin only."""
     dataset = await dataset_crud.get_dataset(db, dataset_id)
     if not dataset:
         raise HTTPException(
@@ -839,9 +846,16 @@ async def get_unique_field_values(
             detail="Unique values only available for vector datasets",
         )
 
-    values, total_count = await dataset_crud.get_unique_field_values(
-        db, dataset, field_name, limit
-    )
+    try:
+        values, total_count = await dataset_crud.get_unique_field_values(
+            db, dataset, field_name, limit
+        )
+    except Exception as e:
+        logger.error("Failed to fetch unique values for %s.%s: %s", dataset_id, field_name, e)
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch unique values from external service",
+        )
 
     return UniqueValuesResponse(
         field=field_name,

@@ -40,6 +40,7 @@ async def setup_initial_admin(db):
         full_name=settings.INITIAL_ADMIN_FULL_NAME,
         is_admin=True,
         is_active=True,
+        role="admin",
     )
 
     try:

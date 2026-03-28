@@ -16,6 +16,9 @@ const ACCEPTED_VECTOR = {
 
 const ACCEPTED_RASTER = {
   'image/tiff': ['.tif', '.tiff'],
+  'image/jp2': ['.jp2'],
+  'application/octet-stream': ['.img', '.bil', '.bip', '.bsq', '.flt', '.asc'],
+  'application/zip': ['.zip'],
 };
 
 type Phase = 'idle' | 'uploading' | 'processing' | 'completed' | 'failed';
@@ -120,7 +123,7 @@ export function UploadForm({ onSuccess }: Props) {
 
   const isRasterFile = (filename: string): boolean => {
     const ext = filename.toLowerCase().split('.').pop();
-    return ['tif', 'tiff', 'geotiff'].includes(ext || '');
+    return ['tif', 'tiff', 'geotiff', 'jp2', 'img', 'bil', 'bip', 'bsq', 'flt', 'asc'].includes(ext || '');
   };
 
   const handleSubmit = async (e: React.FormEvent) => {

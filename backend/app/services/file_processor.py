@@ -45,7 +45,7 @@ def _serialize_properties(row: Any) -> dict[str, Any]:
 
 class FileProcessor:
     SUPPORTED_VECTOR = {".geojson", ".json", ".shp", ".gpkg", ".zip"}
-    SUPPORTED_RASTER = {".tif", ".tiff", ".geotiff"}
+    SUPPORTED_RASTER = {".tif", ".tiff", ".geotiff", ".jp2", ".img", ".asc", ".bil", ".bip", ".bsq", ".flt"}
 
     @staticmethod
     def get_file_extension(filename: str) -> str:

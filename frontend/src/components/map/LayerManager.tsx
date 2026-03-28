@@ -4,6 +4,7 @@ import { useDatasetStore } from '../../stores/datasetStore';
 import { useMapStore } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
 import { StyleEditor } from '../styling/StyleEditor';
+import { MetadataModal } from '../catalog/MetadataModal';
 import { rgbaToString, DEFAULT_STYLE } from '../../utils/styleInterpreter';
 import * as datasetsApi from '../../api/datasets';
 
@@ -12,10 +13,19 @@ export function LayerManager() {
   const { visibleDatasets, toggleDatasetVisibility, zoomToBounds } = useMapStore();
   const { user } = useAuthStore();
   const [styleDataset, setStyleDataset] = useState<Dataset | null>(null);
+  const [metadataDataset, setMetadataDataset] = useState<Dataset | null>(null);
   const [collapsed, setCollapsed] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [searchQuery, setSearchQuery] = useState('');
 
-  const visibleDatasetsList = datasets.filter((d) => d.is_visible);
+  const visibleDatasetsList = datasets.filter((d) => {
+    if (!d.is_visible) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      return d.name.toLowerCase().includes(q) || (d.description || '').toLowerCase().includes(q);
+    }
+    return true;
+  });
 
   // Group datasets by project
   const projectDatasets: Record<string, { name: string; datasets: Dataset[] }> = {};
@@ -137,11 +147,16 @@ export function LayerManager() {
         )}
         <label
           htmlFor={`layer-${dataset.id}`}
-          className="flex-1 text-gray-700 cursor-pointer truncate"
+          className="flex-1 text-[13px] text-gray-700 cursor-pointer truncate"
           title={dataset.name}
         >
           {dataset.name}
         </label>
+        {dataset.min_zoom > 0 && (
+          <span className="text-[9px] px-1 py-0.5 rounded bg-amber-50 text-amber-600 shrink-0" title={`Visible at zoom ${dataset.min_zoom}+`}>
+            z{dataset.min_zoom}+
+          </span>
+        )}
         <span
           className={`text-[10px] px-1 py-0.5 rounded shrink-0 ${
             dataset.data_type === 'vector'
@@ -158,6 +173,15 @@ export function LayerManager() {
           title={getBounds(dataset) ? 'Zoom to extent' : 'Bounds not available'}
         >
           <ZoomIcon />
+        </button>
+        <button
+          onClick={() => setMetadataDataset(dataset)}
+          className="p-0.5 rounded text-gray-400 hover:text-gray-600 shrink-0"
+          title="View dataset info"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
         </button>
         {/* Style button for admin users on vector layers */}
         {user?.is_admin && dataset.data_type === 'vector' && (
@@ -223,7 +247,7 @@ export function LayerManager() {
 
   return (
     <>
-      <div className="absolute top-12 left-0 bottom-0 w-[300px] bg-white/95 backdrop-blur-sm border-r border-gray-200 z-10 flex flex-col">
+      <div className="absolute top-12 left-0 bottom-0 w-[360px] bg-white/95 backdrop-blur-sm border-r border-gray-200 z-10 flex flex-col">
         {/* Header */}
         <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between shrink-0">
           <h3 className="font-semibold text-gray-700 text-sm">
@@ -240,10 +264,21 @@ export function LayerManager() {
           </button>
         </div>
 
+        {/* Search */}
+        <div className="px-3 py-2 border-b border-gray-200 shrink-0">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search layers..."
+            className="w-full px-2.5 py-1.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+          />
+        </div>
+
         {/* Scrollable content */}
         <div className="flex-1 overflow-y-auto">
           {totalCount === 0 ? (
-            <p className="text-gray-500 text-sm px-3 py-4">No layers available</p>
+            <p className="text-gray-500 text-sm px-3 py-4">{searchQuery ? 'No matching layers' : 'No layers available'}</p>
           ) : (
             <>
               {/* Project groups */}
@@ -269,6 +304,12 @@ export function LayerManager() {
           dataset={styleDataset}
           onSave={handleStyleSave}
           onClose={() => setStyleDataset(null)}
+        />
+      )}
+      {metadataDataset && (
+        <MetadataModal
+          dataset={metadataDataset}
+          onClose={() => setMetadataDataset(null)}
         />
       )}
     </>

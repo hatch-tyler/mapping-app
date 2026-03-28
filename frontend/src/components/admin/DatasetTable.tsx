@@ -6,6 +6,8 @@ import { PublicToggle } from './PublicToggle';
 import { ShareUrlModal } from './ShareUrlModal';
 import { StyleEditor } from '../styling/StyleEditor';
 import { apiClient } from '@/api/client';
+import { useToastStore } from '@/stores/toastStore';
+import { useImportStore } from '@/stores/importStore';
 import * as projectsApi from '../../api/projects';
 
 interface Props {
@@ -24,6 +26,8 @@ interface EditState {
   geographic_scope: GeographicScope | '';
   project_id: string;
   tags: string;
+  min_zoom: number;
+  max_zoom: number;
 }
 
 export function DatasetTable({
@@ -38,7 +42,8 @@ export function DatasetTable({
   const [styleModalDataset, setStyleModalDataset] = useState<Dataset | null>(null);
   const [editState, setEditState] = useState<EditState | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [importing, setImporting] = useState<string | null>(null);
+  const [importConfirmId, setImportConfirmId] = useState<string | null>(null);
+  const importStore = useImportStore();
 
   useEffect(() => {
     projectsApi.getProjects().then((r) => setProjects(r.projects)).catch(() => {});
@@ -50,6 +55,10 @@ export function DatasetTable({
       setDeleteConfirm(null);
     } else {
       setDeleteConfirm(id);
+      // Auto-cancel after 5 seconds
+      setTimeout(() => {
+        setDeleteConfirm((prev) => (prev === id ? null : prev));
+      }, 5000);
     }
   };
 
@@ -62,6 +71,8 @@ export function DatasetTable({
       geographic_scope: dataset.geographic_scope || '',
       project_id: dataset.project_id || '',
       tags: (dataset.tags || []).join(', '),
+      min_zoom: dataset.min_zoom ?? 0,
+      max_zoom: dataset.max_zoom ?? 22,
     });
   };
 
@@ -74,6 +85,8 @@ export function DatasetTable({
         geographic_scope: editState.geographic_scope || null,
         project_id: editState.category === 'project' && editState.project_id ? editState.project_id : null,
         tags: editState.tags ? editState.tags.split(',').map((t) => t.trim()).filter(Boolean) : [],
+        min_zoom: editState.min_zoom,
+        max_zoom: editState.max_zoom,
       } as Partial<Dataset>);
       setEditState(null);
     }
@@ -91,18 +104,15 @@ export function DatasetTable({
   };
 
   const handleImportToLocal = async (dataset: Dataset) => {
-    if (!window.confirm('Import all features from this external service to local storage? This may take a moment.')) {
-      return;
-    }
-    setImporting(dataset.id);
+    setImportConfirmId(null);
     try {
       const resp = await apiClient.post(`/external-sources/${dataset.id}/import`);
-      onUpdate?.(dataset.id, resp.data);
+      const jobId = resp.data.id;
+      importStore.startImport(dataset.id, dataset.name, jobId);
+      useToastStore.getState().addToast('Import started in the background', 'info');
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Import failed';
-      alert(`Import failed: ${message}`);
-    } finally {
-      setImporting(null);
+      useToastStore.getState().addToast(`Import failed: ${message}`, 'error');
     }
   };
 
@@ -224,23 +234,21 @@ export function DatasetTable({
               <td className="px-3 py-3 whitespace-nowrap text-right">
                 <div className="flex justify-end gap-1">
                   {onUpdate && dataset.source_type === 'external' && (dataset.service_type === 'arcgis_feature' || dataset.service_type === 'wfs') && (
-                    <button
-                      onClick={() => handleImportToLocal(dataset)}
-                      disabled={importing === dataset.id}
-                      className={`p-1.5 rounded ${importing === dataset.id ? 'text-gray-400 cursor-not-allowed' : 'text-teal-600 hover:bg-teal-50'}`}
-                      title="Import to local storage"
-                    >
-                      {importing === dataset.id ? (
-                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                        </svg>
-                      ) : (
+                    importStore.isImporting(dataset.id) ? (
+                      <span className="text-xs text-teal-600 font-medium px-1.5">
+                        {importStore.getProgress(dataset.id) ?? 0}%
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setImportConfirmId(dataset.id)}
+                        className="p-1.5 rounded text-teal-600 hover:bg-teal-50"
+                        title="Import to local storage"
+                      >
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v12m0 0l-4-4m4 4l4-4M4 18h16" />
                         </svg>
-                      )}
-                    </button>
+                      </button>
+                    )
                   )}
                   {onUpdate && dataset.data_type === 'vector' && (
                     <button
@@ -275,23 +283,36 @@ export function DatasetTable({
                       </svg>
                     </button>
                   )}
-                  <button
-                    onClick={() => handleDelete(dataset.id)}
-                    className={`p-1.5 rounded ${
-                      deleteConfirm === dataset.id
-                        ? 'bg-red-600 text-white'
-                        : 'text-red-600 hover:bg-red-50'
-                    }`}
-                    title={deleteConfirm === dataset.id ? 'Click to confirm deletion' : 'Delete dataset'}
-                  >
-                    {deleteConfirm === dataset.id ? (
-                      <span className="text-xs font-medium px-0.5">Confirm?</span>
-                    ) : (
+                  {deleteConfirm === dataset.id ? (
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleDelete(dataset.id)}
+                        className="px-2 py-1 rounded bg-red-600 text-white text-xs font-medium"
+                        title="Confirm deletion"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        onClick={() => setDeleteConfirm(null)}
+                        className="p-1 rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+                        title="Cancel"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => handleDelete(dataset.id)}
+                      className="p-1.5 rounded text-red-600 hover:bg-red-50"
+                      title="Delete dataset"
+                    >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                       </svg>
-                    )}
-                  </button>
+                    </button>
+                  )}
                 </div>
               </td>
             </tr>
@@ -427,6 +448,29 @@ export function DatasetTable({
                 />
                 <p className="text-xs text-gray-400 mt-0.5">Comma-separated</p>
               </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Zoom Range</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    value={editState.min_zoom}
+                    onChange={(e) => setEditState({ ...editState, min_zoom: Math.max(0, Math.min(22, Number(e.target.value))) })}
+                    min={0}
+                    max={22}
+                    className="w-20 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-sm text-gray-500">to</span>
+                  <input
+                    type="number"
+                    value={editState.max_zoom}
+                    onChange={(e) => setEditState({ ...editState, max_zoom: Math.max(0, Math.min(22, Number(e.target.value))) })}
+                    min={0}
+                    max={22}
+                    className="w-20 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <p className="text-xs text-gray-400 mt-0.5">Min/max zoom levels (0-22). Higher min zoom = layer appears only when zoomed in.</p>
+              </div>
             </div>
             <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
               <button
@@ -445,6 +489,38 @@ export function DatasetTable({
                 }`}
               >
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import Confirmation Modal */}
+      {importConfirmId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full mx-4 p-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">
+              Import to Local Storage
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Import all features from this external service to local PostGIS storage?
+              This runs in the background and may take several minutes for large datasets.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setImportConfirmId(null)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-100 rounded-md"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const ds = datasets.find(d => d.id === importConfirmId);
+                  if (ds) handleImportToLocal(ds);
+                }}
+                className="px-4 py-2 text-sm font-medium text-white bg-teal-600 hover:bg-teal-700 rounded-md"
+              >
+                Start Import
               </button>
             </div>
           </div>

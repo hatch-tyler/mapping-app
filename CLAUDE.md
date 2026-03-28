@@ -135,19 +135,19 @@ Key config: `azure/terraform/terraform.tfvars`
 ## Architecture
 
 ### Backend Structure (`backend/app/`)
-- **api/v1/**: REST endpoints (auth, datasets, upload, wfs, export, registration, field analysis)
-- **api/arcgis/**: ArcGIS REST API compatibility layer
+- **api/v1/**: REST endpoints (auth, datasets, upload, wfs, export, registration, users, projects, external_sources, tiles)
+- **api/arcgis/**: ArcGIS REST API compatibility layer (FeatureServer query endpoint)
 - **core/**: Security and authentication (JWT with access/refresh tokens)
 - **crud/**: Database CRUD operations
 - **models/**: SQLAlchemy ORM models with GeoAlchemy2 for spatial types
 - **schemas/**: Pydantic request/response validation
-- **services/**: Business logic (arcgis, email)
+- **services/**: Business logic (file_processor, external_source, import_service, email)
 
 ### Frontend Structure (`frontend/src/`)
-- **api/**: Axios-based API client modules
-- **components/**: React components (admin/, auth/, map/, common/, styling/)
-- **pages/**: Route page components (LoginPage, RegisterPage, MapPage, AdminPage)
-- **stores/**: Zustand state stores (authStore, datasetStore, mapStore)
+- **api/**: Axios-based API client modules (auth, datasets, users, projects, externalSources)
+- **components/**: React components (admin/, auth/, map/, common/, catalog/, data/, styling/, layout/)
+- **pages/**: Route page components (LoginPage, RegisterPage, MapPage, AdminPage, UploadPage/DataManager, DataPage, CatalogPage)
+- **stores/**: Zustand state stores (authStore, datasetStore, mapStore, toastStore, importStore)
 - **hooks/**: Custom React hooks
 - **utils/**: Layer factory, style interpreter, color ramps, cluster layer
 
@@ -169,18 +169,20 @@ Key config: `azure/terraform/terraform.tfvars`
 ### Database
 - PostgreSQL 16 + PostGIS 3.4
 - Migrations via Alembic (`backend/alembic/`)
-- Key models: Users, Datasets (with geometry + style_config JSONB), RefreshTokens, RegistrationRequests, UploadJobs
+- Key models: Users (with role: admin/editor/viewer), Datasets (with geometry + style_config JSONB), Projects, ProjectMembers, RefreshTokens, RegistrationRequests, UploadJobs
 
 ### Supported Data Formats
 - Vector: GeoJSON, Shapefile (ZIP), GeoPackage
-- Raster: GeoTIFF
+- Raster: GeoTIFF, JPEG2000 (.jp2), Erdas Imagine (.img), ASCII Grid (.asc), Esri BIL/BIP/BSQ, Esri Float Grid (.flt)
+- External: ArcGIS FeatureServer, ArcGIS MapServer, ArcGIS ImageServer, WMS, WFS, XYZ/TMS
 
 ### Layer Styling System
 - `style_config` JSONB field stored per dataset in the database
 - Three modes: `uniform` (single color), `categorical` (color by field), `graduated` (color ramp)
 - Style interpreter (`frontend/src/utils/styleInterpreter.ts`) converts config to Deck.gl accessors
 - Color ramps defined in `frontend/src/utils/colorRamps.ts`
-- Admin UI: StyleEditor modal accessible from DatasetTable "Style" button
+- StyleEditor modal accessible from DatasetTable and LayerManager
+- Categorical mode supports unique values from both local PostGIS and external ArcGIS services
 
 ## Code Style
 
@@ -213,3 +215,8 @@ Key config: `azure/terraform/terraform.tfvars`
 | Styling | `frontend/src/utils/colorRamps.ts` | Color ramp definitions |
 | Layers | `frontend/src/utils/layerFactory.ts` | Creates Deck.gl layers from datasets |
 | Layers | `frontend/src/utils/clusterLayer.ts` | Point clustering with Supercluster |
+| Import | `backend/app/services/import_service.py` | Background external-to-local import |
+| External | `backend/app/services/external_source.py` | Probe, fetch, proxy external services |
+| Map | `frontend/src/components/map/FeatureDetailPanel.tsx` | Click-to-inspect feature attributes |
+| State | `frontend/src/stores/importStore.ts` | Persistent import polling across navigation |
+| State | `frontend/src/stores/toastStore.ts` | In-app toast notification system |

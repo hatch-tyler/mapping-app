@@ -25,8 +25,8 @@ const cartoPreview = (style: string) =>
   `https://a.basemaps.cartocdn.com/${style}/${PREVIEW_Z}/${PREVIEW_X}/${PREVIEW_Y}.png`;
 
 // Generate Stadia raster tile URL for preview
-const stadiaPreview = (style: string) =>
-  `https://tiles.stadiamaps.com/tiles/${style}/${PREVIEW_Z}/${PREVIEW_X}/${PREVIEW_Y}.png`;
+const esriPreview = (service: string) =>
+  `https://server.arcgisonline.com/ArcGIS/rest/services/${service}/MapServer/tile/${PREVIEW_Z}/${PREVIEW_Y}/${PREVIEW_X}`;
 
 export const AVAILABLE_BASEMAPS: Basemap[] = [
   {
@@ -51,37 +51,37 @@ export const AVAILABLE_BASEMAPS: Basemap[] = [
     id: 'satellite',
     name: 'Satellite',
     url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
-    thumbnail: `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${PREVIEW_Z}/${PREVIEW_Y}/${PREVIEW_X}`,
+    thumbnail: esriPreview('World_Imagery'),
   },
   {
-    id: 'osm-bright',
-    name: 'OSM Bright',
-    url: 'https://tiles.stadiamaps.com/styles/osm_bright.json',
-    thumbnail: stadiaPreview('osm_bright'),
+    id: 'streets',
+    name: 'Streets',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    thumbnail: esriPreview('World_Street_Map'),
   },
   {
-    id: 'alidade-smooth',
-    name: 'Alidade Smooth',
-    url: 'https://tiles.stadiamaps.com/styles/alidade_smooth.json',
-    thumbnail: stadiaPreview('alidade_smooth'),
+    id: 'topographic',
+    name: 'Topographic',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    thumbnail: esriPreview('World_Topo_Map'),
   },
   {
-    id: 'alidade-smooth-dark',
-    name: 'Alidade Dark',
-    url: 'https://tiles.stadiamaps.com/styles/alidade_smooth_dark.json',
-    thumbnail: stadiaPreview('alidade_smooth_dark'),
+    id: 'light-gray',
+    name: 'Light Gray',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    thumbnail: esriPreview('Canvas/World_Light_Gray_Base'),
   },
   {
-    id: 'outdoors',
-    name: 'Outdoors',
-    url: 'https://tiles.stadiamaps.com/styles/outdoors.json',
-    thumbnail: stadiaPreview('outdoors'),
+    id: 'natgeo',
+    name: 'National Geographic',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}',
+    thumbnail: esriPreview('NatGeo_World_Map'),
   },
   {
-    id: 'stamen-toner',
-    name: 'Stamen Toner',
-    url: 'https://tiles.stadiamaps.com/styles/stamen_toner.json',
-    thumbnail: stadiaPreview('stamen_toner'),
+    id: 'ocean',
+    name: 'Ocean',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}',
+    thumbnail: esriPreview('Ocean/World_Ocean_Base'),
   },
 ];
 

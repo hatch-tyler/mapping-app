@@ -7,6 +7,7 @@ import { useDatasetStore } from '../../stores/datasetStore';
 import { createLayerFromDataset } from '../../utils/layerFactory';
 import { createClusteredLayer, shouldUseClustering, clearClusterCache } from '../../utils/clusterLayer';
 import { BasemapGallery } from './BasemapGallery';
+import { FeatureDetailPanel } from './FeatureDetailPanel';
 import { Dataset } from '../../api/types';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -209,6 +210,13 @@ export function MapContainer() {
     return false;
   }, [truncatedLayers, visibleDatasets]);
 
+  // Check if any visible datasets require a higher zoom level
+  const belowMinZoomDatasets = useMemo(() => {
+    return datasets.filter(
+      d => visibleDatasets.has(d.id) && d.min_zoom > 0 && d.min_zoom > Math.floor(viewState.zoom)
+    );
+  }, [datasets, visibleDatasets, viewState.zoom]);
+
   return (
     <div className="map-container">
       <DeckGL
@@ -222,12 +230,30 @@ export function MapContainer() {
         <Map mapStyle={mapStyle} />
       </DeckGL>
       <BasemapGallery />
+      <FeatureDetailPanel />
+      {belowMinZoomDatasets.length > 0 && (
+        <div className="absolute top-14 left-1/2 -translate-x-1/2 bg-blue-50 border border-blue-300 text-blue-800 px-4 py-2 rounded-lg shadow text-sm flex items-center gap-2 z-10">
+          <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+          </svg>
+          {belowMinZoomDatasets.length === 1
+            ? `Zoom in to level ${belowMinZoomDatasets[0].min_zoom} to view ${belowMinZoomDatasets[0].name}`
+            : `Zoom in to level ${Math.max(...belowMinZoomDatasets.map(d => d.min_zoom))} to view ${belowMinZoomDatasets.length} layers`
+          }
+        </div>
+      )}
       {hasVisibleTruncated && (
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-amber-50 border border-amber-300 text-amber-800 px-4 py-2 rounded-lg shadow text-sm flex items-center gap-2 z-10">
           <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
             <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
           </svg>
-          Zoom in to see all features — some layers have more data than shown
+          {(() => {
+            const truncatedDs = datasets.find(d => truncatedLayers.has(d.id) && visibleDatasets.has(d.id));
+            const featureCount = (truncatedDs?.service_metadata as Record<string, unknown> | null)?.feature_count as number | undefined;
+            return featureCount
+              ? `Zoom in to see all features — layer has ${featureCount.toLocaleString()} features`
+              : 'Zoom in to see all features — some layers have more data than shown';
+          })()}
         </div>
       )}
     </div>

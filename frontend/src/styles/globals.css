@@ -44,7 +44,7 @@ body {
 .basemap-gallery-container {
   position: absolute;
   bottom: 24px;
-  left: 24px;
+  right: 24px;
   z-index: 10;
 }
 
@@ -76,7 +76,7 @@ body {
 .basemap-gallery-panel {
   position: absolute;
   bottom: 48px;
-  left: 0;
+  right: 0;
   width: 320px;
   max-height: 400px;
   background: white;
@@ -247,16 +247,14 @@ body {
   }
 }
 
-/* On small screens, move gallery to bottom-right to avoid layer panel conflict */
+/* On small screens, adjust gallery spacing */
 @media (max-width: 640px) {
   .basemap-gallery-container {
-    left: auto;
     right: 16px;
     bottom: 16px;
   }
 
   .basemap-gallery-panel {
-    left: auto;
     right: 0;
     width: calc(100vw - 32px);
     max-width: 320px;

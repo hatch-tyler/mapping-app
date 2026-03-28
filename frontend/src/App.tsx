@@ -7,10 +7,12 @@ import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { ResetPasswordPage } from './pages/ResetPasswordPage';
 import { MapPage } from './pages/MapPage';
 import { AdminPage } from './pages/AdminPage';
+import { UploadPage } from './pages/UploadPage';
 import { DataPage } from './pages/DataPage';
 import { CatalogPage } from './pages/CatalogPage';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { ErrorBoundary } from './components/common/ErrorBoundary';
+import { ToastContainer } from './components/common/ToastContainer';
 import { useAuthStore } from './stores/authStore';
 
 function App() {
@@ -30,6 +32,7 @@ function App() {
 
   return (
     <ErrorBoundary>
+      <ToastContainer />
       <BrowserRouter>
         <Routes>
           <Route path="/login" element={<LoginPage />} />
@@ -51,6 +54,14 @@ function App() {
             element={
               <ProtectedRoute>
                 <MapPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/upload"
+            element={
+              <ProtectedRoute requireRole={['editor', 'admin']}>
+                <UploadPage />
               </ProtectedRoute>
             }
           />

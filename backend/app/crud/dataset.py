@@ -686,10 +686,15 @@ async def get_unique_field_values(
     limit: int = 100,
 ) -> tuple[list[Any], int]:
     """Get unique values for a specific field in a dataset."""
-    if not dataset.table_name or not _validate_table_name(dataset.table_name):
+    if not _validate_field_name(field_name):
         return [], 0
 
-    if not _validate_field_name(field_name):
+    # External datasets: proxy to remote service
+    if dataset.source_type == "external" and not dataset.table_name:
+        return await _get_external_unique_values(dataset, field_name, limit)
+
+    # Local datasets: query PostGIS
+    if not dataset.table_name or not _validate_table_name(dataset.table_name):
         return [], 0
 
     # Count total unique values
@@ -719,6 +724,61 @@ async def get_unique_field_values(
         values.append(val)  # Keep as string from JSONB ->> operator
 
     return values, total_count
+
+
+async def _get_external_unique_values(
+    dataset: Dataset,
+    field_name: str,
+    limit: int = 100,
+) -> tuple[list[Any], int]:
+    """Fetch unique values from an external vector service."""
+    from app.services.external_source import proxy_request
+
+    if dataset.service_type == "arcgis_feature":
+        url = f"{dataset.service_url.rstrip('/')}/{dataset.service_layer_id or '0'}/query"
+        params = {
+            "f": "json",
+            "where": "1=1",
+            "outFields": field_name,
+            "returnDistinctValues": "true",
+            "returnGeometry": "false",
+            "orderByFields": field_name,
+            "resultRecordCount": str(limit),
+        }
+        resp = await proxy_request(url, dataset.service_type, params)
+        data = resp.json()
+        features = data.get("features", [])
+        values = []
+        for feat in features:
+            val = feat.get("attributes", {}).get(field_name)
+            if val is not None:
+                values.append(val)
+        return values, len(values)
+
+    elif dataset.service_type == "wfs":
+        url = dataset.service_url
+        params = {
+            "service": "WFS",
+            "request": "GetFeature",
+            "typeName": dataset.service_layer_id or "",
+            "outputFormat": "application/json",
+            "propertyName": field_name,
+            "maxFeatures": "2000",
+            "srsName": "EPSG:4326",
+        }
+        resp = await proxy_request(url, dataset.service_type, params)
+        data = resp.json()
+        seen: set[Any] = set()
+        values: list[Any] = []
+        for feat in data.get("features", []):
+            val = feat.get("properties", {}).get(field_name)
+            if val is not None and val not in seen:
+                seen.add(val)
+                values.append(val)
+        values.sort(key=lambda v: str(v))
+        return values[:limit], len(values)
+
+    return [], 0
 
 
 async def get_field_statistics(

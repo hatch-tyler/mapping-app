@@ -1,5 +1,6 @@
 import json
 import logging
+import math
 from xml.etree import ElementTree
 
 import httpx
@@ -7,6 +8,33 @@ import httpx
 logger = logging.getLogger(__name__)
 
 TIMEOUT = 60.0
+
+# ArcGIS WKID values that mean Web Mercator (EPSG:3857)
+_WEB_MERCATOR_WKIDS = {3857, 102100, 102113, 900913}
+
+
+def _web_mercator_to_wgs84(x: float, y: float) -> tuple[float, float]:
+    """Convert Web Mercator (EPSG:3857) coordinates to WGS84 (EPSG:4326)."""
+    lon = x * 180.0 / 20037508.34
+    lat = math.atan(math.exp(y * math.pi / 20037508.34)) * 360.0 / math.pi - 90.0
+    return lon, lat
+
+
+def _validate_wgs84_bounds(bounds: list[float] | None) -> list[float] | None:
+    """Return bounds only if they represent a reasonable WGS84 extent."""
+    if not bounds or len(bounds) != 4:
+        return None
+    minx, miny, maxx, maxy = bounds
+    # Must be valid WGS84 range
+    if not (-180 <= minx <= 180 and -90 <= miny <= 90 and -180 <= maxx <= 180 and -90 <= maxy <= 90):
+        return None
+    # Must have non-zero area (min < max)
+    if minx >= maxx or miny >= maxy:
+        return None
+    # Reject full-planet extents (likely a default/placeholder)
+    if (maxx - minx) > 350 and (maxy - miny) > 170:
+        return None
+    return bounds
 
 
 async def browse_directory(url: str) -> dict:
@@ -180,12 +208,73 @@ def _extract_arcgis_metadata(data: dict) -> dict:
 
 
 def _arcgis_extent(extent: dict | None) -> list[float] | None:
+    """Extract and reproject ArcGIS extent to WGS84 [minx, miny, maxx, maxy]."""
     if not extent:
         return None
     try:
-        return [extent["xmin"], extent["ymin"], extent["xmax"], extent["ymax"]]
+        xmin, ymin = extent["xmin"], extent["ymin"]
+        xmax, ymax = extent["xmax"], extent["ymax"]
     except (KeyError, TypeError):
         return None
+
+    # Check spatial reference — reproject if not WGS84
+    sr = extent.get("spatialReference") or {}
+    wkid = sr.get("latestWkid") or sr.get("wkid")
+    if wkid and wkid in _WEB_MERCATOR_WKIDS:
+        xmin, ymin = _web_mercator_to_wgs84(xmin, ymin)
+        xmax, ymax = _web_mercator_to_wgs84(xmax, ymax)
+    elif wkid and wkid != 4326:
+        # Unknown projection — try pyproj if available
+        try:
+            from pyproj import Transformer
+            transformer = Transformer.from_crs(f"EPSG:{wkid}", "EPSG:4326", always_xy=True)
+            xmin, ymin = transformer.transform(xmin, ymin)
+            xmax, ymax = transformer.transform(xmax, ymax)
+        except Exception:
+            logger.warning("Cannot reproject extent from WKID %s to WGS84", wkid)
+            return None
+
+    return _validate_wgs84_bounds([xmin, ymin, xmax, ymax])
+
+
+async def fetch_arcgis_layer_extent(service_url: str, layer_id: str) -> list[float] | None:
+    """Fetch extent for a specific ArcGIS layer by querying its individual endpoint."""
+    url = f"{service_url.rstrip('/')}/{layer_id}"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(url, params={"f": "json"})
+            if resp.status_code == 200:
+                data = resp.json()
+                return _arcgis_extent(data.get("extent"))
+    except (httpx.HTTPError, ValueError, KeyError):
+        logger.debug("Failed to fetch layer extent for %s/%s", service_url, layer_id)
+    return None
+
+
+async def fetch_arcgis_feature_count(service_url: str, layer_id: str) -> int | None:
+    """Query an ArcGIS FeatureServer for its total feature count."""
+    url = f"{service_url.rstrip('/')}/{layer_id}/query"
+    try:
+        async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
+            resp = await client.get(
+                url, params={"f": "json", "where": "1=1", "returnCountOnly": "true"}
+            )
+            if resp.status_code == 200:
+                return resp.json().get("count")
+    except (httpx.HTTPError, ValueError, KeyError):
+        logger.debug("Failed to fetch feature count for %s/%s", service_url, layer_id)
+    return None
+
+
+def suggest_min_zoom(feature_count: int | None) -> int:
+    """Suggest a min_zoom level based on feature count to avoid overloading tile queries."""
+    if not feature_count or feature_count < 5000:
+        return 0
+    if feature_count < 50000:
+        return 8
+    if feature_count < 200000:
+        return 10
+    return 12
 
 
 async def _try_wfs(client: httpx.AsyncClient, url: str) -> dict | None:
@@ -308,7 +397,7 @@ def _wfs_extent(ft_el: ElementTree.Element, ns: str) -> list[float] | None:
                 try:
                     lc = lower.text.split()
                     uc = upper.text.split()
-                    return [float(lc[0]), float(lc[1]), float(uc[0]), float(uc[1])]
+                    return _validate_wgs84_bounds([float(lc[0]), float(lc[1]), float(uc[0]), float(uc[1])])
                 except (ValueError, IndexError):
                     pass
     return None
@@ -323,19 +412,19 @@ def _wms_extent(layer_el: ElementTree.Element, ns: str) -> list[float] | None:
             east = float(bbox.findtext(f"{ns}eastBoundLongitude") or "")
             south = float(bbox.findtext(f"{ns}southBoundLatitude") or "")
             north = float(bbox.findtext(f"{ns}northBoundLatitude") or "")
-            return [west, south, east, north]
+            return _validate_wgs84_bounds([west, south, east, north])
         except ValueError:
             pass
     # Fallback: LatLonBoundingBox (WMS 1.1.1)
     bbox = layer_el.find("LatLonBoundingBox")
     if bbox is not None:
         try:
-            return [
+            return _validate_wgs84_bounds([
                 float(bbox.get("minx", "")),
                 float(bbox.get("miny", "")),
                 float(bbox.get("maxx", "")),
                 float(bbox.get("maxy", "")),
-            ]
+            ])
         except ValueError:
             pass
     return None
@@ -346,17 +435,26 @@ async def fetch_all_features(
     service_type: str,
     layer_id: str,
     max_features: int = 10000,
+    timeout: float = TIMEOUT,
 ) -> dict:
     """Fetch all features from an external vector service with pagination.
+
+    Automatically reduces page size on server errors (some services fail
+    with large geometry payloads).
 
     Returns a GeoJSON FeatureCollection dict.
     """
     all_features: list[dict] = []
     page_size = 2000
 
-    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
+    async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
         if service_type == "arcgis_feature":
             offset = 0
+            query_url = f"{service_url.rstrip('/')}/{layer_id}/query"
+
+            retries = 0
+            max_retries = 3
+
             while len(all_features) < max_features:
                 remaining = min(page_size, max_features - len(all_features))
                 params = {
@@ -367,15 +465,63 @@ async def fetch_all_features(
                     "resultRecordCount": str(remaining),
                     "resultOffset": str(offset),
                 }
-                url = f"{service_url.rstrip('/')}/{layer_id}/query"
-                resp = await client.get(url, params=params)
-                if resp.status_code != 200:
+
+                # Handle both HTTP errors and timeouts
+                try:
+                    resp = await client.get(query_url, params=params)
+                except httpx.TimeoutException:
+                    retries += 1
+                    if retries <= max_retries:
+                        if page_size > 10:
+                            page_size = max(page_size // 2, 10)
+                        logger.info(
+                            "Timeout at offset %s, retry %s/%s (page_size=%s)",
+                            offset, retries, max_retries, page_size,
+                        )
+                        continue
+                    logger.warning("Max retries reached after timeout, returning %s features", len(all_features))
                     break
-                data = resp.json()
+
+                # If server errors, reduce page size and retry
+                is_error = resp.status_code != 200
+                data = None
+                if not is_error:
+                    try:
+                        data = resp.json()
+                    except ValueError:
+                        is_error = True
+                    else:
+                        if data.get("error"):
+                            is_error = True
+
+                if is_error:
+                    if page_size > 10:
+                        page_size = max(page_size // 4, 10)
+                        logger.info(
+                            "Server error (status=%s), reducing page size to %s",
+                            resp.status_code, page_size,
+                        )
+                        continue
+                    retries += 1
+                    if retries <= max_retries:
+                        logger.info("Retry %s/%s at page_size=%s", retries, max_retries, page_size)
+                        continue
+                    logger.warning(
+                        "Server errors persist at page_size=%s, returning %s features",
+                        page_size, len(all_features),
+                    )
+                    break
+
+                retries = 0  # Reset on success
+
                 features = data.get("features", [])
                 if not features:
                     break
                 all_features.extend(features)
+                logger.debug(
+                    "Fetched %d features (total: %d, page_size: %d)",
+                    len(features), len(all_features), page_size,
+                )
                 # If we got fewer than requested, we've reached the end
                 if len(features) < remaining:
                     break

@@ -178,9 +178,9 @@ describe('DatasetTable', () => {
     const deleteButtons = screen.getAllByTitle('Delete dataset');
     expect(deleteButtons.length).toBe(2);
 
-    // First click should change button text to "Confirm?"
+    // First click should show confirmation buttons
     fireEvent.click(deleteButtons[0]);
-    expect(screen.getByText('Confirm?')).toBeInTheDocument();
+    expect(screen.getByTitle('Confirm deletion')).toBeInTheDocument();
 
     // onDelete should not have been called yet
     expect(mockOnDelete).not.toHaveBeenCalled();
@@ -202,7 +202,7 @@ describe('DatasetTable', () => {
     fireEvent.click(deleteButton);
 
     // Second click - confirm delete
-    const confirmButton = screen.getByText('Confirm?');
+    const confirmButton = screen.getByTitle('Confirm deletion');
     fireEvent.click(confirmButton);
 
     expect(mockOnDelete).toHaveBeenCalledWith('1');
@@ -222,15 +222,14 @@ describe('DatasetTable', () => {
 
     // Click first delete button
     fireEvent.click(deleteButtons[0]);
-    expect(screen.getByText('Confirm?')).toBeInTheDocument();
+    expect(screen.getByTitle('Confirm deletion')).toBeInTheDocument();
 
-    // Click second delete button
+    // Click second delete button — switches confirmation to second dataset
     fireEvent.click(deleteButtons[1]);
 
-    // First row should be back to "Delete"
-    const allDeleteButtons = screen.getAllByTitle('Delete dataset');
-    expect(allDeleteButtons.length).toBe(1);
-    expect(screen.getByText('Confirm?')).toBeInTheDocument();
+    // Should have one confirmation button visible
+    const allConfirmButtons = screen.getAllByTitle('Confirm deletion');
+    expect(allConfirmButtons.length).toBe(1);
   });
 
   it('should render table headers', () => {

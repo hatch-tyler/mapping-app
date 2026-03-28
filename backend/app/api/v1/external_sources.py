@@ -6,7 +6,7 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
-from app.schemas.dataset import DatasetCreate, DatasetResponse
+from app.schemas.dataset import DatasetCreate, DatasetResponse, UploadJobResponse
 from app.schemas.service_catalog import (
     ServiceCatalogCreate,
     ServiceCatalogResponse,
@@ -14,7 +14,7 @@ from app.schemas.service_catalog import (
 )
 from app.crud import dataset as dataset_crud
 from app.crud import service_catalog as catalog_crud
-from app.api.deps import get_current_admin_user, get_current_user
+from app.api.deps import get_current_admin_user, get_current_editor_or_admin_user, get_current_user
 from app.api.v1.datasets import dataset_to_response
 from app.models.user import User
 from app.models.dataset import Dataset
@@ -102,7 +102,7 @@ class RegisterRequest(BaseModel):
 @router.post("/probe", response_model=ProbeResponse)
 async def probe_external_source(
     request: ProbeRequest,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_editor_or_admin_user),
 ):
     """Auto-detect service type from a URL and return available layers."""
     try:
@@ -122,7 +122,7 @@ async def probe_external_source(
 @router.post("/browse", response_model=BrowseResponse)
 async def browse_external_directory(
     request: BrowseRequest,
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_editor_or_admin_user),
 ):
     """Browse an ArcGIS REST services directory for folders and services."""
     try:
@@ -201,6 +201,46 @@ async def refresh_all_external_metadata(
         try:
             probe_result = await probe_service(ds.service_url)
             metadata = probe_result.get("metadata") or {}
+            # Store layer extent as total_bounds
+            for layer in probe_result.get("layers", []):
+                if layer.get("id") == ds.service_layer_id and layer.get("extent"):
+                    metadata["total_bounds"] = layer["extent"]
+                    break
+            else:
+                layers = probe_result.get("layers", [])
+                if layers and layers[0].get("extent"):
+                    metadata["total_bounds"] = layers[0]["extent"]
+
+            # For ArcGIS services, fetch per-layer extent if still missing
+            if (
+                not metadata.get("total_bounds")
+                and ds.service_type
+                in ("arcgis_feature", "arcgis_map", "arcgis_map_export", "arcgis_image")
+                and ds.service_layer_id
+            ):
+                from app.services.external_source import fetch_arcgis_layer_extent
+
+                layer_bounds = await fetch_arcgis_layer_extent(
+                    ds.service_url, ds.service_layer_id
+                )
+                if layer_bounds:
+                    metadata["total_bounds"] = layer_bounds
+
+            # Fetch feature count for ArcGIS FeatureServer datasets
+            if ds.service_type == "arcgis_feature" and ds.service_layer_id:
+                from app.services.external_source import fetch_arcgis_feature_count
+
+                feature_count = await fetch_arcgis_feature_count(
+                    ds.service_url, ds.service_layer_id
+                )
+                if feature_count is not None:
+                    metadata["feature_count"] = feature_count
+                    # Auto-set min_zoom if still at default
+                    if ds.min_zoom == 0:
+                        from app.services.external_source import suggest_min_zoom
+
+                        ds.min_zoom = suggest_min_zoom(feature_count)
+
             ds.service_metadata = metadata
             ds.last_service_check = datetime.now(timezone.utc)
             updated += 1
@@ -215,7 +255,7 @@ async def refresh_all_external_metadata(
 async def register_external_source(
     request: RegisterRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_editor_or_admin_user),
 ):
     """Register an external service as a dataset (no data stored locally)."""
     try:
@@ -243,7 +283,40 @@ async def register_external_source(
     # Fetch metadata from the service
     try:
         probe_result = await probe_service(request.service_url)
-        service_metadata = probe_result.get("metadata")
+        service_metadata = probe_result.get("metadata") or {}
+        # Store layer extent as total_bounds for zoom-to-extent
+        for layer in probe_result.get("layers", []):
+            if layer.get("id") == request.service_layer_id and layer.get("extent"):
+                service_metadata["total_bounds"] = layer["extent"]
+                break
+        else:
+            # Fallback: use first layer's extent
+            layers = probe_result.get("layers", [])
+            if layers and layers[0].get("extent"):
+                service_metadata["total_bounds"] = layers[0]["extent"]
+
+        # For ArcGIS services, fetch per-layer extent if we still have no bounds
+        if (
+            not service_metadata.get("total_bounds")
+            and request.service_type
+            in ("arcgis_feature", "arcgis_map", "arcgis_map_export", "arcgis_image")
+        ):
+            from app.services.external_source import fetch_arcgis_layer_extent
+
+            layer_bounds = await fetch_arcgis_layer_extent(
+                request.service_url, request.service_layer_id
+            )
+            if layer_bounds:
+                service_metadata["total_bounds"] = layer_bounds
+        # Fetch feature count for ArcGIS FeatureServer datasets
+        if request.service_type == "arcgis_feature":
+            from app.services.external_source import fetch_arcgis_feature_count
+
+            feature_count = await fetch_arcgis_feature_count(
+                request.service_url, request.service_layer_id
+            )
+            if feature_count is not None:
+                service_metadata["feature_count"] = feature_count
     except Exception:
         service_metadata = None
 
@@ -252,6 +325,13 @@ async def register_external_source(
         data_type = "raster"
     else:
         data_type = "vector"
+
+    # Auto-set min_zoom for large feature datasets
+    auto_min_zoom = 0
+    if service_metadata and service_metadata.get("feature_count"):
+        from app.services.external_source import suggest_min_zoom
+
+        auto_min_zoom = suggest_min_zoom(service_metadata["feature_count"])
 
     # Geographic scope is only valid for reference category
     geographic_scope = request.geographic_scope if request.category != "project" else None
@@ -262,6 +342,7 @@ async def register_external_source(
         category=request.category,
         geographic_scope=geographic_scope,
         tags=request.tags,
+        min_zoom=auto_min_zoom,
     )
 
     dataset = await dataset_crud.create_dataset(
@@ -391,6 +472,45 @@ async def refresh_external_metadata(
     try:
         result = await probe_service(dataset.service_url)
         metadata = result.get("metadata") or {}
+        # Store layer extent as total_bounds
+        for layer in result.get("layers", []):
+            if layer.get("id") == dataset.service_layer_id and layer.get("extent"):
+                metadata["total_bounds"] = layer["extent"]
+                break
+        else:
+            layers = result.get("layers", [])
+            if layers and layers[0].get("extent"):
+                metadata["total_bounds"] = layers[0]["extent"]
+
+        # For ArcGIS services, fetch per-layer extent if still missing
+        if (
+            not metadata.get("total_bounds")
+            and dataset.service_type
+            in ("arcgis_feature", "arcgis_map", "arcgis_map_export", "arcgis_image")
+            and dataset.service_layer_id
+        ):
+            from app.services.external_source import fetch_arcgis_layer_extent
+
+            layer_bounds = await fetch_arcgis_layer_extent(
+                dataset.service_url, dataset.service_layer_id
+            )
+            if layer_bounds:
+                metadata["total_bounds"] = layer_bounds
+
+        # Fetch feature count for ArcGIS FeatureServer datasets
+        if dataset.service_type == "arcgis_feature" and dataset.service_layer_id:
+            from app.services.external_source import fetch_arcgis_feature_count
+
+            feature_count = await fetch_arcgis_feature_count(
+                dataset.service_url, dataset.service_layer_id
+            )
+            if feature_count is not None:
+                metadata["feature_count"] = feature_count
+                if dataset.min_zoom == 0:
+                    from app.services.external_source import suggest_min_zoom
+
+                    dataset.min_zoom = suggest_min_zoom(feature_count)
+
         dataset.service_metadata = metadata
         dataset.last_service_check = datetime.now(timezone.utc)
         await db.commit()
@@ -400,13 +520,17 @@ async def refresh_external_metadata(
         raise HTTPException(status_code=502, detail="Failed to fetch metadata from external service")
 
 
-@router.post("/{dataset_id}/import", response_model=DatasetResponse)
+@router.post("/{dataset_id}/import", response_model=UploadJobResponse, status_code=202)
 async def import_external_to_local(
     dataset_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_editor_or_admin_user),
 ):
-    """Import an external vector dataset to local PostGIS storage."""
+    """Import an external vector dataset to local PostGIS storage.
+
+    Spawns a background task and returns immediately with a job ID.
+    Poll /upload/status/{job_id} to track progress.
+    """
     dataset = await dataset_crud.get_dataset(db, dataset_id)
     if not dataset:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
@@ -418,93 +542,36 @@ async def import_external_to_local(
             detail="Only vector services (ArcGIS Feature, WFS) can be imported",
         )
 
-    table_name = f"vector_data_{str(dataset_id).replace('-', '_')}"
+    # Create job for progress tracking (reuses upload job infrastructure)
+    job = await dataset_crud.create_upload_job(db, dataset.id)
 
-    try:
-        # Fetch all features from the external service
-        geojson_data = await fetch_all_features(
-            dataset.service_url,
-            dataset.service_type,
-            dataset.service_layer_id or "0",
-            max_features=50000,
+    # Capture service info before spawning background task
+    service_url = dataset.service_url
+    service_type = dataset.service_type
+    service_layer_id = dataset.service_layer_id or "0"
+    original_metadata = dict(dataset.service_metadata) if dataset.service_metadata else {}
+
+    # Spawn background task
+    import asyncio
+    from app.services.import_service import import_external_background
+
+    def _log_task_error(task: asyncio.Task) -> None:
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc:
+            logger.error("Background import task failed: %s", exc, exc_info=exc)
+
+    task = asyncio.create_task(
+        import_external_background(
+            dataset_id=dataset_id,
+            job_id=job.id,
+            service_url=service_url,
+            service_type=service_type,
+            service_layer_id=service_layer_id,
+            original_metadata=original_metadata,
         )
+    )
+    task.add_done_callback(_log_task_error)
 
-        if not geojson_data.get("features"):
-            raise ValueError("No features returned from the external service")
-
-        # Convert to GeoDataFrame
-        from shapely.geometry import shape
-        import geopandas as gpd
-
-        rows = []
-        geometries = []
-        for feat in geojson_data["features"]:
-            props = feat.get("properties", {}) or {}
-            geom = feat.get("geometry")
-            if geom:
-                geometries.append(shape(geom))
-                rows.append(props)
-
-        if not geometries:
-            raise ValueError("No valid geometries found in fetched features")
-
-        gdf = gpd.GeoDataFrame(rows, geometry=geometries, crs="EPSG:4326")
-
-        # Strip Z coordinates if present
-        if gdf.geometry.has_z.any():
-            from shapely.ops import transform
-            gdf['geometry'] = gdf.geometry.apply(
-                lambda geom: transform(lambda x, y, z=None: (x, y), geom) if geom and geom.has_z else geom
-            )
-
-        # Create PostGIS table and insert features
-        from app.services.file_processor import FileProcessor
-        processor = FileProcessor()
-        await processor._create_vector_table(db, table_name)
-        await processor._insert_features(db, table_name, gdf)
-
-        # Get geometry type and bounds
-        geom_types = gdf.geometry.geom_type.unique()
-        geom_type = geom_types[0] if len(geom_types) == 1 else "Geometry"
-        bounds = gdf.total_bounds.tolist()
-
-        # Preserve original service info in metadata
-        original_metadata = dataset.service_metadata or {}
-        original_metadata["original_service_url"] = dataset.service_url
-        original_metadata["original_service_type"] = dataset.service_type
-        original_metadata["original_layer_id"] = dataset.service_layer_id
-        original_metadata["imported_at"] = datetime.now(timezone.utc).isoformat()
-        original_metadata["imported_feature_count"] = len(gdf)
-
-        # Update the dataset record
-        dataset.source_type = "local"
-        dataset.table_name = table_name
-        dataset.geometry_type = geom_type
-        dataset.feature_count = len(gdf)
-        dataset.data_type = "vector"
-        dataset.service_metadata = original_metadata
-        # Clear external fields
-        dataset.service_url = None
-        dataset.service_type = None
-        dataset.service_layer_id = None
-        await db.commit()
-        await db.refresh(dataset)
-
-        return dataset_to_response(dataset)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Failed to import external dataset %s: %s", dataset_id, e)
-        # Clean up partial table on failure
-        try:
-            from sqlalchemy import text as sa_text
-            await db.rollback()
-            await db.execute(sa_text(f'DROP TABLE IF EXISTS "{table_name}"'))
-            await db.commit()
-        except Exception:
-            pass
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to import external dataset: {str(e)}",
-        )
+    return job

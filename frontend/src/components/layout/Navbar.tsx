@@ -24,7 +24,11 @@ export function Navbar({ variant = 'standard' }: NavbarProps) {
     { to: '/data', label: 'Data' },
   ];
 
-  if (user?.is_admin) {
+  if (user?.role === 'editor' || user?.role === 'admin') {
+    navLinks.push({ to: '/upload', label: 'Manage' });
+  }
+
+  if (user?.role === 'admin') {
     navLinks.push({ to: '/admin', label: 'Admin' });
   }
 

@@ -73,15 +73,16 @@ function createExternalLayer(dataset: Dataset): LayerType {
       });
 
     case 'arcgis_map':
-      // Tile-cached ArcGIS MapServer via proxy
+      // Tile-cached ArcGIS MapServer — direct access (faster, no proxy)
       return new TileLayer({
         id: `ext-arcmap-${dataset.id}`,
-        data: `${proxyBase}?tile=true&z={z}&y={y}&x={x}`,
+        data: `${dataset.service_url}/tile/{z}/{y}/{x}`,
         tileSize: 256,
         minZoom: dataset.min_zoom,
         maxZoom: dataset.max_zoom,
-        loadOptions: { fetch: { headers: authHeaders } },
+        onTileError: () => {},  // Silently ignore 404s for tiles outside data extent
         renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
+          if (!props.data) return null;
           const { boundingBox } = props.tile;
           return new BitmapLayer({
             ...props,
@@ -116,16 +117,17 @@ function createExternalLayer(dataset: Dataset): LayerType {
     }
 
     case 'arcgis_image': {
-      // ArcGIS ImageServer via proxy /exportImage endpoint
-      const imageUrl = `${proxyBase}?bbox={west},{south},{east},{north}&bboxSR=4326&imageSR=3857&size=256,256&format=png32&transparent=true&f=image`;
+      // ArcGIS ImageServer — direct access (faster, no proxy)
+      const imageUrl = `${dataset.service_url}/exportImage?bbox={west},{south},{east},{north}&bboxSR=4326&imageSR=3857&size=256,256&format=png32&transparent=true&f=image`;
       return new TileLayer({
         id: `ext-arcimg-${dataset.id}`,
         data: imageUrl,
         tileSize: 256,
         minZoom: dataset.min_zoom,
         maxZoom: dataset.max_zoom,
-        loadOptions: { fetch: { headers: authHeaders } },
+        onTileError: () => {},
         renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
+          if (!props.data) return null;
           const { boundingBox } = props.tile;
           return new BitmapLayer({
             ...props,

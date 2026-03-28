@@ -99,7 +99,7 @@ describe('ProtectedRoute', () => {
     useAuthStore.setState({
       isLoading: false,
       isAuthenticated: true,
-      user: createMockUser({ is_admin: true }),
+      user: createMockUser({ is_admin: true, role: 'admin' }),
     });
 
     render(
