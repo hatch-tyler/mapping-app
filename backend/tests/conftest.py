@@ -38,6 +38,12 @@ from sqlalchemy import Text as _Text
 geoalchemy2._original_Geometry = geoalchemy2.Geometry
 geoalchemy2.Geometry = lambda *args, **kwargs: _Text()
 
+# Patch PostgreSQL JSONB to JSON for SQLite compatibility
+import sqlalchemy.dialects.postgresql as _pg
+from sqlalchemy import JSON as _JSON
+_pg._original_JSONB = _pg.JSONB
+_pg.JSONB = _JSON
+
 
 from app.database import Base, get_db
 from app.main import app
@@ -133,6 +139,7 @@ async def admin_user(db_session: AsyncSession) -> User:
         full_name="Admin User",
         is_active=True,
         is_admin=True,
+        role="admin",
     )
     db_session.add(user)
     await db_session.commit()

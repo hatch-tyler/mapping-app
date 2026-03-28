@@ -157,11 +157,10 @@ class TestFileProcessorRaster:
         """Mock rasterio for testing."""
         with patch("app.services.file_processor.rasterio") as mock:
             mock_src = MagicMock()
-            mock_src.bounds = MagicMock()
-            mock_src.bounds.left = -122.5
-            mock_src.bounds.bottom = 37.5
-            mock_src.bounds.right = -122.0
-            mock_src.bounds.top = 38.0
+            # Use a namedtuple-like object so list(src.bounds) works
+            from collections import namedtuple
+            BoundingBox = namedtuple("BoundingBox", ["left", "bottom", "right", "top"])
+            mock_src.bounds = BoundingBox(left=-122.5, bottom=37.5, right=-122.0, top=38.0)
             mock_src.crs = "EPSG:4326"
             mock_src.width = 1000
             mock_src.height = 1000
