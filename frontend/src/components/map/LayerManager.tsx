@@ -14,7 +14,6 @@ export function LayerManager() {
   const { user } = useAuthStore();
   const [styleDataset, setStyleDataset] = useState<Dataset | null>(null);
   const [metadataDataset, setMetadataDataset] = useState<Dataset | null>(null);
-  const [collapsed, setCollapsed] = useState(false);
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -224,44 +223,17 @@ export function LayerManager() {
     );
   }
 
-  // Collapsed state
-  if (collapsed) {
-    return (
-      <div className="absolute top-12 left-0 bottom-0 w-11 bg-white/90 backdrop-blur-sm border-r border-gray-200 z-10 flex flex-col items-center pt-2">
-        <button
-          onClick={() => setCollapsed(false)}
-          className="p-2 rounded hover:bg-gray-100 text-gray-600"
-          title="Expand layers panel"
-        >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-          </svg>
-        </button>
-      </div>
-    );
-  }
-
-  // Expanded state
   const projectIds = Object.keys(projectDatasets);
   const totalCount = visibleDatasetsList.length;
 
   return (
     <>
-      <div className="absolute top-12 left-0 bottom-0 w-[360px] bg-white/95 backdrop-blur-sm border-r border-gray-200 z-10 flex flex-col">
+      <div className="absolute top-12 left-11 bottom-0 w-[340px] bg-white/95 backdrop-blur-sm border-r border-gray-200 z-10 flex flex-col">
         {/* Header */}
-        <div className="px-3 py-2 border-b border-gray-200 flex items-center justify-between shrink-0">
+        <div className="px-3 py-2 border-b border-gray-200 shrink-0">
           <h3 className="font-semibold text-gray-700 text-sm">
             Layers {totalCount > 0 && <span className="text-gray-400 font-normal">({totalCount})</span>}
           </h3>
-          <button
-            onClick={() => setCollapsed(true)}
-            className="p-1 rounded hover:bg-gray-100 text-gray-500"
-            title="Collapse layers panel"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
         </div>
 
         {/* Search */}
@@ -281,7 +253,6 @@ export function LayerManager() {
             <p className="text-gray-500 text-sm px-3 py-4">{searchQuery ? 'No matching layers' : 'No layers available'}</p>
           ) : (
             <>
-              {/* Project groups */}
               {projectIds.map((pid) =>
                 renderSection(
                   pid,
@@ -290,7 +261,6 @@ export function LayerManager() {
                   () => handleZoomToProject(pid)
                 )
               )}
-              {/* Reference / ungrouped datasets */}
               {referenceDatasets.length > 0 &&
                 renderSection('_reference', 'Reference Layers', referenceDatasets)
               }

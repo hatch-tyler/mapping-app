@@ -69,11 +69,11 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 # Run with gunicorn for production
 CMD ["gunicorn", "app.main:app", \
      "--bind", "0.0.0.0:8000", \
-     "--workers", "4", \
+     "--workers", "5", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--timeout", "300", \
-     "--keep-alive", "5", \
-     "--max-requests", "1000", \
-     "--max-requests-jitter", "50", \
+     "--keep-alive", "15", \
+     "--max-requests", "5000", \
+     "--max-requests-jitter", "200", \
      "--access-logfile", "-", \
      "--error-logfile", "-"]

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Dataset, StyleConfig, StyleMode } from '../../api/types';
 import { DEFAULT_STYLE } from '../../utils/styleInterpreter';
+import { downloadStyleExport } from '../../api/templates';
 import { UniformStylePanel } from './UniformStylePanel';
 import { CategoricalStylePanel } from './CategoricalStylePanel';
 import { GraduatedStylePanel } from './GraduatedStylePanel';
@@ -132,12 +133,24 @@ export function StyleEditor({ dataset, onSave, onClose }: Props) {
 
         {/* Footer */}
         <div className="px-6 py-4 border-t border-gray-200 flex justify-between shrink-0">
-          <button
-            onClick={handleReset}
-            className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800"
-          >
-            Reset to Default
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleReset}
+              className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800"
+            >
+              Reset
+            </button>
+            <div className="relative group">
+              <button className="px-3 py-2 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50">
+                Export Style
+              </button>
+              <div className="absolute bottom-full left-0 mb-1 hidden group-hover:flex flex-col bg-white border border-gray-200 rounded-md shadow-lg py-1 min-w-[120px] z-50">
+                <button onClick={() => downloadStyleExport(dataset.id, 'sld')} className="px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 text-left">SLD (OGC)</button>
+                <button onClick={() => downloadStyleExport(dataset.id, 'lyrx')} className="px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 text-left">LYRX (ArcGIS Pro)</button>
+                <button onClick={() => downloadStyleExport(dataset.id, 'qml')} className="px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-100 text-left">QML (QGIS)</button>
+              </div>
+            </div>
+          </div>
           <div className="flex gap-3">
             <button
               onClick={onClose}

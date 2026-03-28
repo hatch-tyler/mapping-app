@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { StyleConfig, FieldMetadata, RGBAColor } from '../../api/types';
 import { ColorPicker } from './ColorPicker';
-import { getCategoryColor } from '../../utils/colorRamps';
+import { getCategoryColor, CATEGORICAL_PALETTES } from '../../utils/colorRamps';
 import { getDatasetFields, getUniqueValues } from '../../api/datasets';
 
 interface Props {
@@ -79,6 +79,19 @@ export function CategoricalStylePanel({ datasetId, styleConfig, onChange }: Prop
     });
   };
 
+  const [selectedPalette, setSelectedPalette] = useState('default');
+
+  const handleApplyPalette = (paletteName: string) => {
+    setSelectedPalette(paletteName);
+    if (uniqueValues.length > 0) {
+      const newColors: Record<string, RGBAColor> = {};
+      uniqueValues.forEach((value, index) => {
+        newColors[String(value ?? 'null')] = getCategoryColor(index, paletteName);
+      });
+      onChange({ ...styleConfig, categoryColors: newColors });
+    }
+  };
+
   const handleCategoryColorChange = (key: string, color: RGBAColor) => {
     onChange({
       ...styleConfig,
@@ -126,6 +139,37 @@ export function CategoricalStylePanel({ datasetId, styleConfig, onChange }: Prop
           ))}
         </select>
       </div>
+
+      {/* Color Palette */}
+      {styleConfig.attributeField && uniqueValues.length > 0 && (
+        <div className="space-y-2">
+          <label className="block text-sm font-medium text-gray-700">Color Palette</label>
+          <div className="grid grid-cols-2 gap-2">
+            {CATEGORICAL_PALETTES.map((palette) => (
+              <button
+                key={palette.name}
+                onClick={() => handleApplyPalette(palette.name)}
+                className={`flex flex-col gap-1 p-2 rounded-md border-2 transition-colors text-left ${
+                  selectedPalette === palette.name
+                    ? 'border-blue-500 bg-blue-50'
+                    : 'border-gray-200 hover:border-gray-300'
+                }`}
+              >
+                <div className="flex gap-0.5">
+                  {palette.colors.slice(0, 8).map((color, i) => (
+                    <span
+                      key={i}
+                      className="w-3 h-3 rounded-sm"
+                      style={{ backgroundColor: `rgba(${color[0]},${color[1]},${color[2]},${(color[3] ?? 255) / 255})` }}
+                    />
+                  ))}
+                </div>
+                <span className="text-[10px] text-gray-600">{palette.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Default Color */}
       <ColorPicker

@@ -117,7 +117,7 @@ async def get_vector_tile(
     mvt_data = row[0] if row else None
 
     headers = _get_tile_cors_headers()
-    headers["Cache-Control"] = "public, max-age=300"
+    headers["Cache-Control"] = "public, max-age=86400"
 
     # Empty tile → 204
     if not mvt_data or len(bytes(mvt_data)) == 0:

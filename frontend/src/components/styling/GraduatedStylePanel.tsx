@@ -213,6 +213,20 @@ export function GraduatedStylePanel({ datasetId, styleConfig, onChange }: Props)
               ))}
             </div>
           </div>
+
+          <div>
+            <p className="text-xs text-gray-500 mb-2">Colorblind-Safe</p>
+            <div className="grid grid-cols-3 gap-2">
+              {COLOR_RAMPS.filter((r) => r.type === 'colorblind-safe').map((ramp) => (
+                <ColorRampPreview
+                  key={ramp.name}
+                  rampName={ramp.name}
+                  selected={currentRampName === ramp.name}
+                  onClick={() => handleRampChange(ramp.name)}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       </div>
 

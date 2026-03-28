@@ -143,8 +143,8 @@ describe('BasemapGallery', () => {
       // Trigger error handler
       fireEvent.error(firstImage);
 
-      // Should have a data URI as fallback
-      expect(firstImage.src).toContain('data:image/svg+xml');
+      // Image should be hidden on error
+      expect(firstImage.style.display).toBe('none');
     });
   });
 });

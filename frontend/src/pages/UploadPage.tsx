@@ -5,6 +5,7 @@ import { AddExternalSourceModal } from '../components/admin/AddExternalSourceMod
 import { DatasetSearchBar } from '../components/admin/DatasetSearchBar';
 import { DatasetFilterPanel } from '../components/admin/DatasetFilterPanel';
 import { ProjectsTab } from '../components/admin/ProjectsTab';
+import { LayoutDesigner } from '../components/templates/LayoutDesigner';
 import { Navbar } from '@/components/layout/Navbar';
 import { useDatasetStore } from '../stores/datasetStore';
 import { useToastStore } from '../stores/toastStore';
@@ -12,7 +13,7 @@ import { Dataset } from '../api/types';
 import { apiClient } from '../api/client';
 import * as datasetsApi from '../api/datasets';
 
-type TabType = 'datasets' | 'projects';
+type TabType = 'datasets' | 'projects' | 'templates';
 
 export function UploadPage() {
   const [showAddExternal, setShowAddExternal] = useState(false);
@@ -84,11 +85,11 @@ export function UploadPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="h-screen flex flex-col bg-gray-100">
       <Navbar />
 
       {/* Tabs */}
-      <div className="border-b border-gray-200 bg-white">
+      <div className="border-b border-gray-200 bg-white shrink-0">
         <div className="max-w-7xl mx-auto px-4">
           <nav className="-mb-px flex space-x-8">
             <button
@@ -111,12 +112,29 @@ export function UploadPage() {
             >
               Projects
             </button>
+            <button
+              onClick={() => setActiveTab('templates')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'templates'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Templates
+            </button>
           </nav>
         </div>
       </div>
 
-      {/* Content */}
-      <main className="max-w-7xl mx-auto px-4 py-8">
+      {/* Templates tab: full-bleed layout */}
+      {activeTab === 'templates' && (
+        <div className="flex-1 min-h-0">
+          <LayoutDesigner onClose={() => setActiveTab('datasets')} />
+        </div>
+      )}
+
+      {/* Other tabs: constrained width */}
+      <main className={`max-w-7xl mx-auto px-4 py-8 ${activeTab === 'templates' ? 'hidden' : ''} flex-1 overflow-y-auto`}>
         {activeTab === 'datasets' && (
           <div className="bg-white rounded-lg shadow overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200 space-y-3">
@@ -188,6 +206,10 @@ export function UploadPage() {
           <div className="bg-white rounded-lg shadow overflow-hidden">
             <ProjectsTab />
           </div>
+        )}
+
+        {activeTab === 'templates' && (
+          <LayoutDesigner onClose={() => setActiveTab('datasets')} />
         )}
       </main>
 

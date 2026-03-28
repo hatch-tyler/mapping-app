@@ -1,7 +1,7 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { MapContainer } from '../components/map/MapContainer';
-import { LayerManager } from '../components/map/LayerManager';
+import { MapToolbar } from '../components/map/MapToolbar';
 import { Navbar } from '@/components/layout/Navbar';
 import { useDatasetStore } from '../stores/datasetStore';
 import { useMapStore } from '../stores/mapStore';
@@ -101,8 +101,8 @@ export function MapPage() {
       {/* Map */}
       <MapContainer />
 
-      {/* Layer Manager Sidebar */}
-      <LayerManager />
+      {/* Map Toolbar + Sliding Panels */}
+      <MapToolbar />
     </div>
   );
 }

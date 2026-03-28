@@ -10,6 +10,9 @@ import {
   CatalogFilterState,
   DEFAULT_FILTERS,
 } from '@/components/catalog/CatalogFilters';
+import * as templatesApi from '@/api/templates';
+import type { MapView, LayoutTemplate } from '@/api/templates';
+import { useNavigate } from 'react-router-dom';
 
 export function CatalogPage() {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
@@ -18,6 +21,9 @@ export function CatalogPage() {
   const [filters, setFilters] = useState<CatalogFilterState>(DEFAULT_FILTERS);
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [metadataDataset, setMetadataDataset] = useState<Dataset | null>(null);
+  const [savedViews, setSavedViews] = useState<MapView[]>([]);
+  const [layoutTemplates, setLayoutTemplates] = useState<LayoutTemplate[]>([]);
+  const navigate = useNavigate();
 
   // Fetch all browsable datasets on mount
   useEffect(() => {
@@ -45,6 +51,19 @@ export function CatalogPage() {
       cancelled = true;
     };
   }, []);
+
+  // Fetch saved views and templates
+  useEffect(() => {
+    templatesApi.getMapViews().then(setSavedViews).catch(() => {});
+    templatesApi.getLayoutTemplates().then(setLayoutTemplates).catch(() => {});
+  }, []);
+
+  const handleOpenView = (view: MapView) => {
+    const config = view.map_config;
+    const layers = view.layer_configs.filter(l => l.visible).map(l => l.dataset_id);
+    const hash = `zoom=${config.zoom.toFixed(1)}&lat=${config.latitude.toFixed(4)}&lon=${config.longitude.toFixed(4)}&layers=${layers.join(',')}`;
+    navigate(`/#${hash}`);
+  };
 
   // Debounce search input
   useEffect(() => {
@@ -241,6 +260,82 @@ export function CatalogPage() {
                         dataset={dataset}
                         onViewMetadata={handleViewMetadata}
                       />
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Saved Map Views */}
+              {savedViews.length > 0 && (
+                <section>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <svg className="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                    </svg>
+                    Saved Map Views
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {savedViews.map((view) => (
+                      <button
+                        key={view.id}
+                        onClick={() => handleOpenView(view)}
+                        className="bg-white rounded-lg border border-gray-200 p-4 text-left hover:border-blue-300 hover:shadow-md transition-all"
+                      >
+                        <h3 className="font-medium text-gray-900 text-sm">{view.name}</h3>
+                        {view.description && (
+                          <p className="text-xs text-gray-500 mt-1 line-clamp-2">{view.description}</p>
+                        )}
+                        <div className="flex items-center gap-2 mt-2">
+                          <span className="text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded">
+                            {view.layer_configs.length} layers
+                          </span>
+                          <span className="text-[10px] text-gray-400">
+                            Zoom {view.map_config.zoom?.toFixed(0)}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {/* Layout Templates */}
+              {layoutTemplates.length > 0 && (
+                <section>
+                  <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                    <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Layout Templates
+                  </h2>
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                    {layoutTemplates.map((tmpl) => (
+                      <div
+                        key={tmpl.id}
+                        className="bg-white rounded-lg border border-gray-200 p-4"
+                      >
+                        <h3 className="font-medium text-gray-900 text-sm">{tmpl.name}</h3>
+                        {tmpl.description && (
+                          <p className="text-xs text-gray-500 mt-1 line-clamp-2">{tmpl.description}</p>
+                        )}
+                        <p className="text-[10px] text-gray-400 mt-1">
+                          {tmpl.page_config.orientation} {tmpl.page_config.width}x{tmpl.page_config.height}mm
+                        </p>
+                        <div className="flex gap-1 mt-2">
+                          <button
+                            onClick={() => templatesApi.downloadLayoutExport(tmpl.id, 'qpt')}
+                            className="text-[10px] px-2 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200"
+                          >
+                            QGIS (.qpt)
+                          </button>
+                          <button
+                            onClick={() => templatesApi.downloadLayoutExport(tmpl.id, 'pagx')}
+                            className="text-[10px] px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                          >
+                            ArcGIS (.pagx)
+                          </button>
+                        </div>
+                      </div>
                     ))}
                   </div>
                 </section>

@@ -35,8 +35,13 @@ class ESRIQueryHandler:
         self.db = db
 
     async def get_dataset_by_name(self, service_name: str) -> Dataset | None:
-        """Find a public dataset by name or slug."""
-        # First try exact match
+        """Find a public dataset by name or slug.
+
+        Uses SQL-level filtering to avoid loading all datasets into memory.
+        """
+        from sqlalchemy import func
+
+        # First try exact name match
         result = await self.db.execute(
             select(Dataset).where(
                 Dataset.name == service_name,
@@ -48,18 +53,35 @@ class ESRIQueryHandler:
         if dataset:
             return dataset
 
-        # Try slug match
+        # Try slug match using SQL: slugify converts spaces/special chars to underscores
+        # Match datasets where the slugified name equals the service_name
         result = await self.db.execute(
             select(Dataset).where(
                 Dataset.is_public == True,
                 Dataset.data_type == "vector",
+                func.lower(func.regexp_replace(
+                    func.regexp_replace(Dataset.name, r'[^\w\s-]', '', 'g'),
+                    r'[-\s]+', '_', 'g'
+                )) == service_name.lower(),
             )
         )
-        for ds in result.scalars():
-            if slugify(ds.name) == service_name:
-                return ds
+        dataset = result.scalar_one_or_none()
+        if dataset:
+            return dataset
 
-        return None
+        # Also check visible (non-public) datasets for authenticated access
+        result = await self.db.execute(
+            select(Dataset).where(
+                Dataset.is_visible == True,
+                Dataset.data_type == "vector",
+                Dataset.table_name.isnot(None),
+                func.lower(func.regexp_replace(
+                    func.regexp_replace(Dataset.name, r'[^\w\s-]', '', 'g'),
+                    r'[-\s]+', '_', 'g'
+                )) == service_name.lower(),
+            )
+        )
+        return result.scalar_one_or_none()
 
     async def get_public_datasets(self) -> list[Dataset]:
         """Get all public vector datasets."""

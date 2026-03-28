@@ -8,6 +8,7 @@ import { createLayerFromDataset } from '../../utils/layerFactory';
 import { createClusteredLayer, shouldUseClustering, clearClusterCache } from '../../utils/clusterLayer';
 import { BasemapGallery } from './BasemapGallery';
 import { FeatureDetailPanel } from './FeatureDetailPanel';
+import { MeasureTool } from './MeasureTool';
 import { Dataset } from '../../api/types';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -45,6 +46,9 @@ export function MapContainer() {
     useMapStore();
   const { datasets } = useDatasetStore();
   const [clusteredLayers, setClusteredLayers] = useState<Record<string, unknown>>({});
+  const [showMeasure, setShowMeasure] = useState(false);
+  const measureClickHandler = useRef<((info: { coordinate?: [number, number] }) => void) | null>(null);
+  const deckRef = useRef<HTMLDivElement>(null);
 
   // Generate the appropriate map style based on basemap type
   const mapStyle = useMemo(() => {
@@ -133,6 +137,12 @@ export function MapContainer() {
 
   const onClick = useCallback(
     (info: { object?: unknown; coordinate?: [number, number] }) => {
+      // Delegate to measurement tool if active
+      if (measureClickHandler.current && info.coordinate) {
+        measureClickHandler.current(info);
+        return;
+      }
+
       const obj = info.object as { properties?: { cluster?: boolean; point_count?: number } } | undefined;
 
       // Handle cluster click - zoom in
@@ -218,7 +228,7 @@ export function MapContainer() {
   }, [datasets, visibleDatasets, viewState.zoom]);
 
   return (
-    <div className="map-container">
+    <div className="map-container" ref={deckRef}>
       <DeckGL
         viewState={viewState}
         onViewStateChange={onViewStateChange}
@@ -231,6 +241,43 @@ export function MapContainer() {
       </DeckGL>
       <BasemapGallery />
       <FeatureDetailPanel />
+
+      {/* Map Toolbar */}
+      <div className="absolute top-14 right-6 flex flex-col gap-1 z-10">
+        <button
+          onClick={() => setShowMeasure(!showMeasure)}
+          className={`p-2 rounded-lg shadow border ${showMeasure ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+          title="Measure distance/area"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 2L2 6l16 16 4-4L6 2zm2 8l2 2m2-6l2 2m2-6l2 2" />
+          </svg>
+        </button>
+        <button
+          onClick={() => {
+            const canvas = deckRef.current?.querySelector('canvas');
+            if (canvas) {
+              const link = document.createElement('a');
+              link.download = 'map-export.png';
+              link.href = (canvas as HTMLCanvasElement).toDataURL('image/png');
+              link.click();
+            }
+          }}
+          className="p-2 rounded-lg shadow border bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+          title="Export map as PNG"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+        </button>
+      </div>
+
+      {showMeasure && (
+        <MeasureTool
+          onClose={() => { setShowMeasure(false); measureClickHandler.current = null; }}
+          onMapClick={(handler) => { measureClickHandler.current = handler; }}
+        />
+      )}
       {belowMinZoomDatasets.length > 0 && (
         <div className="absolute top-14 left-1/2 -translate-x-1/2 bg-blue-50 border border-blue-300 text-blue-800 px-4 py-2 rounded-lg shadow text-sm flex items-center gap-2 z-10">
           <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">

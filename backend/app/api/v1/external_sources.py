@@ -414,7 +414,15 @@ async def proxy_external_service(
     try:
         resp = await proxy_request(target_url, dataset.service_type or "", params)
     except Exception as e:
-        logger.error("External service proxy error for dataset %s: %s", dataset_id, e)
+        logger.warning("External service proxy error for dataset %s: %s", dataset_id, e)
+        # Return empty GeoJSON for feature queries so tiles render as empty instead of erroring
+        f_param = params.get("f", "")
+        if f_param in ("geojson", "json"):
+            return Response(
+                content='{"type":"FeatureCollection","features":[]}',
+                media_type="application/json",
+                headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"},
+            )
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch data from external service")
 
     # Determine cache headers based on content type

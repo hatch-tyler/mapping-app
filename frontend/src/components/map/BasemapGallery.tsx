@@ -121,10 +121,19 @@ export function BasemapGallery() {
                   <img
                     src={basemap.thumbnail}
                     alt={basemap.name}
+                    crossOrigin="anonymous"
+                    loading="lazy"
                     onError={(e) => {
-                      // Fallback for failed thumbnails
-                      (e.target as HTMLImageElement).src =
-                        'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"%3E%3Crect fill="%23e5e7eb" width="100" height="100"/%3E%3Ctext x="50" y="50" text-anchor="middle" dy=".3em" fill="%236b7280" font-size="12"%3EMap%3C/text%3E%3C/svg%3E';
+                      const el = e.target as HTMLImageElement;
+                      el.style.display = 'none';
+                      const parent = el.parentElement;
+                      if (parent && !parent.querySelector('.basemap-fallback')) {
+                        const fallback = document.createElement('div');
+                        fallback.className = 'basemap-fallback';
+                        fallback.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#e5e7eb;border-radius:6px;font-size:11px;color:#6b7280;font-weight:500;';
+                        fallback.textContent = basemap.name;
+                        parent.appendChild(fallback);
+                      }
                     }}
                   />
                 </div>

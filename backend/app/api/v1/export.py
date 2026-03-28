@@ -482,3 +482,87 @@ async def export_external_dataset(
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
+
+
+# ===== Style Export Endpoints =====
+
+
+@router.get("/datasets/{dataset_id}/style/sld")
+async def export_style_sld(
+    dataset_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    """Export dataset style as OGC Styled Layer Descriptor (SLD) XML."""
+    from app.services.style_exporter import generate_sld
+
+    dataset = await get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    style_config = dataset.style_config or {}
+    sld_xml = generate_sld(style_config, layer_name=dataset.name, geometry_type=dataset.geometry_type)
+    safe_name = re.sub(r'[^\w\-.]', '_', dataset.name)
+
+    return StreamingResponse(
+        io.BytesIO(sld_xml.encode("utf-8")),
+        media_type="application/vnd.ogc.sld+xml",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}.sld"',
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
+@router.get("/datasets/{dataset_id}/style/lyrx")
+async def export_style_lyrx(
+    dataset_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    """Export dataset style as ArcGIS Pro layer file (.lyrx)."""
+    from app.services.style_exporter import generate_lyrx
+
+    dataset = await get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    style_config = dataset.style_config or {}
+    lyrx_json = generate_lyrx(style_config, layer_name=dataset.name, geometry_type=dataset.geometry_type)
+    safe_name = re.sub(r'[^\w\-.]', '_', dataset.name)
+
+    return StreamingResponse(
+        io.BytesIO(lyrx_json.encode("utf-8")),
+        media_type="application/json",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}.lyrx"',
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
+@router.get("/datasets/{dataset_id}/style/qml")
+async def export_style_qml(
+    dataset_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User | None = Depends(get_optional_current_user),
+):
+    """Export dataset style as QGIS style file (.qml)."""
+    from app.services.style_exporter import generate_qml
+
+    dataset = await get_dataset(db, dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    style_config = dataset.style_config or {}
+    qml_xml = generate_qml(style_config, layer_name=dataset.name, geometry_type=dataset.geometry_type)
+    safe_name = re.sub(r'[^\w\-.]', '_', dataset.name)
+
+    return StreamingResponse(
+        io.BytesIO(qml_xml.encode("utf-8")),
+        media_type="application/xml",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_name}.qml"',
+            "Access-Control-Allow-Origin": "*",
+        },
+    )

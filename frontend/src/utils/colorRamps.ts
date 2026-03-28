@@ -3,7 +3,7 @@ import { RGBAColor } from '../api/types';
 export interface ColorRamp {
   name: string;
   label: string;
-  type: 'sequential' | 'diverging';
+  type: 'sequential' | 'diverging' | 'colorblind-safe';
   colors: RGBAColor[];
 }
 
@@ -161,6 +161,92 @@ export const COLOR_RAMPS: ColorRamp[] = [
       [94, 79, 162, 255],
     ],
   },
+  // Colorblind-safe sequential ramps
+  {
+    name: 'cividis',
+    label: 'Cividis',
+    type: 'colorblind-safe',
+    colors: [
+      [0, 32, 77, 255],
+      [0, 67, 106, 255],
+      [54, 92, 108, 255],
+      [91, 112, 108, 255],
+      [126, 132, 107, 255],
+      [163, 152, 97, 255],
+      [199, 174, 73, 255],
+      [229, 199, 44, 255],
+      [253, 231, 37, 255],
+    ],
+  },
+  {
+    name: 'inferno',
+    label: 'Inferno',
+    type: 'colorblind-safe',
+    colors: [
+      [0, 0, 4, 255],
+      [40, 11, 84, 255],
+      [101, 21, 110, 255],
+      [159, 42, 99, 255],
+      [212, 72, 66, 255],
+      [245, 125, 21, 255],
+      [250, 186, 12, 255],
+      [237, 239, 93, 255],
+      [252, 255, 164, 255],
+    ],
+  },
+  {
+    name: 'plasma',
+    label: 'Plasma',
+    type: 'colorblind-safe',
+    colors: [
+      [13, 8, 135, 255],
+      [75, 3, 161, 255],
+      [126, 3, 168, 255],
+      [168, 34, 150, 255],
+      [204, 71, 120, 255],
+      [230, 111, 81, 255],
+      [248, 159, 28, 255],
+      [240, 210, 35, 255],
+      [240, 249, 33, 255],
+    ],
+  },
+  // Colorblind-safe diverging
+  {
+    name: 'puor',
+    label: 'Purple-Orange',
+    type: 'colorblind-safe',
+    colors: [
+      [45, 0, 75, 255],
+      [84, 39, 136, 255],
+      [128, 115, 172, 255],
+      [178, 171, 210, 255],
+      [216, 218, 235, 255],
+      [247, 247, 247, 255],
+      [254, 224, 182, 255],
+      [253, 184, 99, 255],
+      [224, 130, 20, 255],
+      [179, 88, 6, 255],
+      [127, 59, 8, 255],
+    ],
+  },
+  {
+    name: 'brtl',
+    label: 'Brown-Teal',
+    type: 'colorblind-safe',
+    colors: [
+      [84, 48, 5, 255],
+      [140, 81, 10, 255],
+      [191, 129, 45, 255],
+      [223, 194, 125, 255],
+      [246, 232, 195, 255],
+      [245, 245, 245, 255],
+      [199, 234, 229, 255],
+      [128, 205, 193, 255],
+      [53, 151, 143, 255],
+      [1, 102, 94, 255],
+      [0, 60, 48, 255],
+    ],
+  },
 ];
 
 export function getColorRamp(name: string): ColorRamp | undefined {
@@ -226,22 +312,113 @@ export function generateRampPreview(rampName: string, width: number): RGBAColor[
   return colors;
 }
 
-// Default category colors for auto-assignment
-export const CATEGORY_PALETTE: RGBAColor[] = [
-  [66, 133, 244, 200],   // Blue
-  [52, 168, 83, 200],    // Green
-  [251, 188, 4, 200],    // Yellow
-  [234, 67, 53, 200],    // Red
-  [154, 160, 166, 200],  // Gray
-  [255, 112, 67, 200],   // Deep Orange
-  [0, 172, 193, 200],    // Cyan
-  [124, 77, 255, 200],   // Purple
-  [233, 30, 99, 200],    // Pink
-  [0, 150, 136, 200],    // Teal
-  [255, 193, 7, 200],    // Amber
-  [63, 81, 181, 200],    // Indigo
+// Named categorical palettes
+export interface CategoricalPalette {
+  name: string;
+  label: string;
+  colors: RGBAColor[];
+}
+
+export const CATEGORICAL_PALETTES: CategoricalPalette[] = [
+  {
+    name: 'default',
+    label: 'Default',
+    colors: [
+      [66, 133, 244, 200],   // Blue
+      [52, 168, 83, 200],    // Green
+      [251, 188, 4, 200],    // Yellow
+      [234, 67, 53, 200],    // Red
+      [154, 160, 166, 200],  // Gray
+      [255, 112, 67, 200],   // Deep Orange
+      [0, 172, 193, 200],    // Cyan
+      [124, 77, 255, 200],   // Purple
+      [233, 30, 99, 200],    // Pink
+      [0, 150, 136, 200],    // Teal
+      [255, 193, 7, 200],    // Amber
+      [63, 81, 181, 200],    // Indigo
+    ],
+  },
+  {
+    name: 'okabe-ito',
+    label: 'Okabe-Ito (Colorblind-Safe)',
+    colors: [
+      [230, 159, 0, 200],    // Orange
+      [86, 180, 233, 200],   // Sky Blue
+      [0, 158, 115, 200],    // Bluish Green
+      [240, 228, 66, 200],   // Yellow
+      [0, 114, 178, 200],    // Blue
+      [213, 94, 0, 200],     // Vermilion
+      [204, 121, 167, 200],  // Reddish Purple
+      [0, 0, 0, 200],        // Black
+    ],
+  },
+  {
+    name: 'colorbrewer-set2',
+    label: 'ColorBrewer Set2',
+    colors: [
+      [102, 194, 165, 200],
+      [252, 141, 98, 200],
+      [141, 160, 203, 200],
+      [231, 138, 195, 200],
+      [166, 216, 84, 200],
+      [255, 217, 47, 200],
+      [229, 196, 148, 200],
+      [179, 179, 179, 200],
+    ],
+  },
+  {
+    name: 'wong',
+    label: 'Wong (Nature Methods)',
+    colors: [
+      [0, 114, 178, 200],    // Blue
+      [230, 159, 0, 200],    // Orange
+      [0, 158, 115, 200],    // Green
+      [204, 121, 167, 200],  // Pink
+      [86, 180, 233, 200],   // Light Blue
+      [213, 94, 0, 200],     // Red
+      [240, 228, 66, 200],   // Yellow
+    ],
+  },
+  {
+    name: 'bold',
+    label: 'Bold',
+    colors: [
+      [31, 119, 180, 200],
+      [255, 127, 14, 200],
+      [44, 160, 44, 200],
+      [214, 39, 40, 200],
+      [148, 103, 189, 200],
+      [140, 86, 75, 200],
+      [227, 119, 194, 200],
+      [127, 127, 127, 200],
+      [188, 189, 34, 200],
+      [23, 190, 207, 200],
+    ],
+  },
+  {
+    name: 'pastel',
+    label: 'Pastel',
+    colors: [
+      [174, 199, 232, 200],
+      [255, 187, 120, 200],
+      [152, 223, 138, 200],
+      [255, 152, 150, 200],
+      [197, 176, 213, 200],
+      [196, 156, 148, 200],
+      [247, 182, 210, 200],
+      [199, 199, 199, 200],
+      [219, 219, 141, 200],
+      [158, 218, 229, 200],
+    ],
+  },
 ];
 
-export function getCategoryColor(index: number): RGBAColor {
-  return CATEGORY_PALETTE[index % CATEGORY_PALETTE.length];
+// Default category colors for auto-assignment
+export const CATEGORY_PALETTE: RGBAColor[] = CATEGORICAL_PALETTES[0].colors;
+
+export function getCategoryColor(index: number, paletteName?: string): RGBAColor {
+  const palette = paletteName
+    ? CATEGORICAL_PALETTES.find(p => p.name === paletteName)?.colors || CATEGORY_PALETTE
+    : CATEGORY_PALETTE;
+  return palette[index % palette.length];
 }
