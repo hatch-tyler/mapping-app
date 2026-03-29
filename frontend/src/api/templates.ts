@@ -131,6 +131,20 @@ export async function createMapView(data: {
   return response.data;
 }
 
+export async function updateMapView(
+  id: string,
+  data: Partial<{
+    name: string;
+    description: string | null;
+    project_id: string | null;
+    map_config: MapView['map_config'];
+    layer_configs: MapView['layer_configs'];
+  }>
+): Promise<MapView> {
+  const response = await apiClient.put<MapView>(`/map-views/${id}`, data);
+  return response.data;
+}
+
 export async function deleteMapView(id: string): Promise<void> {
   await apiClient.delete(`/map-views/${id}`);
 }

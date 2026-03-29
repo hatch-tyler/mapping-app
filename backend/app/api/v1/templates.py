@@ -56,6 +56,13 @@ class MapViewCreate(BaseModel):
     map_config: dict
     layer_configs: list[dict]
 
+class MapViewUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    project_id: UUID | None = None
+    map_config: dict | None = None
+    layer_configs: list[dict] | None = None
+
 class MapViewResponse(BaseModel):
     id: UUID
     name: str
@@ -247,6 +254,24 @@ async def get_map_view(
     view = result.scalar_one_or_none()
     if not view:
         raise HTTPException(status_code=404, detail="Map view not found")
+    return view
+
+
+@router.put("/map-views/{view_id}", response_model=MapViewResponse)
+async def update_map_view(
+    view_id: UUID,
+    data: MapViewUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(select(MapView).where(MapView.id == view_id))
+    view = result.scalar_one_or_none()
+    if not view:
+        raise HTTPException(status_code=404, detail="Map view not found")
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(view, field, value)
+    await db.commit()
+    await db.refresh(view)
     return view
 
 

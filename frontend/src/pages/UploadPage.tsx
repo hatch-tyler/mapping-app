@@ -5,6 +5,7 @@ import { AddExternalSourceModal } from '../components/admin/AddExternalSourceMod
 import { DatasetSearchBar } from '../components/admin/DatasetSearchBar';
 import { DatasetFilterPanel } from '../components/admin/DatasetFilterPanel';
 import { ProjectsTab } from '../components/admin/ProjectsTab';
+import { SavedViewsTab } from '../components/admin/SavedViewsTab';
 import { LayoutDesigner } from '../components/templates/LayoutDesigner';
 import { Navbar } from '@/components/layout/Navbar';
 import { useDatasetStore } from '../stores/datasetStore';
@@ -13,7 +14,7 @@ import { Dataset } from '../api/types';
 import { apiClient } from '../api/client';
 import * as datasetsApi from '../api/datasets';
 
-type TabType = 'datasets' | 'projects' | 'templates';
+type TabType = 'datasets' | 'projects' | 'templates' | 'views';
 
 export function UploadPage() {
   const [showAddExternal, setShowAddExternal] = useState(false);
@@ -122,6 +123,16 @@ export function UploadPage() {
             >
               Templates
             </button>
+            <button
+              onClick={() => setActiveTab('views')}
+              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'views'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              Saved Views
+            </button>
           </nav>
         </div>
       </div>
@@ -205,6 +216,12 @@ export function UploadPage() {
         {activeTab === 'projects' && (
           <div className="bg-white rounded-lg shadow overflow-hidden">
             <ProjectsTab />
+          </div>
+        )}
+
+        {activeTab === 'views' && (
+          <div className="bg-white rounded-lg shadow overflow-hidden">
+            <SavedViewsTab />
           </div>
         )}
 

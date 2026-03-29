@@ -191,6 +191,37 @@ class TestMapViews:
         assert response.status_code == 200
         assert response.json()["name"] == "Test View"
 
+    async def test_update_map_view(self, client: AsyncClient, sample_map_view: MapView, auth_headers: dict):
+        response = await client.put(
+            f"/api/v1/map-views/{sample_map_view.id}",
+            json={"name": "Updated View", "description": "New description"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "Updated View"
+        assert data["description"] == "New description"
+
+    async def test_update_map_view_partial(self, client: AsyncClient, sample_map_view: MapView, auth_headers: dict):
+        response = await client.put(
+            f"/api/v1/map-views/{sample_map_view.id}",
+            json={"description": "Only description"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == "Test View"  # unchanged
+        assert data["description"] == "Only description"
+
+    async def test_update_map_view_not_found(self, client: AsyncClient, auth_headers: dict):
+        fake_id = uuid.uuid4()
+        response = await client.put(
+            f"/api/v1/map-views/{fake_id}",
+            json={"name": "Nope"},
+            headers=auth_headers,
+        )
+        assert response.status_code == 404
+
     async def test_delete_map_view(self, client: AsyncClient, sample_map_view: MapView, auth_headers: dict):
         response = await client.delete(f"/api/v1/map-views/{sample_map_view.id}", headers=auth_headers)
         assert response.status_code == 200
