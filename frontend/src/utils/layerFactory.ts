@@ -94,17 +94,18 @@ function createExternalLayer(dataset: Dataset): LayerType {
       });
 
     case 'arcgis_map_export': {
-      // Dynamic MapServer (no tile cache) via proxy /export endpoint
+      // Dynamic MapServer (no tile cache) via proxy /export endpoint — larger tiles to reduce requests
       const exportLayerId = dataset.service_layer_id || '0';
       return new TileLayer({
         id: `ext-arcmap-export-${dataset.id}`,
         data: proxyBase,
-        tileSize: 256,
+        tileSize: 512,
         minZoom: dataset.min_zoom,
         maxZoom: dataset.max_zoom,
+        maxRequests: 6,
         getTileData: (tile: { bbox: { west: number; south: number; east: number; north: number }; signal?: AbortSignal }) => {
           const { west, south, east, north } = tile.bbox;
-          const url = `${proxyBase}?bbox=${west},${south},${east},${north}&bboxSR=4326&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:${exportLayerId}&f=image`;
+          const url = `${proxyBase}?bbox=${west},${south},${east},${north}&bboxSR=4326&imageSR=3857&size=512,512&format=png32&transparent=true&layers=show:${exportLayerId}&f=image`;
           return fetch(url, { headers: authHeaders, signal: tile.signal })
             .then(r => r.ok ? r.blob() : null)
             .then(b => b ? URL.createObjectURL(b) : null)
@@ -124,25 +125,20 @@ function createExternalLayer(dataset: Dataset): LayerType {
     }
 
     case 'arcgis_image': {
-      // ArcGIS ImageServer — direct access via getTileData (bbox-based, not {x}/{y}/{z})
+      // ArcGIS ImageServer — direct exportImage (no tile cache, so use larger tiles to reduce requests)
       return new TileLayer({
         id: `ext-arcimg-${dataset.id}`,
         data: `${dataset.service_url}/exportImage`,
-        tileSize: 256,
+        tileSize: 512,
         minZoom: dataset.min_zoom,
         maxZoom: dataset.max_zoom,
+        maxRequests: 6,
         getTileData: (tile: { bbox: { west: number; south: number; east: number; north: number }; signal?: AbortSignal }) => {
           const { west, south, east, north } = tile.bbox;
-          const url = `${dataset.service_url}/exportImage?bbox=${west},${south},${east},${north}&bboxSR=4326&imageSR=3857&size=256,256&format=png32&transparent=true&f=image`;
+          const url = `${dataset.service_url}/exportImage?bbox=${west},${south},${east},${north}&bboxSR=4326&imageSR=3857&size=512,512&format=jpgpng&f=image`;
           return fetch(url, { signal: tile.signal })
-            .then(r => {
-              if (!r.ok) return null;
-              return r.blob();
-            })
-            .then(b => {
-              if (!b) return null;
-              return URL.createObjectURL(b);
-            })
+            .then(r => r.ok ? r.blob() : null)
+            .then(b => b ? URL.createObjectURL(b) : null)
             .catch(() => null);
         },
         renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
