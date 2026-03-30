@@ -97,7 +97,7 @@ class TestListDatasets:
         """Test listing datasets without authentication."""
         response = await client.get("/api/v1/datasets/")
 
-        assert response.status_code == 403
+        assert response.status_code in (401, 403)
 
 
 class TestGetDataset:

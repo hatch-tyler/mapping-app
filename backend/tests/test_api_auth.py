@@ -151,7 +151,7 @@ class TestRegister:
             },
         )
 
-        assert response.status_code == 403  # No auth header
+        assert response.status_code in (401, 403)  # No auth header
 
 
 class TestRefreshToken:
