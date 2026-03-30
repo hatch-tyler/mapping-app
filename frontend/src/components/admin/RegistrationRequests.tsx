@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { format } from 'date-fns';
 import {
   getRegistrationRequests,
@@ -7,7 +7,11 @@ import {
   RegistrationRequestItem,
 } from '../../api/registration';
 
-export function RegistrationRequests() {
+interface RegistrationRequestsProps {
+  onCountChange?: (count: number) => void;
+}
+
+export function RegistrationRequests({ onCountChange }: RegistrationRequestsProps) {
   const [requests, setRequests] = useState<RegistrationRequestItem[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -16,33 +20,40 @@ export function RegistrationRequests() {
   const [rejectModalId, setRejectModalId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState('');
   const [showAll, setShowAll] = useState(false);
+  const initialLoad = useRef(true);
 
-  const fetchRequests = async () => {
+  const fetchRequests = useCallback(async () => {
+    if (initialLoad.current) setLoading(true);
     try {
-      setLoading(true);
       setError(null);
       const data = await getRegistrationRequests(!showAll);
       setRequests(data.requests);
       setTotal(data.total);
+      if (!showAll) onCountChange?.(data.total);
     } catch (err) {
       setError('Failed to load registration requests');
       console.error(err);
     } finally {
       setLoading(false);
+      initialLoad.current = false;
     }
-  };
+  }, [showAll, onCountChange]);
 
   useEffect(() => {
     fetchRequests();
-  }, [showAll]);
+    const interval = setInterval(fetchRequests, 30000);
+    return () => clearInterval(interval);
+  }, [fetchRequests]);
 
   const handleApprove = async (id: string) => {
     try {
       setProcessingId(id);
       await approveRegistrationRequest(id);
-      // Remove from list or refresh
-      setRequests(requests.filter((r) => r.id !== id));
-      setTotal(total - 1);
+      const newRequests = requests.filter((r) => r.id !== id);
+      const newTotal = total - 1;
+      setRequests(newRequests);
+      setTotal(newTotal);
+      if (!showAll) onCountChange?.(newTotal);
     } catch (err) {
       setError('Failed to approve request');
       console.error(err);
@@ -57,9 +68,11 @@ export function RegistrationRequests() {
     try {
       setProcessingId(rejectModalId);
       await rejectRegistrationRequest(rejectModalId, rejectReason || undefined);
-      // Remove from list or refresh
-      setRequests(requests.filter((r) => r.id !== rejectModalId));
-      setTotal(total - 1);
+      const newRequests = requests.filter((r) => r.id !== rejectModalId);
+      const newTotal = total - 1;
+      setRequests(newRequests);
+      setTotal(newTotal);
+      if (!showAll) onCountChange?.(newTotal);
       setRejectModalId(null);
       setRejectReason('');
     } catch (err) {

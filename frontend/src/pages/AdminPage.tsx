@@ -1,12 +1,32 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { RegistrationRequests } from '../components/admin/RegistrationRequests';
 import { UsersTab } from '../components/admin/UsersTab';
 import { Navbar } from '@/components/layout/Navbar';
+import { getRegistrationRequests } from '../api/registration';
 
 type TabType = 'registrations' | 'users';
 
 export function AdminPage() {
   const [activeTab, setActiveTab] = useState<TabType>('users');
+  const [pendingCount, setPendingCount] = useState(0);
+
+  useEffect(() => {
+    const fetchPending = async () => {
+      try {
+        const data = await getRegistrationRequests(true, 0, 1);
+        setPendingCount(data.total);
+      } catch {
+        /* silent */
+      }
+    };
+    fetchPending();
+    const interval = setInterval(fetchPending, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const handleCountChange = useCallback((count: number) => {
+    setPendingCount(count);
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-100">
@@ -28,13 +48,18 @@ export function AdminPage() {
             </button>
             <button
               onClick={() => setActiveTab('registrations')}
-              className={`py-4 px-1 border-b-2 font-medium text-sm ${
+              className={`py-4 px-1 border-b-2 font-medium text-sm flex items-center ${
                 activeTab === 'registrations'
                   ? 'border-blue-500 text-blue-600'
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
               Registration Requests
+              {pendingCount > 0 && (
+                <span className="ml-2 inline-flex items-center justify-center px-2 py-0.5 text-xs font-bold leading-none text-white bg-red-500 rounded-full">
+                  {pendingCount}
+                </span>
+              )}
             </button>
           </nav>
         </div>
@@ -60,7 +85,7 @@ export function AdminPage() {
                 Registration Requests
               </h2>
             </div>
-            <RegistrationRequests />
+            <RegistrationRequests onCountChange={handleCountChange} />
           </div>
         )}
       </main>
