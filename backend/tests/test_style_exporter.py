@@ -1,7 +1,6 @@
 """Tests for style exporter service."""
 
 import json
-import pytest
 from xml.etree.ElementTree import fromstring
 
 from app.services.style_exporter import (
@@ -9,7 +8,6 @@ from app.services.style_exporter import (
     generate_lyrx,
     generate_qml,
 )
-
 
 UNIFORM_STYLE = {
     "mode": "uniform",

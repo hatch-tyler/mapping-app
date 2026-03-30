@@ -7,9 +7,7 @@ from app.schemas.service_catalog import ServiceCatalogCreate
 
 
 async def get_catalogs(db: AsyncSession) -> list[ServiceCatalog]:
-    result = await db.execute(
-        select(ServiceCatalog).order_by(ServiceCatalog.name)
-    )
+    result = await db.execute(select(ServiceCatalog).order_by(ServiceCatalog.name))
     return list(result.scalars().all())
 
 

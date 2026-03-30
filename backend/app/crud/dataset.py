@@ -9,12 +9,17 @@ from sqlalchemy.orm import selectinload
 from app.models.dataset import Dataset, UploadJob
 from app.models.tag import Tag, dataset_tags
 from app.models.project import ProjectMember
-from app.schemas.dataset import DatasetCreate, DatasetUpdate, ColumnFilter, FilterOperator
+from app.schemas.dataset import (
+    DatasetCreate,
+    DatasetUpdate,
+    ColumnFilter,
+    FilterOperator,
+)
 
 
 def _validate_table_name(table_name: str) -> bool:
     """Validate table name to prevent SQL injection."""
-    return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name))
+    return bool(re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name))
 
 
 def _validate_field_name(field_name: str) -> bool:
@@ -26,7 +31,7 @@ def _validate_field_name(field_name: str) -> bool:
     """
     if not field_name or len(field_name) > 255:
         return False
-    return bool(re.match(r'^[a-zA-Z0-9_][a-zA-Z0-9_ .\-]*$', field_name))
+    return bool(re.match(r"^[a-zA-Z0-9_][a-zA-Z0-9_ .\-]*$", field_name))
 
 
 def _escape_field_name(field_name: str) -> str:
@@ -113,9 +118,8 @@ async def get_datasets(
 
     # Non-admin users can only see project datasets they belong to
     if not is_admin and user_id:
-        user_project_ids = (
-            select(ProjectMember.project_id)
-            .where(ProjectMember.user_id == user_id)
+        user_project_ids = select(ProjectMember.project_id).where(
+            ProjectMember.user_id == user_id
         )
         access_filter = or_(
             Dataset.project_id.is_(None),
@@ -135,9 +139,7 @@ async def get_datasets(
     return datasets, total
 
 
-async def get_or_create_tags(
-    db: AsyncSession, tag_names: list[str]
-) -> list[Tag]:
+async def get_or_create_tags(db: AsyncSession, tag_names: list[str]) -> list[Tag]:
     """Get existing tags or create new ones. Returns list of Tag objects."""
     if not tag_names:
         return []
@@ -303,13 +305,11 @@ async def get_browsable_datasets(
         # Authenticated: visible reference data OR project data where user is a member
         from app.models.dataset import dataset_projects
 
-        user_project_ids = (
-            select(ProjectMember.project_id)
-            .where(ProjectMember.user_id == user_id)
+        user_project_ids = select(ProjectMember.project_id).where(
+            ProjectMember.user_id == user_id
         )
-        linked_to_user_projects = (
-            select(dataset_projects.c.dataset_id)
-            .where(dataset_projects.c.project_id.in_(user_project_ids))
+        linked_to_user_projects = select(dataset_projects.c.dataset_id).where(
+            dataset_projects.c.project_id.in_(user_project_ids)
         )
         visibility_filter = or_(
             # Reference data (or uncategorized) that is visible
@@ -320,11 +320,17 @@ async def get_browsable_datasets(
             Dataset.id.in_(linked_to_user_projects),
         )
         query = query.where(Dataset.is_visible == True).where(visibility_filter)
-        count_query = count_query.where(Dataset.is_visible == True).where(visibility_filter)
+        count_query = count_query.where(Dataset.is_visible == True).where(
+            visibility_filter
+        )
     else:
         # Anonymous users only see public datasets, never project data
-        query = query.where(Dataset.is_public == True).where(Dataset.project_id.is_(None))
-        count_query = count_query.where(Dataset.is_public == True).where(Dataset.project_id.is_(None))
+        query = query.where(Dataset.is_public == True).where(
+            Dataset.project_id.is_(None)
+        )
+        count_query = count_query.where(Dataset.is_public == True).where(
+            Dataset.project_id.is_(None)
+        )
 
     query = query.order_by(Dataset.created_at.desc()).offset(skip).limit(limit)
 
@@ -393,9 +399,7 @@ async def get_external_dataset_fields(dataset) -> list[dict]:
         if not features:
             return []
 
-        props = features[0].get("properties") or features[0].get(
-            "attributes", {}
-        )
+        props = features[0].get("properties") or features[0].get("attributes", {})
         fields = []
         for key, val in props.items():
             if isinstance(val, int):
@@ -594,10 +598,14 @@ async def query_features(
                 where_clauses.append(f"({field_accessor})::numeric <= :{param_name}")
                 params[param_name] = float(f.value)
             elif f.operator == FilterOperator.contains:
-                where_clauses.append(f"LOWER({field_accessor}) LIKE LOWER(:{param_name})")
+                where_clauses.append(
+                    f"LOWER({field_accessor}) LIKE LOWER(:{param_name})"
+                )
                 params[param_name] = f"%{f.value}%"
             elif f.operator == FilterOperator.startswith:
-                where_clauses.append(f"LOWER({field_accessor}) LIKE LOWER(:{param_name})")
+                where_clauses.append(
+                    f"LOWER({field_accessor}) LIKE LOWER(:{param_name})"
+                )
                 params[param_name] = f"{f.value}%"
 
     where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
@@ -616,7 +624,9 @@ async def query_features(
         if sort_field == "id":
             order_sql = f"id {sort_order.upper()}"
         elif _validate_field_name(sort_field):
-            order_sql = f"properties->>'{_escape_field_name(sort_field)}' {sort_order.upper()}"
+            order_sql = (
+                f"properties->>'{_escape_field_name(sort_field)}' {sort_order.upper()}"
+            )
 
     # Calculate offset
     offset = (page - 1) * page_size
@@ -674,7 +684,10 @@ async def get_features_by_ids(
     rows = result.fetchall()
 
     if include_geometry:
-        return [{"id": row[0], "properties": row[1] or {}, "geometry": row[2]} for row in rows]
+        return [
+            {"id": row[0], "properties": row[1] or {}, "geometry": row[2]}
+            for row in rows
+        ]
     else:
         return [{"id": row[0], "properties": row[1] or {}} for row in rows]
 
@@ -735,7 +748,9 @@ async def _get_external_unique_values(
     from app.services.external_source import proxy_request
 
     if dataset.service_type == "arcgis_feature":
-        url = f"{dataset.service_url.rstrip('/')}/{dataset.service_layer_id or '0'}/query"
+        url = (
+            f"{dataset.service_url.rstrip('/')}/{dataset.service_layer_id or '0'}/query"
+        )
         params = {
             "f": "json",
             "where": "1=1",

@@ -21,6 +21,7 @@ def _get_public_cors_headers() -> dict[str, str]:
         "Access-Control-Max-Age": "86400",
     }
 
+
 from app.database import get_db
 from app.schemas.dataset import (
     DatasetResponse,
@@ -37,14 +38,21 @@ from app.schemas.dataset import (
     FieldStatisticsResponse,
 )
 from app.crud import dataset as dataset_crud
-from app.api.deps import get_current_user, get_current_admin_user, get_current_editor_or_admin_user, get_optional_current_user, check_dataset_access
+from app.api.deps import (
+    get_current_user,
+    get_current_admin_user,
+    get_current_editor_or_admin_user,
+    get_optional_current_user,
+    check_dataset_access,
+)
 from app.models.user import User
 from app.models.dataset import Dataset
 
 
 def _validate_table_name(table_name: str) -> bool:
     """Validate table name to prevent SQL injection."""
-    return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name))
+    return bool(re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name))
+
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
@@ -52,30 +60,33 @@ router = APIRouter(prefix="/datasets", tags=["datasets"])
 def _get_project_name(dataset) -> str | None:
     """Safely get project name without triggering lazy load."""
     from sqlalchemy import inspect as sa_inspect
+
     state = sa_inspect(dataset)
-    if 'project' not in state.dict:
+    if "project" not in state.dict:
         return None
-    proj = state.dict.get('project')
+    proj = state.dict.get("project")
     return proj.name if proj else None
 
 
 def _get_linked_project_ids(dataset) -> list:
     """Safely get linked project IDs without triggering lazy load."""
     from sqlalchemy import inspect as sa_inspect
+
     state = sa_inspect(dataset)
-    if 'linked_projects' not in state.dict:
+    if "linked_projects" not in state.dict:
         return []
-    projects = state.dict.get('linked_projects', [])
+    projects = state.dict.get("linked_projects", [])
     return [p.id for p in projects] if projects else []
 
 
 def _get_linked_project_names(dataset) -> list:
     """Safely get linked project names without triggering lazy load."""
     from sqlalchemy import inspect as sa_inspect
+
     state = sa_inspect(dataset)
-    if 'linked_projects' not in state.dict:
+    if "linked_projects" not in state.dict:
         return []
-    projects = state.dict.get('linked_projects', [])
+    projects = state.dict.get("linked_projects", [])
     return [p.name for p in projects] if projects else []
 
 
@@ -117,9 +128,17 @@ def dataset_to_response(dataset) -> DatasetResponse:
         linked_project_ids=_get_linked_project_ids(dataset),
         linked_project_names=_get_linked_project_names(dataset),
         is_privileged=dataset.is_privileged,
-        file_hash=dataset.file_hash if hasattr(dataset, 'file_hash') else None,
-        snapshot_source_id=dataset.snapshot_source_id if hasattr(dataset, 'snapshot_source_id') else None,
-        snapshot_date=dataset.snapshot_date.isoformat() if hasattr(dataset, 'snapshot_date') and dataset.snapshot_date else None,
+        file_hash=dataset.file_hash if hasattr(dataset, "file_hash") else None,
+        snapshot_source_id=(
+            dataset.snapshot_source_id
+            if hasattr(dataset, "snapshot_source_id")
+            else None
+        ),
+        snapshot_date=(
+            dataset.snapshot_date.isoformat()
+            if hasattr(dataset, "snapshot_date") and dataset.snapshot_date
+            else None
+        ),
         tags=[tag.name for tag in dataset.tags] if dataset.tags else [],
     )
 
@@ -191,7 +210,6 @@ async def refresh_local_metadata(
     current_user: User = Depends(get_current_admin_user),
 ):
     """Refresh metadata for all local datasets by introspecting PostGIS tables."""
-    from sqlalchemy import select
     result = await db.execute(
         select(Dataset).where(
             Dataset.table_name.isnot(None),
@@ -217,11 +235,18 @@ async def refresh_local_metadata(
             # Compute bounds from PostGIS table (always refresh)
             try:
                 bounds_result = await db.execute(
-                    text(f'SELECT ST_XMin(ext), ST_YMin(ext), ST_XMax(ext), ST_YMax(ext) FROM (SELECT ST_Extent(geom) as ext FROM "{ds.table_name}") sub')
+                    text(
+                        f'SELECT ST_XMin(ext), ST_YMin(ext), ST_XMax(ext), ST_YMax(ext) FROM (SELECT ST_Extent(geom) as ext FROM "{ds.table_name}") sub'
+                    )
                 )
                 bounds_row = bounds_result.fetchone()
                 if bounds_row and bounds_row[0] is not None:
-                    metadata["total_bounds"] = [float(bounds_row[0]), float(bounds_row[1]), float(bounds_row[2]), float(bounds_row[3])]
+                    metadata["total_bounds"] = [
+                        float(bounds_row[0]),
+                        float(bounds_row[1]),
+                        float(bounds_row[2]),
+                        float(bounds_row[3]),
+                    ]
             except Exception:
                 pass
 
@@ -371,9 +396,11 @@ async def create_dataset_snapshot(
         # Strip Z coordinates if present
         if gdf.geometry.has_z.any():
             gdf["geometry"] = gdf.geometry.apply(
-                lambda geom: transform(lambda x, y, z=None: (x, y), geom)
-                if geom and geom.has_z
-                else geom
+                lambda geom: (
+                    transform(lambda x, y, z=None: (x, y), geom)
+                    if geom and geom.has_z
+                    else geom
+                )
             )
 
         # Create PostGIS table and insert features
@@ -535,7 +562,9 @@ async def get_dataset_fields(
         )
 
     fields_data = await dataset_crud.get_dataset_fields(db, dataset)
-    fields = [FieldMetadata(name=f["name"], field_type=f["field_type"]) for f in fields_data]
+    fields = [
+        FieldMetadata(name=f["name"], field_type=f["field_type"]) for f in fields_data
+    ]
 
     return FieldMetadataResponse(dataset_id=dataset_id, fields=fields)
 
@@ -547,7 +576,9 @@ async def query_features(
     page_size: int = Query(100, ge=1, le=1000),
     sort_field: str | None = Query(None),
     sort_order: str = Query("asc", pattern="^(asc|desc)$"),
-    filters: str | None = Query(None, description="JSON-encoded array of ColumnFilter objects"),
+    filters: str | None = Query(
+        None, description="JSON-encoded array of ColumnFilter objects"
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User | None = Depends(get_optional_current_user),
 ):
@@ -588,7 +619,7 @@ async def query_features(
         try:
             filters_data = json.loads(filters)
             parsed_filters = [ColumnFilter(**f) for f in filters_data]
-        except (json.JSONDecodeError, ValueError) as e:
+        except (json.JSONDecodeError, ValueError):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid filter format",
@@ -647,7 +678,9 @@ async def toggle_public_status(
             detail="Dataset not found",
         )
 
-    updated = await dataset_crud.update_public_status(db, dataset, public_status.is_public)
+    updated = await dataset_crud.update_public_status(
+        db, dataset, public_status.is_public
+    )
     return dataset_to_response(updated)
 
 
@@ -752,7 +785,9 @@ async def get_dataset_geojson(
     result = await db.execute(text(query), params)
     row = result.fetchone()
 
-    geojson_data = row[0] if row and row[0] else {"type": "FeatureCollection", "features": []}
+    geojson_data = (
+        row[0] if row and row[0] else {"type": "FeatureCollection", "features": []}
+    )
 
     # Return with CORS headers for public access (ArcGIS Pro, QGIS, etc.)
     headers = _get_public_cors_headers()
@@ -809,7 +844,10 @@ async def geojson_head(
     )
 
 
-@router.get("/{dataset_id}/fields/{field_name}/unique-values", response_model=UniqueValuesResponse)
+@router.get(
+    "/{dataset_id}/fields/{field_name}/unique-values",
+    response_model=UniqueValuesResponse,
+)
 async def get_unique_field_values(
     dataset_id: UUID,
     field_name: str,
@@ -851,7 +889,9 @@ async def get_unique_field_values(
             db, dataset, field_name, limit
         )
     except Exception as e:
-        logger.error("Failed to fetch unique values for %s.%s: %s", dataset_id, field_name, e)
+        logger.error(
+            "Failed to fetch unique values for %s.%s: %s", dataset_id, field_name, e
+        )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail="Failed to fetch unique values from external service",
@@ -864,7 +904,10 @@ async def get_unique_field_values(
     )
 
 
-@router.get("/{dataset_id}/fields/{field_name}/statistics", response_model=FieldStatisticsResponse)
+@router.get(
+    "/{dataset_id}/fields/{field_name}/statistics",
+    response_model=FieldStatisticsResponse,
+)
 async def get_field_statistics(
     dataset_id: UUID,
     field_name: str,

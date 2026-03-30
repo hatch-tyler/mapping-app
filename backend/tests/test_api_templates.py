@@ -31,11 +31,15 @@ async def editor_user(db_session: AsyncSession) -> User:
 
 @pytest.fixture
 def editor_auth_headers(editor_user: User) -> dict:
-    return {"Authorization": f"Bearer {create_access_token(subject=str(editor_user.id))}"}
+    return {
+        "Authorization": f"Bearer {create_access_token(subject=str(editor_user.id))}"
+    }
 
 
 @pytest_asyncio.fixture
-async def sample_template(db_session: AsyncSession, editor_user: User) -> LayoutTemplate:
+async def sample_template(
+    db_session: AsyncSession, editor_user: User
+) -> LayoutTemplate:
     """Create a sample layout template."""
     template = LayoutTemplate(
         id=uuid.uuid4(),
@@ -60,7 +64,14 @@ async def sample_map_view(db_session: AsyncSession, test_user: User) -> MapView:
     view = MapView(
         id=uuid.uuid4(),
         name="Test View",
-        map_config={"zoom": 10, "latitude": 37.7, "longitude": -122.4, "bearing": 0, "pitch": 0, "basemap": "dark"},
+        map_config={
+            "zoom": 10,
+            "latitude": 37.7,
+            "longitude": -122.4,
+            "bearing": 0,
+            "pitch": 0,
+            "basemap": "dark",
+        },
         layer_configs=[{"dataset_id": str(uuid.uuid4()), "visible": True}],
         created_by_id=test_user.id,
     )
@@ -71,14 +82,22 @@ async def sample_map_view(db_session: AsyncSession, test_user: User) -> MapView:
 
 
 class TestLayoutTemplates:
-    async def test_create_template(self, client: AsyncClient, editor_auth_headers: dict):
+    async def test_create_template(
+        self, client: AsyncClient, editor_auth_headers: dict
+    ):
         response = await client.post(
             "/api/v1/layout-templates/",
             json={
                 "name": "New Template",
                 "description": "Test desc",
-                "page_config": {"width": 297, "height": 210, "orientation": "landscape"},
-                "elements": [{"type": "map_frame", "x": 10, "y": 10, "w": 200, "h": 150}],
+                "page_config": {
+                    "width": 297,
+                    "height": 210,
+                    "orientation": "landscape",
+                },
+                "elements": [
+                    {"type": "map_frame", "x": 10, "y": 10, "w": 200, "h": 150}
+                ],
             },
             headers=editor_auth_headers,
         )
@@ -93,32 +112,46 @@ class TestLayoutTemplates:
             "/api/v1/layout-templates/",
             json={
                 "name": "Test",
-                "page_config": {"width": 279.4, "height": 215.9, "orientation": "landscape"},
+                "page_config": {
+                    "width": 279.4,
+                    "height": 215.9,
+                    "orientation": "landscape",
+                },
                 "elements": [],
             },
         )
         assert response.status_code in (401, 403)
 
-    async def test_create_template_viewer_forbidden(self, client: AsyncClient, auth_headers: dict):
+    async def test_create_template_viewer_forbidden(
+        self, client: AsyncClient, auth_headers: dict
+    ):
         response = await client.post(
             "/api/v1/layout-templates/",
             json={
                 "name": "Test",
-                "page_config": {"width": 279.4, "height": 215.9, "orientation": "landscape"},
+                "page_config": {
+                    "width": 279.4,
+                    "height": 215.9,
+                    "orientation": "landscape",
+                },
                 "elements": [],
             },
             headers=auth_headers,
         )
         assert response.status_code == 403
 
-    async def test_list_templates(self, client: AsyncClient, sample_template: LayoutTemplate, auth_headers: dict):
+    async def test_list_templates(
+        self, client: AsyncClient, sample_template: LayoutTemplate, auth_headers: dict
+    ):
         response = await client.get("/api/v1/layout-templates/", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert len(data) >= 1
         assert any(t["name"] == "Test Template" for t in data)
 
-    async def test_get_template(self, client: AsyncClient, sample_template: LayoutTemplate, auth_headers: dict):
+    async def test_get_template(
+        self, client: AsyncClient, sample_template: LayoutTemplate, auth_headers: dict
+    ):
         response = await client.get(
             f"/api/v1/layout-templates/{sample_template.id}",
             headers=auth_headers,
@@ -128,12 +161,21 @@ class TestLayoutTemplates:
         assert data["name"] == "Test Template"
         assert len(data["elements"]) == 2
 
-    async def test_get_template_not_found(self, client: AsyncClient, auth_headers: dict):
+    async def test_get_template_not_found(
+        self, client: AsyncClient, auth_headers: dict
+    ):
         fake_id = uuid.uuid4()
-        response = await client.get(f"/api/v1/layout-templates/{fake_id}", headers=auth_headers)
+        response = await client.get(
+            f"/api/v1/layout-templates/{fake_id}", headers=auth_headers
+        )
         assert response.status_code == 404
 
-    async def test_update_template(self, client: AsyncClient, sample_template: LayoutTemplate, editor_auth_headers: dict):
+    async def test_update_template(
+        self,
+        client: AsyncClient,
+        sample_template: LayoutTemplate,
+        editor_auth_headers: dict,
+    ):
         response = await client.put(
             f"/api/v1/layout-templates/{sample_template.id}",
             json={"name": "Updated Name"},
@@ -142,22 +184,34 @@ class TestLayoutTemplates:
         assert response.status_code == 200
         assert response.json()["name"] == "Updated Name"
 
-    async def test_delete_template(self, client: AsyncClient, sample_template: LayoutTemplate, editor_auth_headers: dict):
+    async def test_delete_template(
+        self,
+        client: AsyncClient,
+        sample_template: LayoutTemplate,
+        editor_auth_headers: dict,
+    ):
         response = await client.delete(
             f"/api/v1/layout-templates/{sample_template.id}",
             headers=editor_auth_headers,
         )
         assert response.status_code == 200
 
-    async def test_export_qpt(self, client: AsyncClient, sample_template: LayoutTemplate, auth_headers: dict):
+    async def test_export_qpt(
+        self, client: AsyncClient, sample_template: LayoutTemplate, auth_headers: dict
+    ):
         response = await client.get(
             f"/api/v1/layout-templates/{sample_template.id}/export/qpt",
             headers=auth_headers,
         )
         assert response.status_code == 200
-        assert "xml" in response.headers.get("content-type", "").lower() or response.status_code == 200
+        assert (
+            "xml" in response.headers.get("content-type", "").lower()
+            or response.status_code == 200
+        )
 
-    async def test_export_pagx(self, client: AsyncClient, sample_template: LayoutTemplate, auth_headers: dict):
+    async def test_export_pagx(
+        self, client: AsyncClient, sample_template: LayoutTemplate, auth_headers: dict
+    ):
         response = await client.get(
             f"/api/v1/layout-templates/{sample_template.id}/export/pagx",
             headers=auth_headers,
@@ -171,7 +225,14 @@ class TestMapViews:
             "/api/v1/map-views/",
             json={
                 "name": "My View",
-                "map_config": {"zoom": 5, "latitude": 40, "longitude": -100, "bearing": 0, "pitch": 0, "basemap": "light"},
+                "map_config": {
+                    "zoom": 5,
+                    "latitude": 40,
+                    "longitude": -100,
+                    "bearing": 0,
+                    "pitch": 0,
+                    "basemap": "light",
+                },
                 "layer_configs": [],
             },
             headers=auth_headers,
@@ -180,18 +241,26 @@ class TestMapViews:
         data = response.json()
         assert data["name"] == "My View"
 
-    async def test_list_map_views(self, client: AsyncClient, sample_map_view: MapView, auth_headers: dict):
+    async def test_list_map_views(
+        self, client: AsyncClient, sample_map_view: MapView, auth_headers: dict
+    ):
         response = await client.get("/api/v1/map-views/", headers=auth_headers)
         assert response.status_code == 200
         data = response.json()
         assert len(data) >= 1
 
-    async def test_get_map_view(self, client: AsyncClient, sample_map_view: MapView, auth_headers: dict):
-        response = await client.get(f"/api/v1/map-views/{sample_map_view.id}", headers=auth_headers)
+    async def test_get_map_view(
+        self, client: AsyncClient, sample_map_view: MapView, auth_headers: dict
+    ):
+        response = await client.get(
+            f"/api/v1/map-views/{sample_map_view.id}", headers=auth_headers
+        )
         assert response.status_code == 200
         assert response.json()["name"] == "Test View"
 
-    async def test_update_map_view(self, client: AsyncClient, sample_map_view: MapView, auth_headers: dict):
+    async def test_update_map_view(
+        self, client: AsyncClient, sample_map_view: MapView, auth_headers: dict
+    ):
         response = await client.put(
             f"/api/v1/map-views/{sample_map_view.id}",
             json={"name": "Updated View", "description": "New description"},
@@ -202,7 +271,9 @@ class TestMapViews:
         assert data["name"] == "Updated View"
         assert data["description"] == "New description"
 
-    async def test_update_map_view_partial(self, client: AsyncClient, sample_map_view: MapView, auth_headers: dict):
+    async def test_update_map_view_partial(
+        self, client: AsyncClient, sample_map_view: MapView, auth_headers: dict
+    ):
         response = await client.put(
             f"/api/v1/map-views/{sample_map_view.id}",
             json={"description": "Only description"},
@@ -213,7 +284,9 @@ class TestMapViews:
         assert data["name"] == "Test View"  # unchanged
         assert data["description"] == "Only description"
 
-    async def test_update_map_view_not_found(self, client: AsyncClient, auth_headers: dict):
+    async def test_update_map_view_not_found(
+        self, client: AsyncClient, auth_headers: dict
+    ):
         fake_id = uuid.uuid4()
         response = await client.put(
             f"/api/v1/map-views/{fake_id}",
@@ -222,8 +295,12 @@ class TestMapViews:
         )
         assert response.status_code == 404
 
-    async def test_delete_map_view(self, client: AsyncClient, sample_map_view: MapView, auth_headers: dict):
-        response = await client.delete(f"/api/v1/map-views/{sample_map_view.id}", headers=auth_headers)
+    async def test_delete_map_view(
+        self, client: AsyncClient, sample_map_view: MapView, auth_headers: dict
+    ):
+        response = await client.delete(
+            f"/api/v1/map-views/{sample_map_view.id}", headers=auth_headers
+        )
         assert response.status_code == 200
 
     async def test_create_view_unauthorized(self, client: AsyncClient):
@@ -231,7 +308,14 @@ class TestMapViews:
             "/api/v1/map-views/",
             json={
                 "name": "Test",
-                "map_config": {"zoom": 5, "latitude": 40, "longitude": -100, "bearing": 0, "pitch": 0, "basemap": "light"},
+                "map_config": {
+                    "zoom": 5,
+                    "latitude": 40,
+                    "longitude": -100,
+                    "bearing": 0,
+                    "pitch": 0,
+                    "basemap": "light",
+                },
                 "layer_configs": [],
             },
         )

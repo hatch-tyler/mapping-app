@@ -1,6 +1,5 @@
 """XML/GML building utilities for WFS responses."""
 
-from typing import Any
 from lxml import etree
 
 # WFS Namespaces
@@ -25,7 +24,9 @@ def create_element(tag: str, namespace: str | None = None, **attribs) -> etree._
     """Create an XML element with optional namespace."""
     if namespace:
         nsmap = {None: NAMESPACES.get(namespace, namespace)}
-        elem = etree.Element(f"{{{NAMESPACES.get(namespace, namespace)}}}{tag}", nsmap=nsmap)
+        elem = etree.Element(
+            f"{{{NAMESPACES.get(namespace, namespace)}}}{tag}", nsmap=nsmap
+        )
     else:
         elem = etree.Element(tag)
 
@@ -42,7 +43,9 @@ def ns_tag(namespace: str, tag: str) -> str:
     return f"{{{ns_uri}}}{tag}"
 
 
-def add_text_element(parent: etree._Element, tag: str, text: str, namespace: str | None = None) -> etree._Element:
+def add_text_element(
+    parent: etree._Element, tag: str, text: str, namespace: str | None = None
+) -> etree._Element:
     """Add a text element to a parent."""
     if namespace:
         elem = etree.SubElement(parent, ns_tag(namespace, tag))
@@ -217,7 +220,9 @@ def gml_to_wkt(gml_element: etree._Element) -> str:
             pos_list = exterior.find(".//{http://www.opengis.net/gml}posList")
             if pos_list is not None and pos_list.text:
                 coords = pos_list.text.strip().split()
-                points = [f"{coords[i]} {coords[i+1]}" for i in range(0, len(coords), 2)]
+                points = [
+                    f"{coords[i]} {coords[i+1]}" for i in range(0, len(coords), 2)
+                ]
                 rings.append(f"({', '.join(points)})")
 
         # Interior rings
@@ -225,7 +230,9 @@ def gml_to_wkt(gml_element: etree._Element) -> str:
             pos_list = interior.find(".//{http://www.opengis.net/gml}posList")
             if pos_list is not None and pos_list.text:
                 coords = pos_list.text.strip().split()
-                points = [f"{coords[i]} {coords[i+1]}" for i in range(0, len(coords), 2)]
+                points = [
+                    f"{coords[i]} {coords[i+1]}" for i in range(0, len(coords), 2)
+                ]
                 rings.append(f"({', '.join(points)})")
 
         return f"POLYGON({', '.join(rings)})"

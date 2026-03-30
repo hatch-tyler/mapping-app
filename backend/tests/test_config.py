@@ -1,8 +1,8 @@
 """
 Tests for configuration module.
 """
+
 import os
-import pytest
 from unittest.mock import patch
 
 from app.config import Settings, get_settings
@@ -39,7 +39,9 @@ class TestSettings:
 
     def test_cors_origins_list_with_spaces(self):
         """Test CORS origins with extra spaces."""
-        settings = Settings(CORS_ORIGINS=" http://localhost:3000 , http://localhost:5173 ")
+        settings = Settings(
+            CORS_ORIGINS=" http://localhost:3000 , http://localhost:5173 "
+        )
 
         origins = settings.cors_origins_list
         assert len(origins) == 2
@@ -55,7 +57,9 @@ class TestSettings:
 
     def test_database_url_from_env(self):
         """Test that database URL can be set from environment."""
-        with patch.dict(os.environ, {"DATABASE_URL": "postgresql://test:test@localhost/testdb"}):
+        with patch.dict(
+            os.environ, {"DATABASE_URL": "postgresql://test:test@localhost/testdb"}
+        ):
             settings = Settings()
             assert "postgresql" in settings.DATABASE_URL
 

@@ -1,6 +1,5 @@
 """Generate QGIS .qpt and ArcGIS Pro .pagx layout template files."""
 
-import json
 from xml.etree.ElementTree import Element, SubElement, tostring
 from xml.dom.minidom import parseString
 
@@ -14,7 +13,11 @@ def _hex_to_rgba(hex_color: str) -> str:
     """Convert hex color like '#1e40af' to QGIS RGBA string like '30,64,175,255'."""
     hex_color = hex_color.lstrip("#")
     if len(hex_color) == 6:
-        r, g, b = int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)
+        r, g, b = (
+            int(hex_color[0:2], 16),
+            int(hex_color[2:4], 16),
+            int(hex_color[4:6], 16),
+        )
         return f"{r},{g},{b},255"
     return "0,0,0,255"
 
@@ -23,7 +26,11 @@ def _hex_to_rgb_list(hex_color: str) -> list[int]:
     """Convert hex color to [R, G, B] list for ArcGIS CIM."""
     hex_color = hex_color.lstrip("#")
     if len(hex_color) == 6:
-        return [int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16)]
+        return [
+            int(hex_color[0:2], 16),
+            int(hex_color[2:4], 16),
+            int(hex_color[4:6], 16),
+        ]
     return [0, 0, 0]
 
 
@@ -48,15 +55,19 @@ def _build_qpt_label(
     weight_str = elem.get("fontWeight", default_font_weight)
     qt_weight = 75 if weight_str == "bold" else 50
 
-    item = SubElement(layout, "LayoutItem", {
-        "type": "65641",  # QgsLayoutItemLabel
-        "uuid": f"{{00000000-0000-0000-0000-00000000{idx:04d}}}",
-        "position": f"{_mm(x)},{_mm(y)},mm",
-        "size": f"{_mm(w)},{_mm(h)},mm",
-        "labelText": text,
-        "halign": halign,
-        "valign": "128",  # Qt::AlignVCenter
-    })
+    item = SubElement(
+        layout,
+        "LayoutItem",
+        {
+            "type": "65641",  # QgsLayoutItemLabel
+            "uuid": f"{{00000000-0000-0000-0000-00000000{idx:04d}}}",
+            "position": f"{_mm(x)},{_mm(y)},mm",
+            "size": f"{_mm(w)},{_mm(h)},mm",
+            "labelText": text,
+            "halign": halign,
+            "valign": "128",  # Qt::AlignVCenter
+        },
+    )
     font = SubElement(item, "LabelFont")
     font.set("style", "")
     font.set("description", f"Arial,{font_size},-1,5,{qt_weight},0,0,0,0,0")
@@ -105,7 +116,9 @@ def _build_pagx_text(
     return te
 
 
-def generate_qpt(page_config: dict, elements: list[dict], template_name: str = "Map Layout") -> str:
+def generate_qpt(
+    page_config: dict, elements: list[dict], template_name: str = "Map Layout"
+) -> str:
     """Generate QGIS Print Layout Template (.qpt) XML.
 
     .qpt files are XML templates that can be imported via:
@@ -120,20 +133,27 @@ def generate_qpt(page_config: dict, elements: list[dict], template_name: str = "
     else:
         width, height = max(width, height), min(width, height)
 
-    layout = Element("Layout", {
-        "name": template_name,
-        "units": "mm",
-        "worldFileMap": "",
-    })
+    layout = Element(
+        "Layout",
+        {
+            "name": template_name,
+            "units": "mm",
+            "worldFileMap": "",
+        },
+    )
 
     # Page settings
     page_collection = SubElement(layout, "PageCollection")
-    page = SubElement(page_collection, "LayoutItem", {
-        "type": "65638",
-        "uuid": "{00000000-0000-0000-0000-000000000001}",
-        "position": f"0,0,mm",
-        "size": f"{_mm(width)},{_mm(height)},mm",
-    })
+    page = SubElement(
+        page_collection,
+        "LayoutItem",
+        {
+            "type": "65638",
+            "uuid": "{00000000-0000-0000-0000-000000000001}",
+            "position": "0,0,mm",
+            "size": f"{_mm(width)},{_mm(height)},mm",
+        },
+    )
     SubElement(page, "LayoutObject")
 
     for elem in elements:
@@ -144,95 +164,141 @@ def generate_qpt(page_config: dict, elements: list[dict], template_name: str = "
         h = elem.get("h", 50)
 
         if elem_type == "map_frame":
-            item = SubElement(layout, "LayoutItem", {
-                "type": "65639",  # QgsLayoutItemMap
-                "uuid": "{00000000-0000-0000-0000-000000000010}",
-                "position": f"{_mm(x)},{_mm(y)},mm",
-                "size": f"{_mm(w)},{_mm(h)},mm",
-                "frame": "true",
-                "frameColor": "0,0,0,255",
-                "frameWidth": "0.3",
-            })
+            item = SubElement(
+                layout,
+                "LayoutItem",
+                {
+                    "type": "65639",  # QgsLayoutItemMap
+                    "uuid": "{00000000-0000-0000-0000-000000000010}",
+                    "position": f"{_mm(x)},{_mm(y)},mm",
+                    "size": f"{_mm(w)},{_mm(h)},mm",
+                    "frame": "true",
+                    "frameColor": "0,0,0,255",
+                    "frameWidth": "0.3",
+                },
+            )
             SubElement(item, "LayoutObject")
 
         elif elem_type == "title":
-            _build_qpt_label(layout, elem, elements.index(elem),
-                             default_font_size=24, default_halign="center", default_font_weight="bold")
+            _build_qpt_label(
+                layout,
+                elem,
+                elements.index(elem),
+                default_font_size=24,
+                default_halign="center",
+                default_font_weight="bold",
+            )
 
         elif elem_type == "subtitle":
-            _build_qpt_label(layout, elem, elements.index(elem),
-                             default_font_size=16, default_halign="center", default_font_weight="normal")
+            _build_qpt_label(
+                layout,
+                elem,
+                elements.index(elem),
+                default_font_size=16,
+                default_halign="center",
+                default_font_weight="normal",
+            )
 
         elif elem_type == "legend":
-            item = SubElement(layout, "LayoutItem", {
-                "type": "65642",  # QgsLayoutItemLegend
-                "uuid": "{00000000-0000-0000-0000-000000000030}",
-                "position": f"{_mm(x)},{_mm(y)},mm",
-                "size": f"{_mm(w)},{_mm(h)},mm",
-                "frame": "true",
-                "title": "Legend",
-            })
+            item = SubElement(
+                layout,
+                "LayoutItem",
+                {
+                    "type": "65642",  # QgsLayoutItemLegend
+                    "uuid": "{00000000-0000-0000-0000-000000000030}",
+                    "position": f"{_mm(x)},{_mm(y)},mm",
+                    "size": f"{_mm(w)},{_mm(h)},mm",
+                    "frame": "true",
+                    "title": "Legend",
+                },
+            )
             SubElement(item, "LayoutObject")
 
         elif elem_type == "scale_bar":
-            item = SubElement(layout, "LayoutItem", {
-                "type": "65646",  # QgsLayoutItemScaleBar
-                "uuid": "{00000000-0000-0000-0000-000000000040}",
-                "position": f"{_mm(x)},{_mm(y)},mm",
-                "size": f"{_mm(w)},{_mm(h)},mm",
-                "style": "Single Box",
-                "units": elem.get("units", "meters"),
-            })
+            item = SubElement(
+                layout,
+                "LayoutItem",
+                {
+                    "type": "65646",  # QgsLayoutItemScaleBar
+                    "uuid": "{00000000-0000-0000-0000-000000000040}",
+                    "position": f"{_mm(x)},{_mm(y)},mm",
+                    "size": f"{_mm(w)},{_mm(h)},mm",
+                    "style": "Single Box",
+                    "units": elem.get("units", "meters"),
+                },
+            )
             SubElement(item, "LayoutObject")
 
         elif elem_type == "north_arrow":
-            item = SubElement(layout, "LayoutItem", {
-                "type": "65640",  # QgsLayoutItemPicture
-                "uuid": "{00000000-0000-0000-0000-000000000050}",
-                "position": f"{_mm(x)},{_mm(y)},mm",
-                "size": f"{_mm(w)},{_mm(h)},mm",
-                "file": "/sketches/sketches/sketches_north_arrows/sketches_north_arrows/sketches_north_arrows_north_arrow_sketched_6.svg",
-                "northMode": "0",
-            })
+            item = SubElement(
+                layout,
+                "LayoutItem",
+                {
+                    "type": "65640",  # QgsLayoutItemPicture
+                    "uuid": "{00000000-0000-0000-0000-000000000050}",
+                    "position": f"{_mm(x)},{_mm(y)},mm",
+                    "size": f"{_mm(w)},{_mm(h)},mm",
+                    "file": "/sketches/sketches/sketches_north_arrows/sketches_north_arrows/sketches_north_arrows_north_arrow_sketched_6.svg",
+                    "northMode": "0",
+                },
+            )
             SubElement(item, "LayoutObject")
 
         elif elem_type == "logo":
-            item = SubElement(layout, "LayoutItem", {
-                "type": "65640",  # QgsLayoutItemPicture
-                "uuid": "{00000000-0000-0000-0000-000000000060}",
-                "position": f"{_mm(x)},{_mm(y)},mm",
-                "size": f"{_mm(w)},{_mm(h)},mm",
-                "file": "",  # Logo path would be set by user after import
-            })
+            item = SubElement(
+                layout,
+                "LayoutItem",
+                {
+                    "type": "65640",  # QgsLayoutItemPicture
+                    "uuid": "{00000000-0000-0000-0000-000000000060}",
+                    "position": f"{_mm(x)},{_mm(y)},mm",
+                    "size": f"{_mm(w)},{_mm(h)},mm",
+                    "file": "",  # Logo path would be set by user after import
+                },
+            )
             SubElement(item, "LayoutObject")
 
         elif elem_type == "text":
-            _build_qpt_label(layout, elem, elements.index(elem),
-                             default_font_size=12, default_halign="left", default_font_weight="normal")
+            _build_qpt_label(
+                layout,
+                elem,
+                elements.index(elem),
+                default_font_size=12,
+                default_halign="left",
+                default_font_weight="normal",
+            )
 
         elif elem_type == "horizontal_rule":
             thickness = elem.get("thickness", 0.5)
             color = _hex_to_rgba(elem.get("color", "#000000"))
-            item = SubElement(layout, "LayoutItem", {
-                "type": "65643",  # QgsLayoutItemShape
-                "uuid": f"{{00000000-0000-0000-0000-00000000008{elements.index(elem)}}}",
-                "position": f"{_mm(x)},{_mm(y)},mm",
-                "size": f"{_mm(w)},{_mm(thickness)},mm",
-                "shapeType": "0",  # Rectangle
-            })
+            item = SubElement(
+                layout,
+                "LayoutItem",
+                {
+                    "type": "65643",  # QgsLayoutItemShape
+                    "uuid": f"{{00000000-0000-0000-0000-00000000008{elements.index(elem)}}}",
+                    "position": f"{_mm(x)},{_mm(y)},mm",
+                    "size": f"{_mm(w)},{_mm(thickness)},mm",
+                    "shapeType": "0",  # Rectangle
+                },
+            )
             symbol = SubElement(item, "symbol", {"type": "fill"})
             layer = SubElement(symbol, "layer", {"class": "SimpleFill"})
             SubElement(layer, "prop", {"k": "color", "v": color})
 
         elif elem_type in ("header_decorator", "footer_decorator"):
             color = _hex_to_rgba(elem.get("color", "#1e40af"))
-            item = SubElement(layout, "LayoutItem", {
-                "type": "65643",  # QgsLayoutItemShape
-                "uuid": f"{{00000000-0000-0000-0000-00000000009{elements.index(elem)}}}",
-                "position": f"{_mm(x)},{_mm(y)},mm",
-                "size": f"{_mm(w)},{_mm(h)},mm",
-                "shapeType": "0",  # Rectangle
-            })
+            item = SubElement(
+                layout,
+                "LayoutItem",
+                {
+                    "type": "65643",  # QgsLayoutItemShape
+                    "uuid": f"{{00000000-0000-0000-0000-00000000009{elements.index(elem)}}}",
+                    "position": f"{_mm(x)},{_mm(y)},mm",
+                    "size": f"{_mm(w)},{_mm(h)},mm",
+                    "shapeType": "0",  # Rectangle
+                },
+            )
             symbol = SubElement(item, "symbol", {"type": "fill"})
             layer = SubElement(symbol, "layer", {"class": "SimpleFill"})
             SubElement(layer, "prop", {"k": "color", "v": color})
@@ -241,7 +307,9 @@ def generate_qpt(page_config: dict, elements: list[dict], template_name: str = "
     return parseString(xml_str).toprettyxml(indent="  ")
 
 
-def generate_pagx(page_config: dict, elements: list[dict], template_name: str = "Map Layout") -> str:
+def generate_pagx(
+    page_config: dict, elements: list[dict], template_name: str = "Map Layout"
+) -> str:
     """Generate ArcGIS Pro Layout (.pagx) XML.
 
     .pagx files can be imported via:
@@ -256,10 +324,13 @@ def generate_pagx(page_config: dict, elements: list[dict], template_name: str = 
     else:
         width_pt, height_pt = max(width, height) * 2.8346, min(width, height) * 2.8346
 
-    layout = Element("Layout", {
-        "xmlns": "http://schemas.esri.com/CIMDocument",
-        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-    })
+    layout = Element(
+        "Layout",
+        {
+            "xmlns": "http://schemas.esri.com/CIMDocument",
+            "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+        },
+    )
 
     page = SubElement(layout, "Page")
     SubElement(page, "Width").text = _mm(width_pt)
@@ -285,16 +356,37 @@ def generate_pagx(page_config: dict, elements: list[dict], template_name: str = 
             SubElement(mf, "Height").text = _mm(h)
 
         elif elem_type == "title":
-            _build_pagx_text(elem_container, elem, height_pt,
-                             name="Title", default_font_size=24, default_halign="Center", default_font_weight="Bold")
+            _build_pagx_text(
+                elem_container,
+                elem,
+                height_pt,
+                name="Title",
+                default_font_size=24,
+                default_halign="Center",
+                default_font_weight="Bold",
+            )
 
         elif elem_type == "subtitle":
-            _build_pagx_text(elem_container, elem, height_pt,
-                             name="Subtitle", default_font_size=16, default_halign="Center", default_font_weight="Regular")
+            _build_pagx_text(
+                elem_container,
+                elem,
+                height_pt,
+                name="Subtitle",
+                default_font_size=16,
+                default_halign="Center",
+                default_font_weight="Regular",
+            )
 
         elif elem_type == "text":
-            _build_pagx_text(elem_container, elem, height_pt,
-                             name="Text", default_font_size=12, default_halign="Left", default_font_weight="Regular")
+            _build_pagx_text(
+                elem_container,
+                elem,
+                height_pt,
+                name="Text",
+                default_font_size=12,
+                default_halign="Left",
+                default_font_weight="Regular",
+            )
 
         elif elem_type == "legend":
             le = SubElement(elem_container, "CIMLegend")
@@ -322,7 +414,9 @@ def generate_pagx(page_config: dict, elements: list[dict], template_name: str = 
             SubElement(na, "Height").text = _mm(h)
 
         elif elem_type in ("horizontal_rule", "header_decorator", "footer_decorator"):
-            color_hex = elem.get("color", "#000000" if elem_type == "horizontal_rule" else "#1e40af")
+            color_hex = elem.get(
+                "color", "#000000" if elem_type == "horizontal_rule" else "#1e40af"
+            )
             rgb = _hex_to_rgb_list(color_hex)
             label = elem_type.replace("_", " ").title()
             # Use actual thickness for horizontal rules

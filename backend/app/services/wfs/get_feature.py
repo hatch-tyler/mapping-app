@@ -73,7 +73,7 @@ class WFSGetFeature:
             )
 
         # Validate table name
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', dataset.table_name):
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", dataset.table_name):
             return build_exception_report(
                 "OperationProcessingFailed",
                 "Invalid table configuration",
@@ -162,10 +162,9 @@ class WFSGetFeature:
         # Build property selection
         if property_names:
             # Select specific properties
-            props_select = ", ".join([
-                f"properties->>'{p}' as \"{p}\""
-                for p in property_names
-            ])
+            props_select = ", ".join(
+                [f"properties->>'{p}' as \"{p}\"" for p in property_names]
+            )
             query = text(f"""
                 SELECT
                     id,
@@ -200,11 +199,13 @@ class WFSGetFeature:
             else:
                 props = row[2] if row[2] else {}
 
-            features.append({
-                "id": row[0],
-                "geometry": row[1],
-                "properties": props,
-            })
+            features.append(
+                {
+                    "id": row[0],
+                    "geometry": row[1],
+                    "properties": props,
+                }
+            )
 
         return features
 
@@ -225,12 +226,14 @@ class WFSGetFeature:
                 clauses.append(
                     "ST_Intersects(geom, ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326))"
                 )
-                params.update({
-                    "minx": minx,
-                    "miny": miny,
-                    "maxx": maxx,
-                    "maxy": maxy,
-                })
+                params.update(
+                    {
+                        "minx": minx,
+                        "miny": miny,
+                        "maxx": maxx,
+                        "maxy": maxy,
+                    }
+                )
             except (ValueError, IndexError):
                 pass
 
@@ -245,6 +248,7 @@ class WFSGetFeature:
         if filter_xml:
             # Parse OGC filter - simplified implementation
             from app.services.wfs.filter_parser import parse_ogc_filter
+
             filter_clause, filter_params = parse_ogc_filter(filter_xml)
             if filter_clause:
                 clauses.append(filter_clause)
@@ -292,7 +296,7 @@ class WFSGetFeature:
         root.set(
             ns_tag("xsi", "schemaLocation"),
             "http://www.opengis.net/wfs http://schemas.opengis.net/wfs/1.1.0/wfs.xsd "
-            "http://www.opengis.net/gml http://schemas.opengis.net/gml/3.1.1/base/gml.xsd"
+            "http://www.opengis.net/gml http://schemas.opengis.net/gml/3.1.1/base/gml.xsd",
         )
 
         # Add boundedBy element (required by some clients like ArcGIS)
@@ -306,7 +310,9 @@ class WFSGetFeature:
             feature_name = f"feature_{str(dataset.id).replace('-', '_')}"
             feature_elem = etree.SubElement(member, ns_tag("gis", feature_name))
             # gml:id must be a valid XML ID (no colons, must start with letter)
-            feature_elem.set(ns_tag("gml", "id"), f"F{str(dataset.id).replace('-', '_')}_{f['id']}")
+            feature_elem.set(
+                ns_tag("gml", "id"), f"F{str(dataset.id).replace('-', '_')}_{f['id']}"
+            )
 
             # Add geometry - named "Shape" for ArcGIS compatibility
             if f["geometry"]:

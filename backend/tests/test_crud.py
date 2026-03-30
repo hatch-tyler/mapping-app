@@ -1,11 +1,11 @@
 """
 Tests for CRUD operations.
 """
+
 import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud import user as user_crud
@@ -83,7 +83,9 @@ class TestUserCRUD:
         assert user is None
 
     @pytest.mark.asyncio
-    async def test_get_users(self, db_session: AsyncSession, test_user: User, admin_user: User):
+    async def test_get_users(
+        self, db_session: AsyncSession, test_user: User, admin_user: User
+    ):
         """Test getting a list of users."""
         users = await user_crud.get_users(db_session)
 
@@ -93,7 +95,9 @@ class TestUserCRUD:
         assert admin_user.email in emails
 
     @pytest.mark.asyncio
-    async def test_get_users_with_pagination(self, db_session: AsyncSession, test_user: User, admin_user: User):
+    async def test_get_users_with_pagination(
+        self, db_session: AsyncSession, test_user: User, admin_user: User
+    ):
         """Test getting users with pagination."""
         users = await user_crud.get_users(db_session, skip=0, limit=1)
 
@@ -110,7 +114,9 @@ class TestUserCRUD:
         assert updated_user.email == test_user.email
 
     @pytest.mark.asyncio
-    async def test_update_user_password(self, db_session: AsyncSession, test_user: User):
+    async def test_update_user_password(
+        self, db_session: AsyncSession, test_user: User
+    ):
         """Test updating a user's password."""
         old_hash = test_user.hashed_password
         user_update = UserUpdate(password="newpassword123")
@@ -134,7 +140,9 @@ class TestRefreshTokenCRUD:
     """Tests for refresh token CRUD operations."""
 
     @pytest.mark.asyncio
-    async def test_create_refresh_token(self, db_session: AsyncSession, test_user: User):
+    async def test_create_refresh_token(
+        self, db_session: AsyncSession, test_user: User
+    ):
         """Test creating a refresh token."""
         expires_at = datetime.now(timezone.utc) + timedelta(days=7)
 
@@ -167,7 +175,9 @@ class TestRefreshTokenCRUD:
         assert token is None
 
     @pytest.mark.asyncio
-    async def test_get_refresh_token_revoked(self, db_session: AsyncSession, test_user: User):
+    async def test_get_refresh_token_revoked(
+        self, db_session: AsyncSession, test_user: User
+    ):
         """Test that revoked tokens are not returned."""
         expires_at = datetime.now(timezone.utc) + timedelta(days=7)
         await user_crud.create_refresh_token(
@@ -180,7 +190,9 @@ class TestRefreshTokenCRUD:
         assert token is None
 
     @pytest.mark.asyncio
-    async def test_revoke_refresh_token(self, db_session: AsyncSession, test_user: User):
+    async def test_revoke_refresh_token(
+        self, db_session: AsyncSession, test_user: User
+    ):
         """Test revoking a refresh token."""
         expires_at = datetime.now(timezone.utc) + timedelta(days=7)
         await user_crud.create_refresh_token(
@@ -253,7 +265,9 @@ class TestDatasetCRUD:
         assert datasets[0].id == test_dataset.id
 
     @pytest.mark.asyncio
-    async def test_get_datasets_visible_only(self, db_session: AsyncSession, admin_user: User):
+    async def test_get_datasets_visible_only(
+        self, db_session: AsyncSession, admin_user: User
+    ):
         """Test getting only visible datasets."""
         # Create visible dataset
         visible_ds = DatasetCreate(name="Visible", description="")
@@ -275,17 +289,25 @@ class TestDatasetCRUD:
         assert datasets[0].name == "Visible"
 
     @pytest.mark.asyncio
-    async def test_update_dataset(self, db_session: AsyncSession, test_dataset: Dataset):
+    async def test_update_dataset(
+        self, db_session: AsyncSession, test_dataset: Dataset
+    ):
         """Test updating a dataset."""
-        update_data = DatasetUpdate(name="Updated Name", description="Updated description")
+        update_data = DatasetUpdate(
+            name="Updated Name", description="Updated description"
+        )
 
-        updated = await dataset_crud.update_dataset(db_session, test_dataset, update_data)
+        updated = await dataset_crud.update_dataset(
+            db_session, test_dataset, update_data
+        )
 
         assert updated.name == "Updated Name"
         assert updated.description == "Updated description"
 
     @pytest.mark.asyncio
-    async def test_update_visibility(self, db_session: AsyncSession, test_dataset: Dataset):
+    async def test_update_visibility(
+        self, db_session: AsyncSession, test_dataset: Dataset
+    ):
         """Test updating dataset visibility."""
         assert test_dataset.is_visible is True
 
@@ -294,7 +316,9 @@ class TestDatasetCRUD:
         assert updated.is_visible is False
 
     @pytest.mark.asyncio
-    async def test_delete_dataset(self, db_session: AsyncSession, test_dataset: Dataset):
+    async def test_delete_dataset(
+        self, db_session: AsyncSession, test_dataset: Dataset
+    ):
         """Test deleting a dataset."""
         dataset_id = test_dataset.id
 
@@ -309,7 +333,9 @@ class TestUploadJobCRUD:
     """Tests for upload job CRUD operations."""
 
     @pytest.mark.asyncio
-    async def test_create_upload_job(self, db_session: AsyncSession, test_dataset: Dataset):
+    async def test_create_upload_job(
+        self, db_session: AsyncSession, test_dataset: Dataset
+    ):
         """Test creating an upload job."""
         job = await dataset_crud.create_upload_job(db_session, test_dataset.id)
 
@@ -319,7 +345,9 @@ class TestUploadJobCRUD:
         assert job.progress == 0
 
     @pytest.mark.asyncio
-    async def test_get_upload_job(self, db_session: AsyncSession, test_dataset: Dataset):
+    async def test_get_upload_job(
+        self, db_session: AsyncSession, test_dataset: Dataset
+    ):
         """Test getting an upload job."""
         created_job = await dataset_crud.create_upload_job(db_session, test_dataset.id)
 
@@ -329,7 +357,9 @@ class TestUploadJobCRUD:
         assert job.id == created_job.id
 
     @pytest.mark.asyncio
-    async def test_update_upload_job(self, db_session: AsyncSession, test_dataset: Dataset):
+    async def test_update_upload_job(
+        self, db_session: AsyncSession, test_dataset: Dataset
+    ):
         """Test updating an upload job."""
         job = await dataset_crud.create_upload_job(db_session, test_dataset.id)
 
@@ -341,7 +371,9 @@ class TestUploadJobCRUD:
         assert updated.progress == 50
 
     @pytest.mark.asyncio
-    async def test_update_upload_job_with_error(self, db_session: AsyncSession, test_dataset: Dataset):
+    async def test_update_upload_job_with_error(
+        self, db_session: AsyncSession, test_dataset: Dataset
+    ):
         """Test updating an upload job with error."""
         job = await dataset_crud.create_upload_job(db_session, test_dataset.id)
 

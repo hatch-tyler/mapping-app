@@ -3,7 +3,6 @@
 from typing import Any
 import defusedxml.ElementTree as ET
 
-
 # OGC Filter namespace
 OGC_NS = "http://www.opengis.net/ogc"
 GML_NS = "http://www.opengis.net/gml"
@@ -153,7 +152,9 @@ def _get_literal_value(elem: Any) -> str | None:
     return None
 
 
-def _parse_comparison(elem: Any, operator: str, param_idx: int) -> tuple[str | None, dict[str, Any]]:
+def _parse_comparison(
+    elem: Any, operator: str, param_idx: int
+) -> tuple[str | None, dict[str, Any]]:
     """Parse a comparison operator element."""
     prop_name = _get_property_name(elem)
     literal = _get_literal_value(elem)
@@ -161,7 +162,9 @@ def _parse_comparison(elem: Any, operator: str, param_idx: int) -> tuple[str | N
     if prop_name and literal is not None:
         param_name = f"p_{param_idx}"
         # Use JSONB accessor for properties
-        return f"(properties->>'{prop_name}') {operator} :{param_name}", {param_name: literal}
+        return f"(properties->>'{prop_name}') {operator} :{param_name}", {
+            param_name: literal
+        }
 
     return None, {}
 
@@ -191,9 +194,13 @@ def _parse_like(elem: Any, param_idx: int) -> tuple[str | None, dict[str, Any]]:
         # Case sensitivity
         match_case = elem.get("matchCase", "true").lower() == "true"
         if match_case:
-            return f"(properties->>'{prop_name}') LIKE :{param_name}", {param_name: pattern}
+            return f"(properties->>'{prop_name}') LIKE :{param_name}", {
+                param_name: pattern
+            }
         else:
-            return f"(properties->>'{prop_name}') ILIKE :{param_name}", {param_name: pattern}
+            return f"(properties->>'{prop_name}') ILIKE :{param_name}", {
+                param_name: pattern
+            }
 
     return None, {}
 
@@ -266,7 +273,9 @@ def _parse_bbox(elem: Any, param_idx: int) -> tuple[str | None, dict[str, Any]]:
     return None, {}
 
 
-def _parse_spatial(elem: Any, func_name: str, param_idx: int) -> tuple[str | None, dict[str, Any]]:
+def _parse_spatial(
+    elem: Any, func_name: str, param_idx: int
+) -> tuple[str | None, dict[str, Any]]:
     """Parse spatial operators (Intersects, Within, Contains)."""
     # For now, support Envelope only
     envelope = elem.find(f".//{{{GML_NS}}}Envelope")

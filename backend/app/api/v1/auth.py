@@ -91,7 +91,11 @@ async def refresh_token(
             detail="Refresh token not found or revoked",
         )
 
-    expires_at = stored_token.expires_at.replace(tzinfo=timezone.utc) if stored_token.expires_at.tzinfo is None else stored_token.expires_at
+    expires_at = (
+        stored_token.expires_at.replace(tzinfo=timezone.utc)
+        if stored_token.expires_at.tzinfo is None
+        else stored_token.expires_at
+    )
     if expires_at < datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -214,7 +218,7 @@ async def resend_confirmation(
     if not sent:
         confirmation_url = email_service.get_confirmation_url(new_token.token)
         print(f"\n{'='*60}")
-        print(f"CONFIRMATION EMAIL (SMTP not configured)")
+        print("CONFIRMATION EMAIL (SMTP not configured)")
         print(f"To: {user.email}")
         print(f"Confirmation URL: {confirmation_url}")
         print(f"{'='*60}\n")
@@ -264,7 +268,7 @@ async def forgot_password(
     if not sent:
         reset_url = f"{settings.APP_URL}/reset-password?token={reset_token.token}"
         print(f"\n{'='*60}")
-        print(f"PASSWORD RESET (SMTP not configured)")
+        print("PASSWORD RESET (SMTP not configured)")
         print(f"To: {user.email}")
         print(f"Reset URL: {reset_url}")
         print(f"{'='*60}\n")

@@ -4,17 +4,14 @@ ESRI Feature Service query handler for PostGIS.
 
 import json
 import re
-from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select
 
 from app.models.dataset import Dataset
 from app.services.arcgis.esri_json import (
-    geojson_to_esri_geometry_type,
     geojson_feature_to_esri,
     python_type_to_esri_field_type,
     build_field_definition,
-    build_spatial_reference,
     build_extent,
     build_query_response,
     build_count_response,
@@ -24,8 +21,8 @@ from app.services.arcgis.esri_json import (
 
 def slugify(name: str) -> str:
     """Convert dataset name to URL-safe slug."""
-    slug = re.sub(r'[^\w\s-]', '', name.lower())
-    return re.sub(r'[-\s]+', '_', slug).strip('-_')
+    slug = re.sub(r"[^\w\s-]", "", name.lower())
+    return re.sub(r"[-\s]+", "_", slug).strip("-_")
 
 
 class ESRIQueryHandler:
@@ -59,10 +56,15 @@ class ESRIQueryHandler:
             select(Dataset).where(
                 Dataset.is_public == True,
                 Dataset.data_type == "vector",
-                func.lower(func.regexp_replace(
-                    func.regexp_replace(Dataset.name, r'[^\w\s-]', '', 'g'),
-                    r'[-\s]+', '_', 'g'
-                )) == service_name.lower(),
+                func.lower(
+                    func.regexp_replace(
+                        func.regexp_replace(Dataset.name, r"[^\w\s-]", "", "g"),
+                        r"[-\s]+",
+                        "_",
+                        "g",
+                    )
+                )
+                == service_name.lower(),
             )
         )
         dataset = result.scalar_one_or_none()
@@ -75,10 +77,15 @@ class ESRIQueryHandler:
                 Dataset.is_visible == True,
                 Dataset.data_type == "vector",
                 Dataset.table_name.isnot(None),
-                func.lower(func.regexp_replace(
-                    func.regexp_replace(Dataset.name, r'[^\w\s-]', '', 'g'),
-                    r'[-\s]+', '_', 'g'
-                )) == service_name.lower(),
+                func.lower(
+                    func.regexp_replace(
+                        func.regexp_replace(Dataset.name, r"[^\w\s-]", "", "g"),
+                        r"[-\s]+",
+                        "_",
+                        "g",
+                    )
+                )
+                == service_name.lower(),
             )
         )
         return result.scalar_one_or_none()
@@ -86,17 +93,19 @@ class ESRIQueryHandler:
     async def get_public_datasets(self) -> list[Dataset]:
         """Get all public vector datasets."""
         result = await self.db.execute(
-            select(Dataset).where(
+            select(Dataset)
+            .where(
                 Dataset.is_public == True,
                 Dataset.data_type == "vector",
-            ).order_by(Dataset.name)
+            )
+            .order_by(Dataset.name)
         )
         return list(result.scalars().all())
 
     async def get_layer_info(self, dataset: Dataset) -> dict:
         """Get layer metadata including fields and extent."""
         table_name = dataset.table_name
-        if not table_name or not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
+        if not table_name or not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
             return {}
 
         # Get geometry type from a sample row
@@ -137,7 +146,16 @@ class ESRIQueryHandler:
 
         # Infer fields from properties
         # Reserved field names that should not be duplicated
-        reserved_fields = {"OBJECTID", "objectid", "FID", "fid", "OID", "oid", "id", "ID"}
+        reserved_fields = {
+            "OBJECTID",
+            "objectid",
+            "FID",
+            "fid",
+            "OID",
+            "oid",
+            "id",
+            "ID",
+        }
 
         fields = [
             build_field_definition("OBJECTID", "esriFieldTypeOID"),
@@ -199,7 +217,7 @@ class ESRIQueryHandler:
     ) -> dict:
         """Execute a feature query and return ESRI JSON response."""
         table_name = dataset.table_name
-        if not table_name or not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name):
+        if not table_name or not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name):
             return {"error": {"message": "Invalid table configuration"}}
 
         # Build WHERE clause
@@ -226,12 +244,14 @@ class ESRIQueryHandler:
                     where_clauses.append(
                         "ST_Intersects(geom, ST_MakeEnvelope(:xmin, :ymin, :xmax, :ymax, 4326))"
                     )
-                    params.update({
-                        "xmin": geom_obj["xmin"],
-                        "ymin": geom_obj["ymin"],
-                        "xmax": geom_obj["xmax"],
-                        "ymax": geom_obj["ymax"],
-                    })
+                    params.update(
+                        {
+                            "xmin": geom_obj["xmin"],
+                            "ymin": geom_obj["ymin"],
+                            "xmax": geom_obj["xmax"],
+                            "ymax": geom_obj["ymax"],
+                        }
+                    )
             except (json.JSONDecodeError, KeyError):
                 pass
 
@@ -263,7 +283,9 @@ class ESRIQueryHandler:
         if out_fields == "*":
             props_select = "properties"
         else:
-            field_list = [f.strip() for f in out_fields.split(",") if f.strip() != "OBJECTID"]
+            field_list = [
+                f.strip() for f in out_fields.split(",") if f.strip() != "OBJECTID"
+            ]
             if field_list:
                 props_select = "properties"  # Still fetch all, will filter later
             else:

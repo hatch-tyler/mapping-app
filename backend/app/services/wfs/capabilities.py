@@ -127,18 +127,26 @@ class WFSCapabilities:
                 self._add_parameter(op, "AcceptFormats", ["text/xml"])
 
             elif op_name == "DescribeFeatureType":
-                self._add_parameter(op, "outputFormat", [
-                    "text/xml; subtype=gml/3.1.1",
-                    "application/gml+xml; version=3.1",
-                ])
+                self._add_parameter(
+                    op,
+                    "outputFormat",
+                    [
+                        "text/xml; subtype=gml/3.1.1",
+                        "application/gml+xml; version=3.1",
+                    ],
+                )
 
             elif op_name == "GetFeature":
                 self._add_parameter(op, "resultType", ["results", "hits"])
-                self._add_parameter(op, "outputFormat", [
-                    "application/json",
-                    "application/gml+xml; version=3.1",
-                    "text/xml; subtype=gml/3.1.1",
-                ])
+                self._add_parameter(
+                    op,
+                    "outputFormat",
+                    [
+                        "application/json",
+                        "application/gml+xml; version=3.1",
+                        "text/xml; subtype=gml/3.1.1",
+                    ],
+                )
 
     def _add_parameter(self, op: etree._Element, name: str, values: list[str]) -> None:
         """Add a parameter to an operation."""
@@ -148,7 +156,9 @@ class WFSCapabilities:
             value = etree.SubElement(param, ns_tag("ows", "Value"))
             value.text = v
 
-    def _add_feature_type_list(self, root: etree._Element, datasets: list[Dataset]) -> None:
+    def _add_feature_type_list(
+        self, root: etree._Element, datasets: list[Dataset]
+    ) -> None:
         """Add FeatureTypeList section."""
         ftl = etree.SubElement(root, ns_tag("wfs", "FeatureTypeList"))
 
@@ -209,15 +219,22 @@ class WFSCapabilities:
         # Scalar capabilities
         scc = etree.SubElement(fc, ns_tag("ogc", "Scalar_Capabilities"))
 
-        logical = etree.SubElement(scc, ns_tag("ogc", "LogicalOperators"))
+        _logical = etree.SubElement(scc, ns_tag("ogc", "LogicalOperators"))
 
         comparison = etree.SubElement(scc, ns_tag("ogc", "ComparisonOperators"))
-        for op in ["PropertyIsEqualTo", "PropertyIsNotEqualTo", "PropertyIsLessThan",
-                   "PropertyIsGreaterThan", "PropertyIsLessThanOrEqualTo",
-                   "PropertyIsGreaterThanOrEqualTo", "PropertyIsLike", "PropertyIsNull"]:
+        for op in [
+            "PropertyIsEqualTo",
+            "PropertyIsNotEqualTo",
+            "PropertyIsLessThan",
+            "PropertyIsGreaterThan",
+            "PropertyIsLessThanOrEqualTo",
+            "PropertyIsGreaterThanOrEqualTo",
+            "PropertyIsLike",
+            "PropertyIsNull",
+        ]:
             comp_op = etree.SubElement(comparison, ns_tag("ogc", "ComparisonOperator"))
             comp_op.text = op
 
         # ID capabilities
         idc = etree.SubElement(fc, ns_tag("ogc", "Id_Capabilities"))
-        fid = etree.SubElement(idc, ns_tag("ogc", "FID"))
+        _fid = etree.SubElement(idc, ns_tag("ogc", "FID"))

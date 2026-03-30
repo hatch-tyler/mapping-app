@@ -13,8 +13,6 @@ from uuid import UUID
 import boto3
 from botocore.exceptions import ClientError
 
-from app.config import settings
-
 
 class StorageBackend(ABC):
     """Abstract base class for storage backends."""
@@ -97,7 +95,7 @@ class S3StorageBackend(StorageBackend):
                 file,
                 self.bucket_name,
                 path,
-                ExtraArgs={"ServerSideEncryption": "AES256"}
+                ExtraArgs={"ServerSideEncryption": "AES256"},
             )
             return path
         except ClientError as e:
@@ -105,30 +103,21 @@ class S3StorageBackend(StorageBackend):
 
     async def get_file(self, path: str) -> bytes:
         try:
-            response = self.s3_client.get_object(
-                Bucket=self.bucket_name,
-                Key=path
-            )
+            response = self.s3_client.get_object(Bucket=self.bucket_name, Key=path)
             return response["Body"].read()
         except ClientError as e:
             raise FileNotFoundError(f"File not found in S3: {path}") from e
 
     async def delete_file(self, path: str) -> bool:
         try:
-            self.s3_client.delete_object(
-                Bucket=self.bucket_name,
-                Key=path
-            )
+            self.s3_client.delete_object(Bucket=self.bucket_name, Key=path)
             return True
         except ClientError:
             return False
 
     async def file_exists(self, path: str) -> bool:
         try:
-            self.s3_client.head_object(
-                Bucket=self.bucket_name,
-                Key=path
-            )
+            self.s3_client.head_object(Bucket=self.bucket_name, Key=path)
             return True
         except ClientError:
             return False
@@ -138,11 +127,8 @@ class S3StorageBackend(StorageBackend):
         try:
             url = self.s3_client.generate_presigned_url(
                 "get_object",
-                Params={
-                    "Bucket": self.bucket_name,
-                    "Key": path
-                },
-                ExpiresIn=expires_in
+                Params={"Bucket": self.bucket_name, "Key": path},
+                ExpiresIn=expires_in,
             )
             return url
         except ClientError as e:

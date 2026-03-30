@@ -73,19 +73,23 @@ async def upload_vector(
     dup_result = await db.execute(
         select(Dataset).where(Dataset.file_hash == file_hash).limit(1)
     )
-    duplicate = dup_result.scalar_one_or_none()
+    dup_result.scalar_one_or_none()
 
     # Parse tags from comma-separated string
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
 
     # Create dataset record
     dataset_in = DatasetCreate(
-        name=name, description=description,
-        category=category, geographic_scope=geographic_scope, tags=tag_list,
+        name=name,
+        description=description,
+        category=category,
+        geographic_scope=geographic_scope,
+        tags=tag_list,
     )
     extra_kwargs = {}
     if project_id:
         from uuid import UUID as PyUUID
+
         extra_kwargs["project_id"] = PyUUID(project_id)
     dataset = await dataset_crud.create_dataset(
         db,
@@ -173,19 +177,23 @@ async def upload_raster(
     dup_result = await db.execute(
         select(Dataset).where(Dataset.file_hash == file_hash).limit(1)
     )
-    duplicate = dup_result.scalar_one_or_none()
+    dup_result.scalar_one_or_none()
 
     # Parse tags from comma-separated string
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
 
     # Create dataset record
     dataset_in = DatasetCreate(
-        name=name, description=description,
-        category=category, geographic_scope=geographic_scope, tags=tag_list,
+        name=name,
+        description=description,
+        category=category,
+        geographic_scope=geographic_scope,
+        tags=tag_list,
     )
     extra_kwargs = {}
     if project_id:
         from uuid import UUID as PyUUID
+
         extra_kwargs["project_id"] = PyUUID(project_id)
     dataset = await dataset_crud.create_dataset(
         db,

@@ -15,7 +15,6 @@ from app.services.arcgis.esri_json import (
     build_ids_response,
 )
 
-
 # ── Geometry Conversion ──────────────────────────────────────────────
 
 
@@ -36,7 +35,10 @@ class TestGeojsonGeometryToEsri:
         assert result == {"paths": [[[0, 0], [1, 1], [2, 2]]]}
 
     def test_multilinestring(self):
-        geom = {"type": "MultiLineString", "coordinates": [[[0, 0], [1, 1]], [[2, 2], [3, 3]]]}
+        geom = {
+            "type": "MultiLineString",
+            "coordinates": [[[0, 0], [1, 1]], [[2, 2], [3, 3]]],
+        }
         result = geojson_geometry_to_esri(geom)
         assert result == {"paths": [[[0, 0], [1, 1]], [[2, 2], [3, 3]]]}
 
@@ -144,7 +146,9 @@ class TestBuildFieldDefinition:
         assert "length" not in field
 
     def test_custom_alias(self):
-        field = build_field_definition("pop", "esriFieldTypeInteger", alias="Population")
+        field = build_field_definition(
+            "pop", "esriFieldTypeInteger", alias="Population"
+        )
         assert field["alias"] == "Population"
 
 

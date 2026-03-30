@@ -1,6 +1,7 @@
 """
 Tests for users API endpoints.
 """
+
 import pytest
 from httpx import AsyncClient
 
@@ -114,7 +115,11 @@ class TestListUsers:
 
     @pytest.mark.asyncio
     async def test_list_users_as_admin(
-        self, client: AsyncClient, test_user: User, admin_user: User, admin_auth_headers: dict
+        self,
+        client: AsyncClient,
+        test_user: User,
+        admin_user: User,
+        admin_auth_headers: dict,
     ):
         """Test listing users as admin."""
         response = await client.get("/api/v1/users/", headers=admin_auth_headers)
@@ -144,7 +149,11 @@ class TestListUsers:
 
     @pytest.mark.asyncio
     async def test_list_users_pagination(
-        self, client: AsyncClient, test_user: User, admin_user: User, admin_auth_headers: dict
+        self,
+        client: AsyncClient,
+        test_user: User,
+        admin_user: User,
+        admin_auth_headers: dict,
     ):
         """Test listing users with pagination."""
         response = await client.get(

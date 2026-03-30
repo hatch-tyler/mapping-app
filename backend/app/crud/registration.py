@@ -33,9 +33,9 @@ async def get_pending_requests(
     """Get pending registration requests with total count."""
     # Get total count
     count_result = await db.execute(
-        select(func.count()).select_from(RegistrationRequest).where(
-            RegistrationRequest.status == "pending"
-        )
+        select(func.count())
+        .select_from(RegistrationRequest)
+        .where(RegistrationRequest.status == "pending")
     )
     total = count_result.scalar() or 0
 
@@ -89,9 +89,7 @@ async def create_registration_request(
 
 
 async def approve_request(
-    db: AsyncSession,
-    request: RegistrationRequest,
-    admin_id: UUID
+    db: AsyncSession, request: RegistrationRequest, admin_id: UUID
 ) -> User:
     """Approve a registration request and create the user."""
     # Create the user with the stored hashed password
@@ -118,7 +116,7 @@ async def reject_request(
     db: AsyncSession,
     request: RegistrationRequest,
     admin_id: UUID,
-    reason: str | None = None
+    reason: str | None = None,
 ) -> RegistrationRequest:
     """Reject a registration request."""
     request.status = "rejected"

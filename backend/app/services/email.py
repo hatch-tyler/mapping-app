@@ -31,7 +31,9 @@ class EmailService:
         Returns True if sent successfully, False otherwise.
         """
         if not self.is_configured:
-            logger.warning(f"SMTP not configured. Would have sent email to {to}: {subject}")
+            logger.warning(
+                f"SMTP not configured. Would have sent email to {to}: {subject}"
+            )
             return False
 
         message = MIMEMultipart("alternative")
@@ -92,9 +94,7 @@ class EmailService:
         </html>
         """
         return await self.send_email(
-            settings.ADMIN_EMAIL,
-            "New Registration Request",
-            html
+            settings.ADMIN_EMAIL, "New Registration Request", html
         )
 
     async def send_registration_approved(

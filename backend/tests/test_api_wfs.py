@@ -1,13 +1,12 @@
 """
 Tests for WFS (Web Feature Service) API endpoints.
 """
-import uuid
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.user import User
-from app.models.dataset import Dataset
 
 
 class TestWFSGetCapabilities:
@@ -16,9 +15,7 @@ class TestWFSGetCapabilities:
     @pytest.mark.asyncio
     async def test_getcapabilities_lowercase(self, client: AsyncClient):
         """Test GetCapabilities with lowercase parameters."""
-        response = await client.get(
-            "/api/v1/wfs?service=wfs&request=getcapabilities"
-        )
+        response = await client.get("/api/v1/wfs?service=wfs&request=getcapabilities")
 
         assert response.status_code == 200
         assert "application/xml" in response.headers["content-type"]
@@ -27,9 +24,7 @@ class TestWFSGetCapabilities:
     @pytest.mark.asyncio
     async def test_getcapabilities_uppercase(self, client: AsyncClient):
         """Test GetCapabilities with UPPERCASE parameters (ArcGIS Pro style)."""
-        response = await client.get(
-            "/api/v1/wfs?SERVICE=WFS&REQUEST=GetCapabilities"
-        )
+        response = await client.get("/api/v1/wfs?SERVICE=WFS&REQUEST=GetCapabilities")
 
         assert response.status_code == 200
         assert "application/xml" in response.headers["content-type"]
@@ -53,14 +48,12 @@ class TestWFSGetCapabilities:
         )
 
         assert response.status_code == 200
-        assert b"version=\"1.1.0\"" in response.content
+        assert b'version="1.1.0"' in response.content
 
     @pytest.mark.asyncio
     async def test_cors_headers(self, client: AsyncClient):
         """Test that CORS headers are present in response."""
-        response = await client.get(
-            "/api/v1/wfs?service=WFS&request=GetCapabilities"
-        )
+        response = await client.get("/api/v1/wfs?service=WFS&request=GetCapabilities")
 
         assert response.status_code == 200
         assert response.headers.get("access-control-allow-origin") == "*"
@@ -96,9 +89,7 @@ class TestWFSParameterValidation:
     @pytest.mark.asyncio
     async def test_invalid_service_parameter(self, client: AsyncClient):
         """Test error when service is not WFS."""
-        response = await client.get(
-            "/api/v1/wfs?service=WMS&request=GetCapabilities"
-        )
+        response = await client.get("/api/v1/wfs?service=WMS&request=GetCapabilities")
 
         assert response.status_code == 400
         assert b"InvalidParameterValue" in response.content
@@ -107,9 +98,7 @@ class TestWFSParameterValidation:
     @pytest.mark.asyncio
     async def test_unknown_request_type(self, client: AsyncClient):
         """Test error for unknown request type."""
-        response = await client.get(
-            "/api/v1/wfs?service=WFS&request=UnknownOperation"
-        )
+        response = await client.get("/api/v1/wfs?service=WFS&request=UnknownOperation")
 
         assert response.status_code == 400
         assert b"InvalidParameterValue" in response.content
@@ -158,9 +147,7 @@ class TestWFSGetFeature:
     @pytest.mark.asyncio
     async def test_getfeature_missing_typename(self, client: AsyncClient):
         """Test error when typeName is missing."""
-        response = await client.get(
-            "/api/v1/wfs?service=WFS&request=GetFeature"
-        )
+        response = await client.get("/api/v1/wfs?service=WFS&request=GetFeature")
 
         assert response.status_code == 400
         assert b"MissingParameterValue" in response.content
@@ -244,13 +231,13 @@ class TestWFSWithDataset:
         # Make it public
         await dataset_crud.update_public_status(db_session, ds, True)
 
-        response = await client.get(
-            "/api/v1/wfs?service=WFS&request=GetCapabilities"
-        )
+        response = await client.get("/api/v1/wfs?service=WFS&request=GetCapabilities")
 
         assert response.status_code == 200
         # The dataset should appear in capabilities
-        assert b"WFS Test Layer" in response.content or b"FeatureType" in response.content
+        assert (
+            b"WFS Test Layer" in response.content or b"FeatureType" in response.content
+        )
 
 
 class TestWFSPost:
@@ -334,15 +321,11 @@ class TestWFSTrailingSlash:
     @pytest.mark.asyncio
     async def test_no_trailing_slash(self, client: AsyncClient):
         """Test WFS endpoint without trailing slash."""
-        response = await client.get(
-            "/api/v1/wfs?service=WFS&request=GetCapabilities"
-        )
+        response = await client.get("/api/v1/wfs?service=WFS&request=GetCapabilities")
         assert response.status_code == 200
 
     @pytest.mark.asyncio
     async def test_with_trailing_slash(self, client: AsyncClient):
         """Test WFS endpoint with trailing slash."""
-        response = await client.get(
-            "/api/v1/wfs/?service=WFS&request=GetCapabilities"
-        )
+        response = await client.get("/api/v1/wfs/?service=WFS&request=GetCapabilities")
         assert response.status_code == 200

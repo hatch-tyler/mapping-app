@@ -48,7 +48,9 @@ async def import_external_background(
         # Phase 2: Fetch features from external service (NO DB session held)
         logger.info(
             "Import %s: fetching features from %s/%s",
-            dataset_id, service_url, service_layer_id,
+            dataset_id,
+            service_url,
+            service_layer_id,
         )
         geojson_data = await fetch_all_features(
             service_url,
@@ -90,9 +92,11 @@ async def import_external_background(
             from shapely.ops import transform
 
             gdf["geometry"] = gdf.geometry.apply(
-                lambda geom: transform(lambda x, y, z=None: (x, y), geom)
-                if geom and geom.has_z
-                else geom
+                lambda geom: (
+                    transform(lambda x, y, z=None: (x, y), geom)
+                    if geom and geom.has_z
+                    else geom
+                )
             )
 
         await _update_job(job_id, progress=55)
@@ -108,9 +112,7 @@ async def import_external_background(
             from app.models.dataset import Dataset
             from sqlalchemy import select
 
-            result = await db.execute(
-                select(Dataset).where(Dataset.id == dataset_id)
-            )
+            result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
             dataset = result.scalar_one_or_none()
             if not dataset:
                 raise ValueError(f"Dataset {dataset_id} not found after import")
@@ -148,7 +150,8 @@ async def import_external_background(
 
         logger.info(
             "Import %s: completed (%d features imported)",
-            dataset_id, len(gdf),
+            dataset_id,
+            len(gdf),
         )
 
     except Exception as e:

@@ -98,26 +98,31 @@ class UploadJobResponse(BaseModel):
 
 # ===== Feature Query Schemas =====
 
+
 class FieldMetadata(BaseModel):
     """Metadata about a field/column in a dataset."""
+
     name: str
     field_type: str  # "string", "number", "boolean", "date", "null"
 
 
 class FieldMetadataResponse(BaseModel):
     """Response containing field metadata for a dataset."""
+
     dataset_id: UUID
     fields: list[FieldMetadata]
 
 
 class FeatureRow(BaseModel):
     """A single feature row (without geometry)."""
+
     id: int
     properties: dict[str, Any]
 
 
 class FeatureQueryResponse(BaseModel):
     """Paginated response for feature queries."""
+
     features: list[FeatureRow]
     total_count: int
     page: int
@@ -127,6 +132,7 @@ class FeatureQueryResponse(BaseModel):
 
 class FilterOperator(str, Enum):
     """Supported filter operators."""
+
     eq = "eq"
     ne = "ne"
     gt = "gt"
@@ -139,6 +145,7 @@ class FilterOperator(str, Enum):
 
 class ColumnFilter(BaseModel):
     """A filter to apply to a column."""
+
     field: str
     operator: FilterOperator
     value: str | float | int | bool
@@ -146,14 +153,17 @@ class ColumnFilter(BaseModel):
 
 class ExportSelectedRequest(BaseModel):
     """Request to export selected features."""
+
     feature_ids: list[int]
     format: str = "csv"  # "csv" or "geojson"
 
 
 # ===== Style/Symbology Schemas =====
 
+
 class UniqueValuesResponse(BaseModel):
     """Response containing unique values for a field."""
+
     field: str
     values: list[str | int | float | bool | None]
     total_count: int
@@ -161,6 +171,7 @@ class UniqueValuesResponse(BaseModel):
 
 class FieldStatisticsResponse(BaseModel):
     """Response containing statistics for a numeric field."""
+
     field: str
     min: float | None
     max: float | None

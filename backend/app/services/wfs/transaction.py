@@ -20,7 +20,6 @@ from app.services.wfs.xml_builder import (
 )
 from app.services.wfs.filter_parser import parse_ogc_filter
 
-
 # Namespaces for parsing
 WFS_NS = "http://www.opengis.net/wfs"
 GML_NS = "http://www.opengis.net/gml"
@@ -135,7 +134,7 @@ class WFSTransaction:
             raise ValueError(f"Invalid feature type: {type_name}")
 
         # Validate table name
-        if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', dataset.table_name):
+        if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", dataset.table_name):
             raise ValueError("Invalid table configuration")
 
         return dataset
@@ -197,19 +196,25 @@ class WFSTransaction:
                     VALUES (ST_GeomFromText(:wkt, 4326), :props::jsonb)
                     RETURNING id
                 """)
-                result = await self.db.execute(query, {
-                    "wkt": geom_wkt,
-                    "props": json.dumps(properties),
-                })
+                result = await self.db.execute(
+                    query,
+                    {
+                        "wkt": geom_wkt,
+                        "props": json.dumps(properties),
+                    },
+                )
             else:
                 query = text(f"""
                     INSERT INTO "{table_name}" (properties)
                     VALUES (:props::jsonb)
                     RETURNING id
                 """)
-                result = await self.db.execute(query, {
-                    "props": json.dumps(properties),
-                })
+                result = await self.db.execute(
+                    query,
+                    {
+                        "props": json.dumps(properties),
+                    },
+                )
 
             new_id = result.scalar()
             inserted_ids.append(f"gis:{dataset.id}.{new_id}")
@@ -263,7 +268,9 @@ class WFSTransaction:
         set_clauses = []
         for prop_name, prop_value in updates.items():
             param_name = f"upd_{prop_name}"
-            set_clauses.append(f"properties = jsonb_set(properties, '{{{prop_name}}}', to_jsonb(:{param_name}::text))")
+            set_clauses.append(
+                f"properties = jsonb_set(properties, '{{{prop_name}}}', to_jsonb(:{param_name}::text))"
+            )
             filter_params[param_name] = prop_value
 
         set_sql = ", ".join(set_clauses)
@@ -344,6 +351,6 @@ class WFSTransaction:
         # Transaction result
         result = etree.SubElement(root, ns_tag("wfs", "TransactionResult"))
         status = etree.SubElement(result, ns_tag("wfs", "Status"))
-        success = etree.SubElement(status, ns_tag("wfs", "SUCCESS"))
+        _success = etree.SubElement(status, ns_tag("wfs", "SUCCESS"))
 
         return to_xml_string(root)

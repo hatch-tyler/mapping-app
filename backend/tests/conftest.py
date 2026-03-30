@@ -1,17 +1,16 @@
 """
 Pytest configuration and fixtures for backend tests.
 """
+
 import asyncio
 import os
 import sys
 import uuid
-from datetime import datetime, timezone
 from typing import AsyncGenerator, Generator
-from unittest.mock import MagicMock, Mock
+from unittest.mock import MagicMock
 
 import pytest
 import pytest_asyncio
-from fastapi.testclient import TestClient
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -25,32 +24,33 @@ os.environ["CORS_ORIGINS"] = "http://localhost:3000"
 # Mock heavy geospatial dependencies before importing app modules
 mock_rasterio = MagicMock()
 mock_rio_tiler = MagicMock()
-sys.modules['rasterio'] = mock_rasterio
-sys.modules['rasterio.crs'] = MagicMock()
-sys.modules['rasterio.warp'] = MagicMock()
-sys.modules['rio_tiler'] = mock_rio_tiler
-sys.modules['rio_tiler.io'] = MagicMock()
-sys.modules['rio_tiler.errors'] = MagicMock()
+sys.modules["rasterio"] = mock_rasterio
+sys.modules["rasterio.crs"] = MagicMock()
+sys.modules["rasterio.warp"] = MagicMock()
+sys.modules["rio_tiler"] = mock_rio_tiler
+sys.modules["rio_tiler.io"] = MagicMock()
+sys.modules["rio_tiler.errors"] = MagicMock()
 
 # Patch GeoAlchemy2 Geometry to Text for SQLite compatibility
 import geoalchemy2
 from sqlalchemy import Text as _Text
+
 geoalchemy2._original_Geometry = geoalchemy2.Geometry
 geoalchemy2.Geometry = lambda *args, **kwargs: _Text()
 
 # Patch PostgreSQL JSONB to JSON for SQLite compatibility
 import sqlalchemy.dialects.postgresql as _pg
 from sqlalchemy import JSON as _JSON
+
 _pg._original_JSONB = _pg.JSONB
 _pg.JSONB = _JSON
 
 
 from app.database import Base, get_db
 from app.main import app
-from app.models.user import User, RefreshToken
-from app.models.dataset import Dataset, UploadJob
-from app.core.security import get_password_hash, create_access_token, create_refresh_token
-
+from app.models.user import User
+from app.models.dataset import Dataset
+from app.core.security import get_password_hash, create_access_token
 
 # Test database engine
 test_engine = create_async_engine(
@@ -77,6 +77,7 @@ def event_loop() -> Generator:
 @pytest_asyncio.fixture(scope="function")
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
     """Create a fresh database session for each test."""
+
     # Enable foreign keys for SQLite
     @event.listens_for(test_engine.sync_engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
@@ -104,8 +105,7 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides[get_db] = override_get_db
 
     async with AsyncClient(
-        transport=ASGITransport(app=app),
-        base_url="http://test"
+        transport=ASGITransport(app=app), base_url="http://test"
     ) as ac:
         yield ac
 

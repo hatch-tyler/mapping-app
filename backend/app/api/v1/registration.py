@@ -97,7 +97,9 @@ async def get_registration_request(
     return request
 
 
-@router.post("/requests/{request_id}/approve", response_model=RegistrationRequestResponse)
+@router.post(
+    "/requests/{request_id}/approve", response_model=RegistrationRequestResponse
+)
 async def approve_registration_request(
     request_id: UUID,
     background_tasks: BackgroundTasks,
@@ -141,7 +143,9 @@ async def approve_registration_request(
     return request
 
 
-@router.post("/requests/{request_id}/reject", response_model=RegistrationRequestResponse)
+@router.post(
+    "/requests/{request_id}/reject", response_model=RegistrationRequestResponse
+)
 async def reject_registration_request(
     request_id: UUID,
     reject_data: RejectRequest,

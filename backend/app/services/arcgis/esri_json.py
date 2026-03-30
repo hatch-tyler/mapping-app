@@ -90,7 +90,9 @@ def python_type_to_esri_field_type(value: Any) -> str:
     return "esriFieldTypeString"
 
 
-def build_field_definition(name: str, field_type: str, alias: str | None = None) -> dict:
+def build_field_definition(
+    name: str, field_type: str, alias: str | None = None
+) -> dict:
     """Build an ESRI field definition object."""
     field = {
         "name": name,
@@ -192,7 +194,9 @@ def build_count_response(count: int) -> dict:
     return {"count": count}
 
 
-def build_ids_response(object_ids: list[int], object_id_field: str = "OBJECTID") -> dict:
+def build_ids_response(
+    object_ids: list[int], object_id_field: str = "OBJECTID"
+) -> dict:
     """Build an IDs-only query response."""
     return {
         "objectIdFieldName": object_id_field,

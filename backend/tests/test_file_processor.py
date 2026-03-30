@@ -1,6 +1,7 @@
 """
 Tests for file processor service.
 """
+
 import json
 import math
 import tempfile
@@ -9,10 +10,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
-import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.file_processor import FileProcessor, _validate_table_name, file_processor
+from app.services.file_processor import FileProcessor, _validate_table_name
 
 
 class TestTableNameValidation:
@@ -40,7 +40,7 @@ class TestTableNameValidation:
     def test_invalid_table_name_sql_injection(self):
         """Test SQL injection attempts are caught."""
         assert _validate_table_name("table; DROP TABLE users;--") is False
-        assert _validate_table_name("table\" OR \"1\"=\"1") is False
+        assert _validate_table_name('table" OR "1"="1') is False
 
     def test_empty_table_name(self):
         """Test empty table name is invalid."""
@@ -98,8 +98,12 @@ class TestFileProcessorVector:
         dataset_id = uuid.uuid4()
         processor = FileProcessor()
 
-        with patch.object(processor, '_create_vector_table', new_callable=AsyncMock) as mock_create:
-            with patch.object(processor, '_insert_features', new_callable=AsyncMock) as mock_insert:
+        with patch.object(
+            processor, "_create_vector_table", new_callable=AsyncMock
+        ) as _mock_create:
+            with patch.object(
+                processor, "_insert_features", new_callable=AsyncMock
+            ) as _mock_insert:
                 result = await processor.process_vector(
                     geojson_file, dataset_id, db_session
                 )
@@ -159,8 +163,11 @@ class TestFileProcessorRaster:
             mock_src = MagicMock()
             # Use a namedtuple-like object so list(src.bounds) works
             from collections import namedtuple
+
             BoundingBox = namedtuple("BoundingBox", ["left", "bottom", "right", "top"])
-            mock_src.bounds = BoundingBox(left=-122.5, bottom=37.5, right=-122.0, top=38.0)
+            mock_src.bounds = BoundingBox(
+                left=-122.5, bottom=37.5, right=-122.0, top=38.0
+            )
             mock_src.crs = "EPSG:4326"
             mock_src.width = 1000
             mock_src.height = 1000
@@ -264,7 +271,7 @@ class TestTimestampHandling:
                 processed[k] = None
             elif isinstance(v, float) and math.isnan(v):
                 processed[k] = None
-            elif hasattr(v, 'isoformat'):  # datetime, Timestamp, etc.
+            elif hasattr(v, "isoformat"):  # datetime, Timestamp, etc.
                 processed[k] = v.isoformat()
             else:
                 processed[k] = v
@@ -298,9 +305,9 @@ class TestTimestampHandling:
                 processed[k] = None
             elif isinstance(v, float) and math.isnan(v):
                 processed[k] = None
-            elif hasattr(v, 'isoformat'):
+            elif hasattr(v, "isoformat"):
                 processed[k] = v.isoformat()
-            elif hasattr(v, 'item'):  # numpy types
+            elif hasattr(v, "item"):  # numpy types
                 processed[k] = v.item()
             else:
                 processed[k] = v
@@ -340,9 +347,9 @@ class TestTimestampHandling:
                 processed[k] = None
             elif isinstance(v, float) and math.isnan(v):
                 processed[k] = None
-            elif hasattr(v, 'isoformat'):
+            elif hasattr(v, "isoformat"):
                 processed[k] = v.isoformat()
-            elif hasattr(v, 'item'):
+            elif hasattr(v, "item"):
                 processed[k] = v.item()
             else:
                 processed[k] = v

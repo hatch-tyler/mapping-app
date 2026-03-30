@@ -1,4 +1,3 @@
-import json
 import logging
 import math
 from xml.etree import ElementTree
@@ -26,7 +25,12 @@ def _validate_wgs84_bounds(bounds: list[float] | None) -> list[float] | None:
         return None
     minx, miny, maxx, maxy = bounds
     # Must be valid WGS84 range
-    if not (-180 <= minx <= 180 and -90 <= miny <= 90 and -180 <= maxx <= 180 and -90 <= maxy <= 90):
+    if not (
+        -180 <= minx <= 180
+        and -90 <= miny <= 90
+        and -180 <= maxx <= 180
+        and -90 <= maxy <= 90
+    ):
         return None
     # Must have non-zero area (min < max)
     if minx >= maxx or miny >= maxy:
@@ -59,7 +63,7 @@ async def browse_directory(url: str) -> dict:
     # Walk up to find the /rest/services root
     rest_idx = url.lower().find("/rest/services")
     if rest_idx != -1:
-        base_url = url[:rest_idx + len("/rest/services")]
+        base_url = url[: rest_idx + len("/rest/services")]
 
     services = []
     for svc in raw_services:
@@ -69,12 +73,14 @@ async def browse_directory(url: str) -> dict:
         svc_url = f"{base_url}/{svc_name}/{svc_type}"
         # Display name: last part of the name (after folder prefix)
         display_name = svc_name.split("/")[-1] if "/" in svc_name else svc_name
-        services.append({
-            "name": display_name,
-            "full_name": svc_name,
-            "type": svc_type,
-            "url": svc_url,
-        })
+        services.append(
+            {
+                "name": display_name,
+                "full_name": svc_name,
+                "type": svc_type,
+                "url": svc_url,
+            }
+        )
 
     return {
         "url": url,
@@ -95,7 +101,14 @@ async def probe_service(url: str) -> dict:
         if any(p in url for p in ["{z}", "{x}", "{y}"]):
             return {
                 "service_type": "xyz",
-                "layers": [{"id": "tiles", "name": "Tile Layer", "geometry_type": None, "extent": None}],
+                "layers": [
+                    {
+                        "id": "tiles",
+                        "name": "Tile Layer",
+                        "geometry_type": None,
+                        "extent": None,
+                    }
+                ],
                 "capabilities_url": url,
                 "metadata": None,
             }
@@ -136,12 +149,18 @@ async def _try_arcgis(client: httpx.AsyncClient, url: str) -> dict | None:
             metadata = _extract_arcgis_metadata(data)
             return {
                 "service_type": "arcgis_image",
-                "layers": [{
-                    "id": "0",
-                    "name": data.get("name", data.get("serviceDescription", "Image Service")[:80] or "Image Service"),
-                    "geometry_type": None,
-                    "extent": extent,
-                }],
+                "layers": [
+                    {
+                        "id": "0",
+                        "name": data.get(
+                            "name",
+                            data.get("serviceDescription", "Image Service")[:80]
+                            or "Image Service",
+                        ),
+                        "geometry_type": None,
+                        "extent": extent,
+                    }
+                ],
                 "capabilities_url": f"{url}?f=json",
                 "metadata": metadata,
             }
@@ -162,12 +181,16 @@ async def _try_arcgis(client: httpx.AsyncClient, url: str) -> dict | None:
                 # Skip group layers (containers with sub-layers)
                 if layer.get("subLayerIds"):
                     continue
-                layers.append({
-                    "id": str(layer.get("id", 0)),
-                    "name": layer.get("name", "Layer"),
-                    "geometry_type": layer.get("geometryType"),
-                    "extent": _arcgis_extent(data.get("fullExtent") or data.get("initialExtent")),
-                })
+                layers.append(
+                    {
+                        "id": str(layer.get("id", 0)),
+                        "name": layer.get("name", "Layer"),
+                        "geometry_type": layer.get("geometryType"),
+                        "extent": _arcgis_extent(
+                            data.get("fullExtent") or data.get("initialExtent")
+                        ),
+                    }
+                )
 
             if layers:
                 metadata = _extract_arcgis_metadata(data)
@@ -183,12 +206,14 @@ async def _try_arcgis(client: httpx.AsyncClient, url: str) -> dict | None:
             metadata = _extract_arcgis_metadata(data)
             return {
                 "service_type": "arcgis_feature",
-                "layers": [{
-                    "id": str(data.get("id", 0)),
-                    "name": data.get("name", "Layer"),
-                    "geometry_type": data.get("geometryType"),
-                    "extent": _arcgis_extent(data.get("extent")),
-                }],
+                "layers": [
+                    {
+                        "id": str(data.get("id", 0)),
+                        "name": data.get("name", "Layer"),
+                        "geometry_type": data.get("geometryType"),
+                        "extent": _arcgis_extent(data.get("extent")),
+                    }
+                ],
                 "capabilities_url": f"{url}?f=json",
                 "metadata": metadata,
             }
@@ -200,7 +225,14 @@ async def _try_arcgis(client: httpx.AsyncClient, url: str) -> dict | None:
 def _extract_arcgis_metadata(data: dict) -> dict:
     """Extract common metadata fields from an ArcGIS REST JSON response."""
     metadata = {}
-    for key in ("description", "serviceDescription", "copyrightText", "credits", "capabilities", "currentVersion"):
+    for key in (
+        "description",
+        "serviceDescription",
+        "copyrightText",
+        "credits",
+        "capabilities",
+        "currentVersion",
+    ):
         val = data.get(key)
         if val:
             metadata[key] = val
@@ -227,7 +259,10 @@ def _arcgis_extent(extent: dict | None) -> list[float] | None:
         # Unknown projection — try pyproj if available
         try:
             from pyproj import Transformer
-            transformer = Transformer.from_crs(f"EPSG:{wkid}", "EPSG:4326", always_xy=True)
+
+            transformer = Transformer.from_crs(
+                f"EPSG:{wkid}", "EPSG:4326", always_xy=True
+            )
             xmin, ymin = transformer.transform(xmin, ymin)
             xmax, ymax = transformer.transform(xmax, ymax)
         except Exception:
@@ -237,7 +272,9 @@ def _arcgis_extent(extent: dict | None) -> list[float] | None:
     return _validate_wgs84_bounds([xmin, ymin, xmax, ymax])
 
 
-async def fetch_arcgis_layer_extent(service_url: str, layer_id: str) -> list[float] | None:
+async def fetch_arcgis_layer_extent(
+    service_url: str, layer_id: str
+) -> list[float] | None:
     """Fetch extent for a specific ArcGIS layer by querying its individual endpoint."""
     url = f"{service_url.rstrip('/')}/{layer_id}"
     try:
@@ -280,10 +317,13 @@ def suggest_min_zoom(feature_count: int | None) -> int:
 async def _try_wfs(client: httpx.AsyncClient, url: str) -> dict | None:
     """Try to detect WFS service."""
     try:
-        resp = await client.get(url, params={
-            "service": "WFS",
-            "request": "GetCapabilities",
-        })
+        resp = await client.get(
+            url,
+            params={
+                "service": "WFS",
+                "request": "GetCapabilities",
+            },
+        )
         if resp.status_code != 200:
             return None
         text = resp.text
@@ -298,18 +338,29 @@ async def _try_wfs(client: httpx.AsyncClient, url: str) -> dict | None:
             name_el = ft.find(f"{ns}Name")
             title_el = ft.find(f"{ns}Title")
             if name_el is not None and name_el.text:
-                layers.append({
-                    "id": name_el.text,
-                    "name": (title_el.text if title_el is not None and title_el.text else name_el.text),
-                    "geometry_type": None,
-                    "extent": _wfs_extent(ft, ns),
-                })
+                layers.append(
+                    {
+                        "id": name_el.text,
+                        "name": (
+                            title_el.text
+                            if title_el is not None and title_el.text
+                            else name_el.text
+                        ),
+                        "geometry_type": None,
+                        "extent": _wfs_extent(ft, ns),
+                    }
+                )
 
         if layers:
             metadata = {}
             # Extract service-level metadata from capabilities
             for tag_name in ("Abstract", "AccessConstraints"):
-                for prefix in (ns, "{http://www.opengis.net/ows}", "{http://www.opengis.net/ows/1.1}", ""):
+                for prefix in (
+                    ns,
+                    "{http://www.opengis.net/ows}",
+                    "{http://www.opengis.net/ows/1.1}",
+                    "",
+                ):
                     el = root.find(f".//{prefix}{tag_name}")
                     if el is not None and el.text:
                         metadata[tag_name] = el.text
@@ -328,10 +379,13 @@ async def _try_wfs(client: httpx.AsyncClient, url: str) -> dict | None:
 async def _try_wms(client: httpx.AsyncClient, url: str) -> dict | None:
     """Try to detect WMS service."""
     try:
-        resp = await client.get(url, params={
-            "service": "WMS",
-            "request": "GetCapabilities",
-        })
+        resp = await client.get(
+            url,
+            params={
+                "service": "WMS",
+                "request": "GetCapabilities",
+            },
+        )
         if resp.status_code != 200:
             return None
         text = resp.text
@@ -347,12 +401,18 @@ async def _try_wms(client: httpx.AsyncClient, url: str) -> dict | None:
             name_el = layer_el.find(f"{ns}Name")
             title_el = layer_el.find(f"{ns}Title")
             if name_el is not None and name_el.text:
-                layers.append({
-                    "id": name_el.text,
-                    "name": (title_el.text if title_el is not None and title_el.text else name_el.text),
-                    "geometry_type": None,
-                    "extent": _wms_extent(layer_el, ns),
-                })
+                layers.append(
+                    {
+                        "id": name_el.text,
+                        "name": (
+                            title_el.text
+                            if title_el is not None and title_el.text
+                            else name_el.text
+                        ),
+                        "geometry_type": None,
+                        "extent": _wms_extent(layer_el, ns),
+                    }
+                )
 
         if layers:
             metadata = {}
@@ -383,8 +443,11 @@ def _detect_ns(root: ElementTree.Element, service: str) -> str:
 
 def _wfs_extent(ft_el: ElementTree.Element, ns: str) -> list[float] | None:
     """Extract bounding box from a WFS FeatureType element."""
-    for bbox_tag in [f"{ns}WGS84BoundingBox", "{http://www.opengis.net/ows}WGS84BoundingBox",
-                     "{http://www.opengis.net/ows/1.1}WGS84BoundingBox"]:
+    for bbox_tag in [
+        f"{ns}WGS84BoundingBox",
+        "{http://www.opengis.net/ows}WGS84BoundingBox",
+        "{http://www.opengis.net/ows/1.1}WGS84BoundingBox",
+    ]:
         bbox = ft_el.find(bbox_tag)
         if bbox is not None:
             lower = bbox.find(f"{bbox_tag.rsplit('}', 1)[0] + '}'}LowerCorner")
@@ -397,7 +460,9 @@ def _wfs_extent(ft_el: ElementTree.Element, ns: str) -> list[float] | None:
                 try:
                     lc = lower.text.split()
                     uc = upper.text.split()
-                    return _validate_wgs84_bounds([float(lc[0]), float(lc[1]), float(uc[0]), float(uc[1])])
+                    return _validate_wgs84_bounds(
+                        [float(lc[0]), float(lc[1]), float(uc[0]), float(uc[1])]
+                    )
                 except (ValueError, IndexError):
                     pass
     return None
@@ -419,12 +484,14 @@ def _wms_extent(layer_el: ElementTree.Element, ns: str) -> list[float] | None:
     bbox = layer_el.find("LatLonBoundingBox")
     if bbox is not None:
         try:
-            return _validate_wgs84_bounds([
-                float(bbox.get("minx", "")),
-                float(bbox.get("miny", "")),
-                float(bbox.get("maxx", "")),
-                float(bbox.get("maxy", "")),
-            ])
+            return _validate_wgs84_bounds(
+                [
+                    float(bbox.get("minx", "")),
+                    float(bbox.get("miny", "")),
+                    float(bbox.get("maxx", "")),
+                    float(bbox.get("maxy", "")),
+                ]
+            )
         except ValueError:
             pass
     return None
@@ -476,10 +543,16 @@ async def fetch_all_features(
                             page_size = max(page_size // 2, 10)
                         logger.info(
                             "Timeout at offset %s, retry %s/%s (page_size=%s)",
-                            offset, retries, max_retries, page_size,
+                            offset,
+                            retries,
+                            max_retries,
+                            page_size,
                         )
                         continue
-                    logger.warning("Max retries reached after timeout, returning %s features", len(all_features))
+                    logger.warning(
+                        "Max retries reached after timeout, returning %s features",
+                        len(all_features),
+                    )
                     break
 
                 # If server errors, reduce page size and retry
@@ -499,16 +572,23 @@ async def fetch_all_features(
                         page_size = max(page_size // 4, 10)
                         logger.info(
                             "Server error (status=%s), reducing page size to %s",
-                            resp.status_code, page_size,
+                            resp.status_code,
+                            page_size,
                         )
                         continue
                     retries += 1
                     if retries <= max_retries:
-                        logger.info("Retry %s/%s at page_size=%s", retries, max_retries, page_size)
+                        logger.info(
+                            "Retry %s/%s at page_size=%s",
+                            retries,
+                            max_retries,
+                            page_size,
+                        )
                         continue
                     logger.warning(
                         "Server errors persist at page_size=%s, returning %s features",
-                        page_size, len(all_features),
+                        page_size,
+                        len(all_features),
                     )
                     break
 
@@ -520,7 +600,9 @@ async def fetch_all_features(
                 all_features.extend(features)
                 logger.debug(
                     "Fetched %d features (total: %d, page_size: %d)",
-                    len(features), len(all_features), page_size,
+                    len(features),
+                    len(all_features),
+                    page_size,
                 )
                 # If we got fewer than requested, we've reached the end
                 if len(features) < remaining:

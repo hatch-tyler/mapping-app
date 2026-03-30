@@ -5,6 +5,7 @@ Revises: 005_dataset_projects
 Create Date: 2026-03-26
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -29,9 +30,7 @@ def upgrade() -> None:
     op.execute("UPDATE users SET role = 'admin' WHERE is_admin = TRUE")
 
     # Update datasets.created_by_id FK to SET NULL on user deletion
-    op.drop_constraint(
-        "datasets_created_by_id_fkey", "datasets", type_="foreignkey"
-    )
+    op.drop_constraint("datasets_created_by_id_fkey", "datasets", type_="foreignkey")
     op.create_foreign_key(
         "datasets_created_by_id_fkey",
         "datasets",
@@ -44,9 +43,7 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     # Restore original FK without ondelete
-    op.drop_constraint(
-        "datasets_created_by_id_fkey", "datasets", type_="foreignkey"
-    )
+    op.drop_constraint("datasets_created_by_id_fkey", "datasets", type_="foreignkey")
     op.create_foreign_key(
         "datasets_created_by_id_fkey",
         "datasets",

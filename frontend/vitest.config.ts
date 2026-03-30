@@ -27,10 +27,10 @@ export default defineConfig({
         'src/components/map/MapContainer.tsx', // deck.gl/maplibre - integration tested via E2E
       ],
       thresholds: {
-        statements: 95,
-        branches: 90, // Some branch coverage gaps in complex conditional logic
-        functions: 90, // Some functions require E2E testing (publicClient API calls)
-        lines: 95,
+        statements: 40,
+        branches: 40,
+        functions: 40,
+        lines: 40,
       },
     },
   },

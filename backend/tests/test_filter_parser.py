@@ -52,9 +52,7 @@ class TestPropertyIsEqualTo:
 
     def test_missing_property(self):
         xml = ogc(
-            "<PropertyIsEqualTo>"
-            "<Literal>test</Literal>"
-            "</PropertyIsEqualTo>"
+            "<PropertyIsEqualTo>" "<Literal>test</Literal>" "</PropertyIsEqualTo>"
         )
         clause, params = parse_ogc_filter(xml)
         assert clause is None
@@ -295,10 +293,10 @@ class TestBBOX:
         clause, params = parse_ogc_filter(xml)
         assert "ST_Intersects" in clause
         assert "ST_MakeEnvelope" in clause
-        assert params[f"bbox_minx_0"] == -122.5
-        assert params[f"bbox_miny_0"] == 37.5
-        assert params[f"bbox_maxx_0"] == -122.0
-        assert params[f"bbox_maxy_0"] == 38.0
+        assert params["bbox_minx_0"] == -122.5
+        assert params["bbox_miny_0"] == 37.5
+        assert params["bbox_maxx_0"] == -122.0
+        assert params["bbox_maxy_0"] == 38.0
 
     def test_without_namespace(self):
         xml = plain(

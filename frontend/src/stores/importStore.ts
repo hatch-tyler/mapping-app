@@ -30,7 +30,7 @@ export const useImportStore = create<ImportState>((set, get) => ({
 
     // Start polling in the store (persists across navigation)
     const poll = async () => {
-      while (true) {
+      while (true) { // eslint-disable-line no-constant-condition
         await new Promise((r) => setTimeout(r, 2000));
         const current = get().activeImports[datasetId];
         if (!current || current.status !== 'polling') return;

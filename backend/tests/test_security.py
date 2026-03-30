@@ -1,7 +1,7 @@
 """
 Tests for core/security module.
 """
-import pytest
+
 from datetime import datetime, timedelta, timezone
 from jose import jwt
 

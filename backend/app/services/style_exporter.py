@@ -13,7 +13,12 @@ def _rgba_to_hex(rgba: list) -> str:
 
 def _rgba_to_esri(rgba: list) -> list:
     """Convert [r, g, b, a] to Esri [r, g, b, a] (0-255)."""
-    return [int(rgba[0]), int(rgba[1]), int(rgba[2]), int(rgba[3]) if len(rgba) > 3 else 255]
+    return [
+        int(rgba[0]),
+        int(rgba[1]),
+        int(rgba[2]),
+        int(rgba[3]) if len(rgba) > 3 else 255,
+    ]
 
 
 def _rgba_to_qgis(rgba: list) -> str:
@@ -25,15 +30,21 @@ def _rgba_to_qgis(rgba: list) -> str:
 
 # ===== SLD Export =====
 
-def generate_sld(style_config: dict, layer_name: str = "layer", geometry_type: str | None = None) -> str:
+
+def generate_sld(
+    style_config: dict, layer_name: str = "layer", geometry_type: str | None = None
+) -> str:
     """Generate OGC SLD 1.0 XML from style_config."""
-    sld = Element("StyledLayerDescriptor", {
-        "version": "1.0.0",
-        "xmlns": "http://www.opengis.net/sld",
-        "xmlns:ogc": "http://www.opengis.net/ogc",
-        "xmlns:xlink": "http://www.w3.org/1999/xlink",
-        "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-    })
+    sld = Element(
+        "StyledLayerDescriptor",
+        {
+            "version": "1.0.0",
+            "xmlns": "http://www.opengis.net/sld",
+            "xmlns:ogc": "http://www.opengis.net/ogc",
+            "xmlns:xlink": "http://www.w3.org/1999/xlink",
+            "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+        },
+    )
 
     named_layer = SubElement(sld, "NamedLayer")
     SubElement(named_layer, "Name").text = layer_name
@@ -69,7 +80,7 @@ def generate_sld(style_config: dict, layer_name: str = "layer", geometry_type: s
         # Default rule for unmatched values
         rule = SubElement(feature_type_style, "Rule")
         SubElement(rule, "Name").text = "Other"
-        el_else = SubElement(rule, "ElseFilter")
+        _el_else = SubElement(rule, "ElseFilter")
         _add_sld_symbolizer(rule, default_color, line_color, line_width, geometry_type)
 
     elif mode == "graduated":
@@ -104,7 +115,13 @@ def generate_sld(style_config: dict, layer_name: str = "layer", geometry_type: s
     return parseString(xml_str).toprettyxml(indent="  ")
 
 
-def _add_sld_symbolizer(rule: Element, fill_color: list, line_color: list, line_width: float, geometry_type: str | None) -> None:
+def _add_sld_symbolizer(
+    rule: Element,
+    fill_color: list,
+    line_color: list,
+    line_width: float,
+    geometry_type: str | None,
+) -> None:
     """Add appropriate SLD symbolizer based on geometry type."""
     geom = (geometry_type or "").lower()
     if "point" in geom:
@@ -113,29 +130,50 @@ def _add_sld_symbolizer(rule: Element, fill_color: list, line_color: list, line_
         mark = SubElement(graphic, "Mark")
         SubElement(mark, "WellKnownName").text = "circle"
         fill = SubElement(mark, "Fill")
-        SubElement(fill, "CssParameter", {"name": "fill"}).text = _rgba_to_hex(fill_color)
+        SubElement(fill, "CssParameter", {"name": "fill"}).text = _rgba_to_hex(
+            fill_color
+        )
         stroke = SubElement(mark, "Stroke")
-        SubElement(stroke, "CssParameter", {"name": "stroke"}).text = _rgba_to_hex(line_color)
-        SubElement(stroke, "CssParameter", {"name": "stroke-width"}).text = str(line_width)
+        SubElement(stroke, "CssParameter", {"name": "stroke"}).text = _rgba_to_hex(
+            line_color
+        )
+        SubElement(stroke, "CssParameter", {"name": "stroke-width"}).text = str(
+            line_width
+        )
         SubElement(graphic, "Size").text = "8"
     elif "line" in geom:
         sym = SubElement(rule, "LineSymbolizer")
         stroke = SubElement(sym, "Stroke")
-        SubElement(stroke, "CssParameter", {"name": "stroke"}).text = _rgba_to_hex(fill_color)
-        SubElement(stroke, "CssParameter", {"name": "stroke-width"}).text = str(line_width)
+        SubElement(stroke, "CssParameter", {"name": "stroke"}).text = _rgba_to_hex(
+            fill_color
+        )
+        SubElement(stroke, "CssParameter", {"name": "stroke-width"}).text = str(
+            line_width
+        )
     else:
         sym = SubElement(rule, "PolygonSymbolizer")
         fill = SubElement(sym, "Fill")
-        SubElement(fill, "CssParameter", {"name": "fill"}).text = _rgba_to_hex(fill_color)
-        SubElement(fill, "CssParameter", {"name": "fill-opacity"}).text = str(round(fill_color[3] / 255, 2) if len(fill_color) > 3 else 1.0)
+        SubElement(fill, "CssParameter", {"name": "fill"}).text = _rgba_to_hex(
+            fill_color
+        )
+        SubElement(fill, "CssParameter", {"name": "fill-opacity"}).text = str(
+            round(fill_color[3] / 255, 2) if len(fill_color) > 3 else 1.0
+        )
         stroke = SubElement(sym, "Stroke")
-        SubElement(stroke, "CssParameter", {"name": "stroke"}).text = _rgba_to_hex(line_color)
-        SubElement(stroke, "CssParameter", {"name": "stroke-width"}).text = str(line_width)
+        SubElement(stroke, "CssParameter", {"name": "stroke"}).text = _rgba_to_hex(
+            line_color
+        )
+        SubElement(stroke, "CssParameter", {"name": "stroke-width"}).text = str(
+            line_width
+        )
 
 
 # ===== ArcGIS Pro LYRX Export =====
 
-def generate_lyrx(style_config: dict, layer_name: str = "layer", geometry_type: str | None = None) -> str:
+
+def generate_lyrx(
+    style_config: dict, layer_name: str = "layer", geometry_type: str | None = None
+) -> str:
     """Generate ArcGIS Pro .lyrx JSON from style_config."""
     mode = style_config.get("mode", "uniform")
     fill_color = style_config.get("fillColor", [0, 128, 255, 180])
@@ -153,17 +191,23 @@ def generate_lyrx(style_config: dict, layer_name: str = "layer", geometry_type: 
         default_color = style_config.get("defaultCategoryColor", fill_color)
         groups = []
         for value, color in category_colors.items():
-            groups.append({
-                "type": "CIMUniqueValueClass",
-                "label": str(value),
-                "symbol": _lyrx_symbol(color, line_color, line_width, geometry_type),
-                "values": [{"type": "CIMUniqueValue", "fieldValues": [str(value)]}],
-            })
+            groups.append(
+                {
+                    "type": "CIMUniqueValueClass",
+                    "label": str(value),
+                    "symbol": _lyrx_symbol(
+                        color, line_color, line_width, geometry_type
+                    ),
+                    "values": [{"type": "CIMUniqueValue", "fieldValues": [str(value)]}],
+                }
+            )
         renderer = {
             "type": "CIMUniqueValueRenderer",
             "fields": [field],
             "groups": [{"type": "CIMUniqueValueGroup", "classes": groups}],
-            "defaultSymbol": _lyrx_symbol(default_color, line_color, line_width, geometry_type),
+            "defaultSymbol": _lyrx_symbol(
+                default_color, line_color, line_width, geometry_type
+            ),
             "defaultLabel": "Other",
             "useDefaultSymbol": True,
         }
@@ -181,12 +225,16 @@ def generate_lyrx(style_config: dict, layer_name: str = "layer", geometry_type: 
             r = int(fraction * 255)
             b = int((1 - fraction) * 255)
             color = [r, 50, b, 200]
-            breaks.append({
-                "type": "CIMClassBreak",
-                "upperBound": upper,
-                "label": f"{min_val + i * step:.1f} - {upper:.1f}",
-                "symbol": _lyrx_symbol(color, line_color, line_width, geometry_type),
-            })
+            breaks.append(
+                {
+                    "type": "CIMClassBreak",
+                    "upperBound": upper,
+                    "label": f"{min_val + i * step:.1f} - {upper:.1f}",
+                    "symbol": _lyrx_symbol(
+                        color, line_color, line_width, geometry_type
+                    ),
+                }
+            )
         renderer = {
             "type": "CIMClassBreaksRenderer",
             "field": field,
@@ -204,17 +252,21 @@ def generate_lyrx(style_config: dict, layer_name: str = "layer", geometry_type: 
         "version": "3.0.0",
         "build": 36057,
         "layers": [f"CIMPATH=map/{layer_name}.json"],
-        "layerDefinitions": [{
-            "type": "CIMFeatureLayer",
-            "name": layer_name,
-            "renderer": renderer,
-        }],
+        "layerDefinitions": [
+            {
+                "type": "CIMFeatureLayer",
+                "name": layer_name,
+                "renderer": renderer,
+            }
+        ],
     }
 
     return json.dumps(lyrx, indent=2)
 
 
-def _lyrx_symbol(fill_color: list, line_color: list, line_width: float, geometry_type: str | None) -> dict:
+def _lyrx_symbol(
+    fill_color: list, line_color: list, line_width: float, geometry_type: str | None
+) -> dict:
     """Build a CIM symbol reference for LYRX."""
     geom = (geometry_type or "").lower()
     fill_esri = _rgba_to_esri(fill_color)
@@ -225,22 +277,43 @@ def _lyrx_symbol(fill_color: list, line_color: list, line_width: float, geometry
             "type": "CIMSymbolReference",
             "symbol": {
                 "type": "CIMPointSymbol",
-                "symbolLayers": [{
-                    "type": "CIMVectorMarker",
-                    "size": 8,
-                    "frame": {"xmin": -5, "ymin": -5, "xmax": 5, "ymax": 5},
-                    "markerGraphics": [{
-                        "type": "CIMMarkerGraphic",
-                        "geometry": {"rings": [[[-5, -5], [-5, 5], [5, 5], [5, -5], [-5, -5]]]},
-                        "symbol": {
-                            "type": "CIMPolygonSymbol",
-                            "symbolLayers": [
-                                {"type": "CIMSolidStroke", "color": {"type": "CIMRGBColor", "values": line_esri}, "width": line_width},
-                                {"type": "CIMSolidFill", "color": {"type": "CIMRGBColor", "values": fill_esri}},
-                            ],
-                        },
-                    }],
-                }],
+                "symbolLayers": [
+                    {
+                        "type": "CIMVectorMarker",
+                        "size": 8,
+                        "frame": {"xmin": -5, "ymin": -5, "xmax": 5, "ymax": 5},
+                        "markerGraphics": [
+                            {
+                                "type": "CIMMarkerGraphic",
+                                "geometry": {
+                                    "rings": [
+                                        [[-5, -5], [-5, 5], [5, 5], [5, -5], [-5, -5]]
+                                    ]
+                                },
+                                "symbol": {
+                                    "type": "CIMPolygonSymbol",
+                                    "symbolLayers": [
+                                        {
+                                            "type": "CIMSolidStroke",
+                                            "color": {
+                                                "type": "CIMRGBColor",
+                                                "values": line_esri,
+                                            },
+                                            "width": line_width,
+                                        },
+                                        {
+                                            "type": "CIMSolidFill",
+                                            "color": {
+                                                "type": "CIMRGBColor",
+                                                "values": fill_esri,
+                                            },
+                                        },
+                                    ],
+                                },
+                            }
+                        ],
+                    }
+                ],
             },
         }
     elif "line" in geom:
@@ -249,7 +322,11 @@ def _lyrx_symbol(fill_color: list, line_color: list, line_width: float, geometry
             "symbol": {
                 "type": "CIMLineSymbol",
                 "symbolLayers": [
-                    {"type": "CIMSolidStroke", "color": {"type": "CIMRGBColor", "values": fill_esri}, "width": line_width},
+                    {
+                        "type": "CIMSolidStroke",
+                        "color": {"type": "CIMRGBColor", "values": fill_esri},
+                        "width": line_width,
+                    },
                 ],
             },
         }
@@ -259,8 +336,15 @@ def _lyrx_symbol(fill_color: list, line_color: list, line_width: float, geometry
             "symbol": {
                 "type": "CIMPolygonSymbol",
                 "symbolLayers": [
-                    {"type": "CIMSolidStroke", "color": {"type": "CIMRGBColor", "values": line_esri}, "width": line_width},
-                    {"type": "CIMSolidFill", "color": {"type": "CIMRGBColor", "values": fill_esri}},
+                    {
+                        "type": "CIMSolidStroke",
+                        "color": {"type": "CIMRGBColor", "values": line_esri},
+                        "width": line_width,
+                    },
+                    {
+                        "type": "CIMSolidFill",
+                        "color": {"type": "CIMRGBColor", "values": fill_esri},
+                    },
                 ],
             },
         }
@@ -268,7 +352,10 @@ def _lyrx_symbol(fill_color: list, line_color: list, line_width: float, geometry
 
 # ===== QGIS QML Export =====
 
-def generate_qml(style_config: dict, layer_name: str = "layer", geometry_type: str | None = None) -> str:
+
+def generate_qml(
+    style_config: dict, layer_name: str = "layer", geometry_type: str | None = None
+) -> str:
     """Generate QGIS .qml XML from style_config."""
     qgis = Element("qgis", {"version": "3.34"})
     renderer_el = SubElement(qgis, "renderer-v2")
@@ -286,7 +373,7 @@ def generate_qml(style_config: dict, layer_name: str = "layer", geometry_type: s
     elif mode == "categorical":
         field = style_config.get("attributeField", "")
         category_colors = style_config.get("categoryColors", {})
-        default_color = style_config.get("defaultCategoryColor", fill_color)
+        _default_color = style_config.get("defaultCategoryColor", fill_color)
 
         renderer_el.set("type", "categorizedSymbol")
         renderer_el.set("attr", field)
@@ -296,13 +383,19 @@ def generate_qml(style_config: dict, layer_name: str = "layer", geometry_type: s
 
         for idx, (value, color) in enumerate(category_colors.items()):
             sym_id = str(idx)
-            _add_qml_symbol(symbols, sym_id, color, line_color, line_width, geometry_type)
-            cat = SubElement(categories, "category", {
-                "symbol": sym_id,
-                "value": str(value),
-                "label": str(value),
-                "render": "true",
-            })
+            _add_qml_symbol(
+                symbols, sym_id, color, line_color, line_width, geometry_type
+            )
+            _cat = SubElement(
+                categories,
+                "category",
+                {
+                    "symbol": sym_id,
+                    "value": str(value),
+                    "label": str(value),
+                    "render": "true",
+                },
+            )
 
     elif mode == "graduated":
         field = style_config.get("attributeField", "")
@@ -327,20 +420,33 @@ def generate_qml(style_config: dict, layer_name: str = "layer", geometry_type: s
             color = [r, 50, b, 200]
 
             sym_id = str(i)
-            _add_qml_symbol(symbols, sym_id, color, line_color, line_width, geometry_type)
-            SubElement(ranges, "range", {
-                "symbol": sym_id,
-                "lower": str(lower),
-                "upper": str(upper),
-                "label": f"{lower:.1f} - {upper:.1f}",
-                "render": "true",
-            })
+            _add_qml_symbol(
+                symbols, sym_id, color, line_color, line_width, geometry_type
+            )
+            SubElement(
+                ranges,
+                "range",
+                {
+                    "symbol": sym_id,
+                    "lower": str(lower),
+                    "upper": str(upper),
+                    "label": f"{lower:.1f} - {upper:.1f}",
+                    "render": "true",
+                },
+            )
 
     xml_str = tostring(qgis, encoding="unicode")
     return parseString(xml_str).toprettyxml(indent="  ")
 
 
-def _add_qml_symbol(symbols: Element, sym_id: str, fill_color: list, line_color: list, line_width: float, geometry_type: str | None) -> None:
+def _add_qml_symbol(
+    symbols: Element,
+    sym_id: str,
+    fill_color: list,
+    line_color: list,
+    line_width: float,
+    geometry_type: str | None,
+) -> None:
     """Add a QGIS symbol element."""
     geom = (geometry_type or "").lower()
 
@@ -351,17 +457,29 @@ def _add_qml_symbol(symbols: Element, sym_id: str, fill_color: list, line_color:
     else:
         sym_type = "fill"
 
-    symbol = SubElement(symbols, "symbol", {
-        "name": sym_id,
-        "type": sym_type,
-        "clip_to_extent": "1",
-    })
+    symbol = SubElement(
+        symbols,
+        "symbol",
+        {
+            "name": sym_id,
+            "type": sym_type,
+            "clip_to_extent": "1",
+        },
+    )
 
-    layer = SubElement(symbol, "layer", {
-        "class": "SimpleFill" if sym_type == "fill" else ("SimpleMarker" if sym_type == "marker" else "SimpleLine"),
-        "pass": "0",
-        "locked": "0",
-    })
+    layer = SubElement(
+        symbol,
+        "layer",
+        {
+            "class": (
+                "SimpleFill"
+                if sym_type == "fill"
+                else ("SimpleMarker" if sym_type == "marker" else "SimpleLine")
+            ),
+            "pass": "0",
+            "locked": "0",
+        },
+    )
 
     props = {
         "color": _rgba_to_qgis(fill_color),

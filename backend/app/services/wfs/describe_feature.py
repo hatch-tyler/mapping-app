@@ -8,7 +8,6 @@ from sqlalchemy import text, select
 from app.models.dataset import Dataset
 from app.services.wfs.xml_builder import NAMESPACES, ns_tag, to_xml_string
 
-
 # Map JSONB types to XSD types
 JSONB_TO_XSD = {
     "string": "xsd:string",
@@ -125,7 +124,9 @@ class WFSDescribeFeature:
         # Import GML schema
         gml_import = etree.SubElement(root, ns_tag("xs", "import"))
         gml_import.set("namespace", NAMESPACES["gml"])
-        gml_import.set("schemaLocation", "http://schemas.opengis.net/gml/3.1.1/base/gml.xsd")
+        gml_import.set(
+            "schemaLocation", "http://schemas.opengis.net/gml/3.1.1/base/gml.xsd"
+        )
 
         # Feature type element
         type_name = f"feature_{str(dataset.id).replace('-', '_')}"
@@ -147,7 +148,9 @@ class WFSDescribeFeature:
         # Geometry element - named "Shape" for ArcGIS compatibility
         geom_elem = etree.SubElement(sequence, ns_tag("xs", "element"))
         geom_elem.set("name", "Shape")
-        geom_type = GEOMETRY_TYPE_MAP.get(dataset.geometry_type or "Geometry", "gml:GeometryPropertyType")
+        geom_type = GEOMETRY_TYPE_MAP.get(
+            dataset.geometry_type or "Geometry", "gml:GeometryPropertyType"
+        )
         geom_elem.set("type", geom_type)
         geom_elem.set("minOccurs", "0")
 
@@ -164,4 +167,5 @@ class WFSDescribeFeature:
     def _error_schema(self, message: str) -> str:
         """Return an error schema."""
         from app.services.wfs.xml_builder import build_exception_report
+
         return build_exception_report("InvalidParameterValue", message, "typeName")

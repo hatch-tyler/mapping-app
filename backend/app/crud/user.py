@@ -32,7 +32,6 @@ async def get_users(
     if is_active is not None:
         query = query.where(User.is_active == is_active)
     if search:
-        pattern = f"%{search}%"
         query = query.where(
             or_(
                 func.lower(User.email).contains(search.lower()),
@@ -107,9 +106,7 @@ async def delete_user(db: AsyncSession, user: User) -> None:
     )
     # Revoke all refresh tokens
     await db.execute(
-        update(RefreshToken)
-        .where(RefreshToken.user_id == user.id)
-        .values(revoked=True)
+        update(RefreshToken).where(RefreshToken.user_id == user.id).values(revoked=True)
     )
     await db.delete(user)
     await db.commit()
@@ -139,9 +136,7 @@ async def get_refresh_token(db: AsyncSession, token: str) -> RefreshToken | None
 
 
 async def revoke_refresh_token(db: AsyncSession, token: str) -> None:
-    result = await db.execute(
-        select(RefreshToken).where(RefreshToken.token == token)
-    )
+    result = await db.execute(select(RefreshToken).where(RefreshToken.token == token))
     refresh_token = result.scalar_one_or_none()
     if refresh_token:
         refresh_token.revoked = True

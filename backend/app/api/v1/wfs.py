@@ -27,7 +27,9 @@ WFS_CORS_HEADERS = {
 }
 
 
-def get_param(params: dict[str, str], name: str, default: str | None = None) -> str | None:
+def get_param(
+    params: dict[str, str], name: str, default: str | None = None
+) -> str | None:
     """Get parameter case-insensitively from query params."""
     # Try exact match first
     if name in params:
@@ -110,7 +112,7 @@ async def wfs_get(
     # Extract parameters case-insensitively (OGC clients use uppercase)
     service = get_param(params, "service", "WFS")
     wfs_request = get_param(params, "request")
-    version = get_param(params, "version", "1.1.0")
+    _version = get_param(params, "version", "1.1.0")
 
     # Validate service
     if service and service.upper() != "WFS":
@@ -119,7 +121,12 @@ async def wfs_get(
             "service must be WFS",
             "service",
         )
-        return Response(content=content, media_type=WFS_XML, status_code=400, headers=WFS_CORS_HEADERS)
+        return Response(
+            content=content,
+            media_type=WFS_XML,
+            status_code=400,
+            headers=WFS_CORS_HEADERS,
+        )
 
     # Check for required request parameter
     if not wfs_request:
@@ -128,7 +135,12 @@ async def wfs_get(
             "request parameter is required",
             "request",
         )
-        return Response(content=content, media_type=WFS_XML, status_code=400, headers=WFS_CORS_HEADERS)
+        return Response(
+            content=content,
+            media_type=WFS_XML,
+            status_code=400,
+            headers=WFS_CORS_HEADERS,
+        )
 
     # Normalize request name (handle case variations)
     wfs_request_normalized = wfs_request.lower()
@@ -148,7 +160,12 @@ async def wfs_get(
                 "typeName is required",
                 "typeName",
             )
-            return Response(content=content, media_type=WFS_XML, status_code=400, headers=WFS_CORS_HEADERS)
+            return Response(
+                content=content,
+                media_type=WFS_XML,
+                status_code=400,
+                headers=WFS_CORS_HEADERS,
+            )
 
         describer = WFSDescribeFeature(db)
         content = await describer.generate(type_name)
@@ -176,7 +193,12 @@ async def wfs_get(
                 "typeName or featureId is required",
                 "typeName",
             )
-            return Response(content=content, media_type=WFS_XML, status_code=400, headers=WFS_CORS_HEADERS)
+            return Response(
+                content=content,
+                media_type=WFS_XML,
+                status_code=400,
+                headers=WFS_CORS_HEADERS,
+            )
 
         # If only featureId, extract typeName from it
         if not type_name and feature_id:
@@ -216,7 +238,12 @@ async def wfs_get(
             f"Unknown request: {wfs_request}",
             "request",
         )
-        return Response(content=content, media_type=WFS_XML, status_code=400, headers=WFS_CORS_HEADERS)
+        return Response(
+            content=content,
+            media_type=WFS_XML,
+            status_code=400,
+            headers=WFS_CORS_HEADERS,
+        )
 
 
 @router.post("")
@@ -241,7 +268,12 @@ async def wfs_post(
             "OperationNotSupported",
             "POST GetFeature not yet supported. Use GET with query parameters.",
         )
-        return Response(content=content, media_type=WFS_XML, status_code=501, headers=WFS_CORS_HEADERS)
+        return Response(
+            content=content,
+            media_type=WFS_XML,
+            status_code=501,
+            headers=WFS_CORS_HEADERS,
+        )
 
     elif "<GetCapabilities" in xml_content or "<wfs:GetCapabilities" in xml_content:
         base_url = str(request.url).split("?")[0]
@@ -249,25 +281,41 @@ async def wfs_post(
         content = await capabilities.generate(base_url)
         return Response(content=content, media_type=WFS_XML, headers=WFS_CORS_HEADERS)
 
-    elif "<DescribeFeatureType" in xml_content or "<wfs:DescribeFeatureType" in xml_content:
+    elif (
+        "<DescribeFeatureType" in xml_content
+        or "<wfs:DescribeFeatureType" in xml_content
+    ):
         import re
+
         match = re.search(r'typeName["\s]*=\s*["\']([^"\']+)["\']', xml_content)
         if match:
             type_name = match.group(1)
             describer = WFSDescribeFeature(db)
             content = await describer.generate(type_name)
-            return Response(content=content, media_type=WFS_XML, headers=WFS_CORS_HEADERS)
+            return Response(
+                content=content, media_type=WFS_XML, headers=WFS_CORS_HEADERS
+            )
 
         content = build_exception_report(
             "MissingParameterValue",
             "typeName is required",
             "typeName",
         )
-        return Response(content=content, media_type=WFS_XML, status_code=400, headers=WFS_CORS_HEADERS)
+        return Response(
+            content=content,
+            media_type=WFS_XML,
+            status_code=400,
+            headers=WFS_CORS_HEADERS,
+        )
 
     else:
         content = build_exception_report(
             "InvalidParameterValue",
             "Unknown or invalid request",
         )
-        return Response(content=content, media_type=WFS_XML, status_code=400, headers=WFS_CORS_HEADERS)
+        return Response(
+            content=content,
+            media_type=WFS_XML,
+            status_code=400,
+            headers=WFS_CORS_HEADERS,
+        )

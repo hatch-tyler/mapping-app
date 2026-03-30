@@ -13,7 +13,7 @@ from app.models.user import User
 
 def _validate_table_name(table_name: str) -> bool:
     """Validate table name to prevent SQL injection."""
-    return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name))
+    return bool(re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name))
 
 
 def _get_tile_cors_headers() -> dict[str, str]:

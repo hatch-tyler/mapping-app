@@ -5,11 +5,10 @@ Revises: 004_service_catalogs
 Create Date: 2026-03-26
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID
 
 # revision identifiers, used by Alembic.
 revision: str = "005_dataset_projects"
@@ -30,12 +29,20 @@ def upgrade() -> None:
 
     # Add file_hash for duplicate detection (if not exists)
     op.execute("ALTER TABLE datasets ADD COLUMN IF NOT EXISTS file_hash VARCHAR(64)")
-    op.execute("CREATE INDEX IF NOT EXISTS ix_datasets_file_hash ON datasets (file_hash)")
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS ix_datasets_file_hash ON datasets (file_hash)"
+    )
 
     # Add snapshot columns for data versioning (if not exists)
-    op.execute("ALTER TABLE datasets ADD COLUMN IF NOT EXISTS snapshot_source_id UUID REFERENCES datasets(id) ON DELETE SET NULL")
-    op.execute("ALTER TABLE datasets ADD COLUMN IF NOT EXISTS snapshot_date TIMESTAMP WITH TIME ZONE")
-    op.execute("CREATE INDEX IF NOT EXISTS ix_datasets_snapshot_source_id ON datasets (snapshot_source_id)")
+    op.execute(
+        "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS snapshot_source_id UUID REFERENCES datasets(id) ON DELETE SET NULL"
+    )
+    op.execute(
+        "ALTER TABLE datasets ADD COLUMN IF NOT EXISTS snapshot_date TIMESTAMP WITH TIME ZONE"
+    )
+    op.execute(
+        "CREATE INDEX IF NOT EXISTS ix_datasets_snapshot_source_id ON datasets (snapshot_source_id)"
+    )
 
     # Auto-populate dataset_projects from existing project_id relationships
     op.execute("""

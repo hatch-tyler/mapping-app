@@ -1,6 +1,7 @@
 """
 Tests for main application endpoints.
 """
+
 import pytest
 from httpx import AsyncClient
 

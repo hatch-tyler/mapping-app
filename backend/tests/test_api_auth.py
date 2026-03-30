@@ -1,6 +1,7 @@
 """
 Tests for authentication API endpoints.
 """
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user import User
 from app.models.email_confirmation import TokenType
 from app.crud import email_confirmation as token_crud
-from app.core.security import verify_password
 
 
 class TestLogin:
@@ -51,7 +51,9 @@ class TestLogin:
         assert "Incorrect email or password" in response.json()["detail"]
 
     @pytest.mark.asyncio
-    async def test_login_inactive_user(self, client: AsyncClient, db_session: AsyncSession):
+    async def test_login_inactive_user(
+        self, client: AsyncClient, db_session: AsyncSession
+    ):
         """Test login with inactive user."""
         from app.crud import user as user_crud
         from app.schemas.user import UserCreate
@@ -85,7 +87,9 @@ class TestRegister:
     """Tests for register endpoint."""
 
     @pytest.mark.asyncio
-    async def test_register_success(self, client: AsyncClient, admin_auth_headers: dict):
+    async def test_register_success(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
         """Test successful user registration by admin."""
         response = await client.post(
             "/api/v1/auth/register",
@@ -104,7 +108,9 @@ class TestRegister:
         assert data["is_admin"] is False
 
     @pytest.mark.asyncio
-    async def test_register_requires_admin(self, client: AsyncClient, auth_headers: dict):
+    async def test_register_requires_admin(
+        self, client: AsyncClient, auth_headers: dict
+    ):
         """Test that registration requires admin privileges."""
         response = await client.post(
             "/api/v1/auth/register",

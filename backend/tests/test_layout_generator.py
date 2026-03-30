@@ -1,6 +1,5 @@
 """Tests for layout generator service."""
 
-import pytest
 from xml.etree.ElementTree import fromstring
 
 from app.services.layout_generator import (
@@ -58,13 +57,33 @@ class TestGenerateQpt:
         assert 'type="65639"' in result
 
     def test_title_element(self):
-        elems = [{"type": "title", "x": 10, "y": 5, "w": 100, "h": 15, "text": "My Map", "fontSize": 18}]
+        elems = [
+            {
+                "type": "title",
+                "x": 10,
+                "y": 5,
+                "w": 100,
+                "h": 15,
+                "text": "My Map",
+                "fontSize": 18,
+            }
+        ]
         result = generate_qpt(self.page, elems)
         assert 'labelText="My Map"' in result
         assert "Arial,18" in result
 
     def test_subtitle_element(self):
-        elems = [{"type": "subtitle", "x": 10, "y": 20, "w": 100, "h": 12, "text": "A Subtitle", "fontSize": 16}]
+        elems = [
+            {
+                "type": "subtitle",
+                "x": 10,
+                "y": 20,
+                "w": 100,
+                "h": 12,
+                "text": "A Subtitle",
+                "fontSize": 16,
+            }
+        ]
         result = generate_qpt(self.page, elems)
         root = fromstring(result)
         item = root.find('.//LayoutItem[@type="65641"]')
@@ -93,14 +112,34 @@ class TestGenerateQpt:
         assert item.get("halign") == "1"  # left
 
     def test_text_align_right(self):
-        elems = [{"type": "title", "x": 10, "y": 5, "w": 100, "h": 15, "text": "R", "textAlign": "right"}]
+        elems = [
+            {
+                "type": "title",
+                "x": 10,
+                "y": 5,
+                "w": 100,
+                "h": 15,
+                "text": "R",
+                "textAlign": "right",
+            }
+        ]
         result = generate_qpt(self.page, elems)
         root = fromstring(result)
         item = root.find('.//LayoutItem[@type="65641"]')
         assert item.get("halign") == "2"  # right
 
     def test_font_weight_override(self):
-        elems = [{"type": "title", "x": 10, "y": 5, "w": 100, "h": 15, "text": "T", "fontWeight": "normal"}]
+        elems = [
+            {
+                "type": "title",
+                "x": 10,
+                "y": 5,
+                "w": 100,
+                "h": 15,
+                "text": "T",
+                "fontWeight": "normal",
+            }
+        ]
         result = generate_qpt(self.page, elems)
         root = fromstring(result)
         item = root.find('.//LayoutItem[@type="65641"]')
@@ -113,7 +152,9 @@ class TestGenerateQpt:
         assert 'type="65642"' in result
 
     def test_scale_bar_element(self):
-        elems = [{"type": "scale_bar", "x": 10, "y": 190, "w": 60, "h": 10, "units": "feet"}]
+        elems = [
+            {"type": "scale_bar", "x": 10, "y": 190, "w": 60, "h": 10, "units": "feet"}
+        ]
         result = generate_qpt(self.page, elems)
         assert 'type="65646"' in result
         assert 'units="feet"' in result
@@ -132,18 +173,46 @@ class TestGenerateQpt:
         assert item.get("valign") == "128"  # vcenter
 
     def test_horizontal_rule_element(self):
-        elems = [{"type": "horizontal_rule", "x": 10, "y": 100, "w": 200, "h": 1, "thickness": 0.5, "color": "#ff0000"}]
+        elems = [
+            {
+                "type": "horizontal_rule",
+                "x": 10,
+                "y": 100,
+                "w": 200,
+                "h": 1,
+                "thickness": 0.5,
+                "color": "#ff0000",
+            }
+        ]
         result = generate_qpt(self.page, elems)
         assert 'shapeType="0"' in result
         assert "255,0,0,255" in result
 
     def test_header_decorator_element(self):
-        elems = [{"type": "header_decorator", "x": 0, "y": 0, "w": 279.4, "h": 15, "color": "#1e40af"}]
+        elems = [
+            {
+                "type": "header_decorator",
+                "x": 0,
+                "y": 0,
+                "w": 279.4,
+                "h": 15,
+                "color": "#1e40af",
+            }
+        ]
         result = generate_qpt(self.page, elems)
         assert "30,64,175,255" in result
 
     def test_footer_decorator_element(self):
-        elems = [{"type": "footer_decorator", "x": 0, "y": 200, "w": 279.4, "h": 15, "color": "#1e40af"}]
+        elems = [
+            {
+                "type": "footer_decorator",
+                "x": 0,
+                "y": 200,
+                "w": 279.4,
+                "h": 15,
+                "color": "#1e40af",
+            }
+        ]
         result = generate_qpt(self.page, elems)
         assert "30,64,175,255" in result
 
@@ -181,14 +250,18 @@ class TestGeneratePagx:
         assert "CIMMapFrame" in result
 
     def test_title_element(self):
-        elems = [{"type": "title", "x": 10, "y": 5, "w": 100, "h": 15, "text": "My Map"}]
+        elems = [
+            {"type": "title", "x": 10, "y": 5, "w": 100, "h": 15, "text": "My Map"}
+        ]
         result = generate_pagx(self.page, elems)
         assert "My Map" in result
         assert "<HorizontalAlignment>Center</HorizontalAlignment>" in result
         assert "<FontStyleName>Bold</FontStyleName>" in result
 
     def test_subtitle_element(self):
-        elems = [{"type": "subtitle", "x": 10, "y": 20, "w": 100, "h": 12, "text": "Sub"}]
+        elems = [
+            {"type": "subtitle", "x": 10, "y": 20, "w": 100, "h": 12, "text": "Sub"}
+        ]
         result = generate_pagx(self.page, elems)
         assert "Sub" in result
         assert "<HorizontalAlignment>Center</HorizontalAlignment>" in result
@@ -201,12 +274,32 @@ class TestGeneratePagx:
         assert "<HorizontalAlignment>Left</HorizontalAlignment>" in result
 
     def test_text_align_right(self):
-        elems = [{"type": "title", "x": 10, "y": 5, "w": 100, "h": 15, "text": "R", "textAlign": "right"}]
+        elems = [
+            {
+                "type": "title",
+                "x": 10,
+                "y": 5,
+                "w": 100,
+                "h": 15,
+                "text": "R",
+                "textAlign": "right",
+            }
+        ]
         result = generate_pagx(self.page, elems)
         assert "<HorizontalAlignment>Right</HorizontalAlignment>" in result
 
     def test_font_weight_override(self):
-        elems = [{"type": "title", "x": 10, "y": 5, "w": 100, "h": 15, "text": "T", "fontWeight": "normal"}]
+        elems = [
+            {
+                "type": "title",
+                "x": 10,
+                "y": 5,
+                "w": 100,
+                "h": 15,
+                "text": "T",
+                "fontWeight": "normal",
+            }
+        ]
         result = generate_pagx(self.page, elems)
         assert "<FontStyleName>Regular</FontStyleName>" in result
 
@@ -226,18 +319,45 @@ class TestGeneratePagx:
         assert "CIMNorthArrow" in result
 
     def test_horizontal_rule_element(self):
-        elems = [{"type": "horizontal_rule", "x": 10, "y": 100, "w": 200, "h": 1, "color": "#ff0000"}]
+        elems = [
+            {
+                "type": "horizontal_rule",
+                "x": 10,
+                "y": 100,
+                "w": 200,
+                "h": 1,
+                "color": "#ff0000",
+            }
+        ]
         result = generate_pagx(self.page, elems)
         assert "Horizontal Rule" in result
         assert "<R>255</R>" in result
 
     def test_header_decorator_element(self):
-        elems = [{"type": "header_decorator", "x": 0, "y": 0, "w": 279, "h": 15, "color": "#1e40af"}]
+        elems = [
+            {
+                "type": "header_decorator",
+                "x": 0,
+                "y": 0,
+                "w": 279,
+                "h": 15,
+                "color": "#1e40af",
+            }
+        ]
         result = generate_pagx(self.page, elems)
         assert "Header Decorator" in result
 
     def test_footer_decorator_element(self):
-        elems = [{"type": "footer_decorator", "x": 0, "y": 200, "w": 279, "h": 15, "color": "#1e40af"}]
+        elems = [
+            {
+                "type": "footer_decorator",
+                "x": 0,
+                "y": 200,
+                "w": 279,
+                "h": 15,
+                "color": "#1e40af",
+            }
+        ]
         result = generate_pagx(self.page, elems)
         assert "Footer Decorator" in result
 
@@ -245,7 +365,14 @@ class TestGeneratePagx:
         elems = [
             {"type": "map_frame", "x": 10, "y": 20, "w": 180, "h": 150},
             {"type": "title", "x": 10, "y": 5, "w": 180, "h": 15, "text": "Title"},
-            {"type": "subtitle", "x": 10, "y": 20, "w": 180, "h": 12, "text": "Subtitle"},
+            {
+                "type": "subtitle",
+                "x": 10,
+                "y": 20,
+                "w": 180,
+                "h": 12,
+                "text": "Subtitle",
+            },
             {"type": "text", "x": 10, "y": 180, "w": 50, "h": 10, "text": "Note"},
             {"type": "legend", "x": 200, "y": 20, "w": 60, "h": 80},
             {"type": "scale_bar", "x": 10, "y": 190, "w": 60, "h": 10},

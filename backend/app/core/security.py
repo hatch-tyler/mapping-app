@@ -24,7 +24,12 @@ def create_refresh_token(subject: str) -> tuple[str, datetime]:
     expire = datetime.now(timezone.utc) + timedelta(
         days=settings.REFRESH_TOKEN_EXPIRE_DAYS
     )
-    to_encode = {"exp": expire, "sub": str(subject), "type": "refresh", "jti": str(uuid.uuid4())}
+    to_encode = {
+        "exp": expire,
+        "sub": str(subject),
+        "type": "refresh",
+        "jti": str(uuid.uuid4()),
+    }
     token = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
     return token, expire
 

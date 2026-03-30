@@ -9,13 +9,15 @@ from app.database import Base
 class RegistrationRequest(Base):
     __tablename__ = "registration_requests"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(), primary_key=True, default=uuid.uuid4
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(
+        String(255), unique=True, nullable=False, index=True
     )
-    email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str | None] = mapped_column(String(255))
-    status: Mapped[str] = mapped_column(String(50), default="pending")  # pending, approved, rejected
+    status: Mapped[str] = mapped_column(
+        String(50), default="pending"
+    )  # pending, approved, rejected
     rejection_reason: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

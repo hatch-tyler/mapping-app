@@ -1,7 +1,5 @@
 """Tests for external source service."""
 
-import math
-
 import httpx
 import pytest
 import respx
@@ -20,7 +18,6 @@ from app.services.external_source import (
     fetch_all_features,
     proxy_request,
 )
-
 
 # ── Pure Functions ────────────────────────────────────────────────────
 
@@ -119,8 +116,10 @@ class TestSuggestMinZoom:
 class TestArcgisExtent:
     def test_wgs84_extent(self):
         extent = {
-            "xmin": -122.5, "ymin": 37.5,
-            "xmax": -122.0, "ymax": 38.0,
+            "xmin": -122.5,
+            "ymin": 37.5,
+            "xmax": -122.0,
+            "ymax": 38.0,
             "spatialReference": {"wkid": 4326},
         }
         result = _arcgis_extent(extent)
@@ -128,8 +127,10 @@ class TestArcgisExtent:
 
     def test_web_mercator_extent(self):
         extent = {
-            "xmin": -13630000, "ymin": 4544000,
-            "xmax": -13620000, "ymax": 4554000,
+            "xmin": -13630000,
+            "ymin": 4544000,
+            "xmax": -13620000,
+            "ymax": 4554000,
             "spatialReference": {"wkid": 102100},
         }
         result = _arcgis_extent(extent)
@@ -149,7 +150,10 @@ class TestArcgisExtent:
 
     def test_unknown_wkid_without_pyproj(self):
         extent = {
-            "xmin": 0, "ymin": 0, "xmax": 1, "ymax": 1,
+            "xmin": 0,
+            "ymin": 0,
+            "xmax": 1,
+            "ymax": 1,
             "spatialReference": {"wkid": 99999},
         }
         # Without pyproj, this should return None or try pyproj
@@ -159,8 +163,10 @@ class TestArcgisExtent:
 
     def test_latest_wkid_preferred(self):
         extent = {
-            "xmin": -122.5, "ymin": 37.5,
-            "xmax": -122.0, "ymax": 38.0,
+            "xmin": -122.5,
+            "ymin": 37.5,
+            "xmax": -122.0,
+            "ymax": 38.0,
             "spatialReference": {"wkid": 102100, "latestWkid": 4326},
         }
         result = _arcgis_extent(extent)
@@ -194,11 +200,15 @@ class TestExtractArcgisMetadata:
 class TestDetectNs:
     def test_with_namespace(self):
         from xml.etree import ElementTree
-        root = ElementTree.fromstring('<WFS_Capabilities xmlns="http://www.opengis.net/wfs/2.0"/>')
+
+        root = ElementTree.fromstring(
+            '<WFS_Capabilities xmlns="http://www.opengis.net/wfs/2.0"/>'
+        )
         assert _detect_ns(root, "wfs") == "{http://www.opengis.net/wfs/2.0}"
 
     def test_without_namespace(self):
         from xml.etree import ElementTree
+
         root = ElementTree.fromstring("<WFS_Capabilities/>")
         assert _detect_ns(root, "wfs") == ""
 
@@ -211,13 +221,18 @@ class TestBrowseDirectory:
     @respx.mock
     async def test_basic(self):
         url = "https://example.com/arcgis/rest/services"
-        respx.get(url).mock(return_value=httpx.Response(200, json={
-            "folders": ["Folder1", "Folder2"],
-            "services": [
-                {"name": "MyService", "type": "MapServer"},
-                {"name": "Folder1/SubService", "type": "FeatureServer"},
-            ],
-        }))
+        respx.get(url).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "folders": ["Folder1", "Folder2"],
+                    "services": [
+                        {"name": "MyService", "type": "MapServer"},
+                        {"name": "Folder1/SubService", "type": "FeatureServer"},
+                    ],
+                },
+            )
+        )
 
         result = await browse_directory(url)
         assert result["folders"] == ["Folder1", "Folder2"]
@@ -249,16 +264,32 @@ class TestProbeService:
     @respx.mock
     async def test_arcgis_feature_server(self):
         url = "https://example.com/arcgis/rest/services/Test/FeatureServer"
-        respx.get(url).mock(return_value=httpx.Response(200, json={
-            "layers": [
-                {"id": 0, "name": "Points", "geometryType": "esriGeometryPoint"},
-                {"id": 1, "name": "Lines", "geometryType": "esriGeometryPolyline"},
-            ],
-            "fullExtent": {
-                "xmin": -122.5, "ymin": 37.5, "xmax": -122.0, "ymax": 38.0,
-                "spatialReference": {"wkid": 4326},
-            },
-        }))
+        respx.get(url).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "layers": [
+                        {
+                            "id": 0,
+                            "name": "Points",
+                            "geometryType": "esriGeometryPoint",
+                        },
+                        {
+                            "id": 1,
+                            "name": "Lines",
+                            "geometryType": "esriGeometryPolyline",
+                        },
+                    ],
+                    "fullExtent": {
+                        "xmin": -122.5,
+                        "ymin": 37.5,
+                        "xmax": -122.0,
+                        "ymax": 38.0,
+                        "spatialReference": {"wkid": 4326},
+                    },
+                },
+            )
+        )
 
         result = await probe_service(url)
         assert result["service_type"] == "arcgis_feature"
@@ -268,15 +299,23 @@ class TestProbeService:
     @respx.mock
     async def test_arcgis_image_server(self):
         url = "https://example.com/arcgis/rest/services/Imagery/ImageServer"
-        respx.get(url).mock(return_value=httpx.Response(200, json={
-            "serviceDataType": "esriImageServiceDataTypeElevation",
-            "bandCount": 1,
-            "name": "Elevation",
-            "fullExtent": {
-                "xmin": -122.5, "ymin": 37.5, "xmax": -122.0, "ymax": 38.0,
-                "spatialReference": {"wkid": 4326},
-            },
-        }))
+        respx.get(url).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "serviceDataType": "esriImageServiceDataTypeElevation",
+                    "bandCount": 1,
+                    "name": "Elevation",
+                    "fullExtent": {
+                        "xmin": -122.5,
+                        "ymin": 37.5,
+                        "xmax": -122.0,
+                        "ymax": 38.0,
+                        "spatialReference": {"wkid": 4326},
+                    },
+                },
+            )
+        )
 
         result = await probe_service(url)
         assert result["service_type"] == "arcgis_image"
@@ -285,14 +324,22 @@ class TestProbeService:
     @respx.mock
     async def test_arcgis_map_server_with_tile_cache(self):
         url = "https://example.com/arcgis/rest/services/Basemap/MapServer"
-        respx.get(url).mock(return_value=httpx.Response(200, json={
-            "layers": [{"id": 0, "name": "Basemap"}],
-            "singleFusedMapCache": True,
-            "fullExtent": {
-                "xmin": -10, "ymin": -10, "xmax": 10, "ymax": 10,
-                "spatialReference": {"wkid": 4326},
-            },
-        }))
+        respx.get(url).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "layers": [{"id": 0, "name": "Basemap"}],
+                    "singleFusedMapCache": True,
+                    "fullExtent": {
+                        "xmin": -10,
+                        "ymin": -10,
+                        "xmax": 10,
+                        "ymax": 10,
+                        "spatialReference": {"wkid": 4326},
+                    },
+                },
+            )
+        )
 
         result = await probe_service(url)
         assert result["service_type"] == "arcgis_map"
@@ -301,17 +348,25 @@ class TestProbeService:
     @respx.mock
     async def test_arcgis_single_layer(self):
         url = "https://example.com/arcgis/rest/services/Test/FeatureServer/0"
-        respx.get(url).mock(return_value=httpx.Response(200, json={
-            "type": "Feature Layer",
-            "fields": [{"name": "OBJECTID"}],
-            "id": 0,
-            "name": "Points",
-            "geometryType": "esriGeometryPoint",
-            "extent": {
-                "xmin": -10, "ymin": -10, "xmax": 10, "ymax": 10,
-                "spatialReference": {"wkid": 4326},
-            },
-        }))
+        respx.get(url).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "type": "Feature Layer",
+                    "fields": [{"name": "OBJECTID"}],
+                    "id": 0,
+                    "name": "Points",
+                    "geometryType": "esriGeometryPoint",
+                    "extent": {
+                        "xmin": -10,
+                        "ymin": -10,
+                        "xmax": 10,
+                        "ymax": 10,
+                        "spatialReference": {"wkid": 4326},
+                    },
+                },
+            )
+        )
 
         result = await probe_service(url)
         assert result["service_type"] == "arcgis_feature"
@@ -329,7 +384,9 @@ class TestProbeService:
             </FeatureType>
         </WFS_Capabilities>"""
         # ArcGIS probe fails
-        respx.get(url, params__contains={"f": "json"}).mock(return_value=httpx.Response(404))
+        respx.get(url, params__contains={"f": "json"}).mock(
+            return_value=httpx.Response(404)
+        )
         # WFS succeeds
         respx.get(url, params__contains={"service": "WFS"}).mock(
             return_value=httpx.Response(200, text=wfs_xml)
@@ -351,9 +408,13 @@ class TestProbeService:
             </Layer></Capability>
         </WMS_Capabilities>"""
         # ArcGIS fails
-        respx.get(url, params__contains={"f": "json"}).mock(return_value=httpx.Response(404))
+        respx.get(url, params__contains={"f": "json"}).mock(
+            return_value=httpx.Response(404)
+        )
         # WFS fails
-        respx.get(url, params__contains={"service": "WFS"}).mock(return_value=httpx.Response(404))
+        respx.get(url, params__contains={"service": "WFS"}).mock(
+            return_value=httpx.Response(404)
+        )
         # WMS succeeds
         respx.get(url, params__contains={"service": "WMS"}).mock(
             return_value=httpx.Response(200, text=wms_xml)
@@ -376,20 +437,36 @@ class TestProbeService:
     @respx.mock
     async def test_group_layers_skipped(self):
         url = "https://example.com/arcgis/rest/services/Test/FeatureServer"
-        respx.get(url).mock(return_value=httpx.Response(200, json={
-            "layers": [
-                {"id": 0, "name": "Group", "subLayerIds": [1, 2]},
-                {"id": 1, "name": "Child1", "geometryType": "esriGeometryPoint"},
-                {"id": 2, "name": "Child2", "geometryType": "esriGeometryPoint"},
-            ],
-            "fullExtent": {
-                "xmin": -10, "ymin": -10, "xmax": 10, "ymax": 10,
-                "spatialReference": {"wkid": 4326},
-            },
-        }))
+        respx.get(url).mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "layers": [
+                        {"id": 0, "name": "Group", "subLayerIds": [1, 2]},
+                        {
+                            "id": 1,
+                            "name": "Child1",
+                            "geometryType": "esriGeometryPoint",
+                        },
+                        {
+                            "id": 2,
+                            "name": "Child2",
+                            "geometryType": "esriGeometryPoint",
+                        },
+                    ],
+                    "fullExtent": {
+                        "xmin": -10,
+                        "ymin": -10,
+                        "xmax": 10,
+                        "ymax": 10,
+                        "spatialReference": {"wkid": 4326},
+                    },
+                },
+            )
+        )
 
         result = await probe_service(url)
-        layer_names = [l["name"] for l in result["layers"]]
+        layer_names = [layer["name"] for layer in result["layers"]]
         assert "Group" not in layer_names
         assert "Child1" in layer_names
 
@@ -399,12 +476,20 @@ class TestFetchArcgisLayerExtent:
     @respx.mock
     async def test_success(self):
         url = "https://example.com/arcgis/rest/services/Test/FeatureServer"
-        respx.get(f"{url}/0").mock(return_value=httpx.Response(200, json={
-            "extent": {
-                "xmin": -10, "ymin": -10, "xmax": 10, "ymax": 10,
-                "spatialReference": {"wkid": 4326},
-            },
-        }))
+        respx.get(f"{url}/0").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "extent": {
+                        "xmin": -10,
+                        "ymin": -10,
+                        "xmax": 10,
+                        "ymax": 10,
+                        "spatialReference": {"wkid": 4326},
+                    },
+                },
+            )
+        )
 
         result = await fetch_arcgis_layer_extent(url, "0")
         assert result == [-10, -10, 10, 10]
@@ -424,7 +509,9 @@ class TestFetchArcgisFeatureCount:
     @respx.mock
     async def test_success(self):
         url = "https://example.com/arcgis/rest/services/Test/FeatureServer"
-        respx.get(f"{url}/0/query").mock(return_value=httpx.Response(200, json={"count": 42}))
+        respx.get(f"{url}/0/query").mock(
+            return_value=httpx.Response(200, json={"count": 42})
+        )
 
         result = await fetch_arcgis_feature_count(url, "0")
         assert result == 42
@@ -444,10 +531,18 @@ class TestFetchAllFeatures:
     @respx.mock
     async def test_arcgis_single_page(self):
         url = "https://example.com/arcgis/rest/services/Test/FeatureServer"
-        features = [{"type": "Feature", "geometry": None, "properties": {"id": i}} for i in range(5)]
-        respx.get(f"{url}/0/query").mock(return_value=httpx.Response(200, json={
-            "features": features,
-        }))
+        features = [
+            {"type": "Feature", "geometry": None, "properties": {"id": i}}
+            for i in range(5)
+        ]
+        respx.get(f"{url}/0/query").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "features": features,
+                },
+            )
+        )
 
         result = await fetch_all_features(url, "arcgis_feature", "0")
         assert result["type"] == "FeatureCollection"
@@ -497,7 +592,9 @@ class TestFetchAllFeatures:
     async def test_wfs_single_page(self):
         url = "https://example.com/wfs"
         features = [{"type": "Feature", "properties": {"id": i}} for i in range(3)]
-        respx.get(url).mock(return_value=httpx.Response(200, json={"features": features}))
+        respx.get(url).mock(
+            return_value=httpx.Response(200, json={"features": features})
+        )
 
         result = await fetch_all_features(url, "wfs", "roads")
         assert len(result["features"]) == 3
@@ -512,9 +609,14 @@ class TestFetchAllFeatures:
     async def test_max_features_limit(self):
         url = "https://example.com/arcgis/rest/services/Test/FeatureServer"
         features = [{"type": "Feature", "properties": {"id": i}} for i in range(100)]
-        respx.get(f"{url}/0/query").mock(return_value=httpx.Response(200, json={
-            "features": features,
-        }))
+        respx.get(f"{url}/0/query").mock(
+            return_value=httpx.Response(
+                200,
+                json={
+                    "features": features,
+                },
+            )
+        )
 
         result = await fetch_all_features(url, "arcgis_feature", "0", max_features=50)
         # Should stop after getting first page since max_features=50
@@ -531,7 +633,9 @@ class TestFetchAllFeatures:
             nonlocal call_count
             call_count += 1
             if call_count <= 3:
-                return httpx.Response(200, json={"error": {"code": 400, "message": "Error"}})
+                return httpx.Response(
+                    200, json={"error": {"code": 400, "message": "Error"}}
+                )
             return httpx.Response(200, json={"features": [{"type": "Feature"}]})
 
         respx.get(f"{url}/0/query").mock(side_effect=side_effect)

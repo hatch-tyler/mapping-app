@@ -31,13 +31,15 @@ async def get_geodataframe(db: AsyncSession, dataset_id: UUID) -> gpd.GeoDataFra
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     if dataset.data_type != "vector":
-        raise HTTPException(status_code=400, detail="Export only available for vector datasets")
+        raise HTTPException(
+            status_code=400, detail="Export only available for vector datasets"
+        )
 
     if not dataset.table_name:
         raise HTTPException(status_code=400, detail="Dataset has no associated table")
 
     # Validate table name to prevent SQL injection
-    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', dataset.table_name):
+    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", dataset.table_name):
         raise HTTPException(status_code=400, detail="Invalid table configuration")
 
     # Query data from PostGIS
@@ -62,8 +64,8 @@ async def get_geodataframe(db: AsyncSession, dataset_id: UUID) -> gpd.GeoDataFra
     for row in rows:
         geom = wkt.loads(row[1]) if row[1] else None
         props = row[2] if row[2] else {}
-        props['id'] = row[0]
-        features.append({'geometry': geom, **props})
+        props["id"] = row[0]
+        features.append({"geometry": geom, **props})
 
     gdf = gpd.GeoDataFrame(features, crs="EPSG:4326")
 
@@ -73,8 +75,8 @@ async def get_geodataframe(db: AsyncSession, dataset_id: UUID) -> gpd.GeoDataFra
 def sanitize_filename(name: str) -> str:
     """Sanitize filename for safe downloads."""
     # Remove or replace unsafe characters
-    name = re.sub(r'[<>:"/\\|?*]', '_', name)
-    name = re.sub(r'\s+', '_', name)
+    name = re.sub(r'[<>:"/\\|?*]', "_", name)
+    name = re.sub(r"\s+", "_", name)
     return name[:100]  # Limit length
 
 
@@ -92,12 +94,12 @@ async def export_geojson(
     filename = f"{sanitize_filename(name)}.geojson"
 
     return StreamingResponse(
-        io.BytesIO(geojson_str.encode('utf-8')),
+        io.BytesIO(geojson_str.encode("utf-8")),
         media_type="application/geo+json",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Access-Control-Allow-Origin": "*",
-        }
+        },
     )
 
 
@@ -110,14 +112,14 @@ async def export_geopackage(
     gdf, name = await get_geodataframe(db, dataset_id)
 
     # Write to temporary file
-    with tempfile.NamedTemporaryFile(suffix='.gpkg', delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=".gpkg", delete=False) as tmp:
         tmp_path = tmp.name
 
     try:
-        gdf.to_file(tmp_path, driver='GPKG', layer=sanitize_filename(name))
+        gdf.to_file(tmp_path, driver="GPKG", layer=sanitize_filename(name))
 
         # Read the file
-        with open(tmp_path, 'rb') as f:
+        with open(tmp_path, "rb") as f:
             content = f.read()
 
         filename = f"{sanitize_filename(name)}.gpkg"
@@ -128,7 +130,7 @@ async def export_geopackage(
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
                 "Access-Control-Allow-Origin": "*",
-            }
+            },
         )
     finally:
         # Clean up temp file
@@ -154,7 +156,7 @@ async def export_shapefile(
         gdf_copy = gdf.copy()
         rename_map = {}
         for col in gdf_copy.columns:
-            if col != 'geometry' and len(col) > 10:
+            if col != "geometry" and len(col) > 10:
                 new_name = col[:10]
                 # Handle duplicates
                 counter = 1
@@ -166,12 +168,12 @@ async def export_shapefile(
         if rename_map:
             gdf_copy = gdf_copy.rename(columns=rename_map)
 
-        gdf_copy.to_file(shp_path, driver='ESRI Shapefile')
+        gdf_copy.to_file(shp_path, driver="ESRI Shapefile")
 
         # Create zip file in memory
         zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zf:
-            for ext in ['.shp', '.shx', '.dbf', '.prj', '.cpg']:
+        with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+            for ext in [".shp", ".shx", ".dbf", ".prj", ".cpg"]:
                 filepath = os.path.join(tmp_dir, f"{safe_name}{ext}")
                 if os.path.exists(filepath):
                     zf.write(filepath, f"{safe_name}{ext}")
@@ -186,7 +188,7 @@ async def export_shapefile(
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
                 "Access-Control-Allow-Origin": "*",
-            }
+            },
         )
 
 
@@ -199,7 +201,7 @@ async def export_kml(
     gdf, name = await get_geodataframe(db, dataset_id)
 
     # Write to temporary file (fiona/GDAL handles KML)
-    with tempfile.NamedTemporaryFile(suffix='.kml', delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=".kml", delete=False) as tmp:
         tmp_path = tmp.name
 
     try:
@@ -207,10 +209,10 @@ async def export_kml(
         if gdf.crs and gdf.crs.to_epsg() != 4326:
             gdf = gdf.to_crs(epsg=4326)
 
-        gdf.to_file(tmp_path, driver='KML')
+        gdf.to_file(tmp_path, driver="KML")
 
         # Read the file
-        with open(tmp_path, 'rb') as f:
+        with open(tmp_path, "rb") as f:
             content = f.read()
 
         filename = f"{sanitize_filename(name)}.kml"
@@ -221,7 +223,7 @@ async def export_kml(
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
                 "Access-Control-Allow-Origin": "*",
-            }
+            },
         )
     finally:
         # Clean up temp file
@@ -249,13 +251,17 @@ async def export_selected_features(
         raise HTTPException(status_code=403, detail="Dataset is not public")
 
     if dataset.data_type != "vector":
-        raise HTTPException(status_code=400, detail="Export only available for vector datasets")
+        raise HTTPException(
+            status_code=400, detail="Export only available for vector datasets"
+        )
 
     if not request.feature_ids:
         raise HTTPException(status_code=400, detail="No features selected")
 
     include_geometry = request.format.lower() == "geojson"
-    features = await get_features_by_ids(db, dataset, request.feature_ids, include_geometry)
+    features = await get_features_by_ids(
+        db, dataset, request.feature_ids, include_geometry
+    )
 
     if not features:
         raise HTTPException(status_code=404, detail="No features found")
@@ -286,24 +292,26 @@ async def export_selected_features(
         filename = f"{safe_name}_selected.csv"
 
         return StreamingResponse(
-            io.BytesIO(content.encode('utf-8')),
+            io.BytesIO(content.encode("utf-8")),
             media_type="text/csv",
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
                 "Access-Control-Allow-Origin": "*",
-            }
+            },
         )
 
     elif request.format.lower() == "geojson":
         # Build GeoJSON FeatureCollection
         geojson_features = []
         for f in features:
-            geojson_features.append({
-                "type": "Feature",
-                "id": f["id"],
-                "geometry": f.get("geometry"),
-                "properties": f["properties"],
-            })
+            geojson_features.append(
+                {
+                    "type": "Feature",
+                    "id": f["id"],
+                    "geometry": f.get("geometry"),
+                    "properties": f["properties"],
+                }
+            )
 
         geojson = {
             "type": "FeatureCollection",
@@ -314,16 +322,18 @@ async def export_selected_features(
         filename = f"{safe_name}_selected.geojson"
 
         return StreamingResponse(
-            io.BytesIO(content.encode('utf-8')),
+            io.BytesIO(content.encode("utf-8")),
             media_type="application/geo+json",
             headers={
                 "Content-Disposition": f'attachment; filename="{filename}"',
                 "Access-Control-Allow-Origin": "*",
-            }
+            },
         )
 
     else:
-        raise HTTPException(status_code=400, detail="Unsupported format. Use 'csv' or 'geojson'")
+        raise HTTPException(
+            status_code=400, detail="Unsupported format. Use 'csv' or 'geojson'"
+        )
 
 
 @router.get("/external/{dataset_id}/{format}")
@@ -352,7 +362,9 @@ async def export_external_dataset(
         raise HTTPException(status_code=400, detail="Not an external dataset")
 
     if dataset.service_type not in ("arcgis_feature", "wfs"):
-        raise HTTPException(status_code=400, detail="Export only available for vector external sources")
+        raise HTTPException(
+            status_code=400, detail="Export only available for vector external sources"
+        )
 
     # Access control
     if not dataset.is_public and current_user is None:
@@ -368,10 +380,12 @@ async def export_external_dataset(
 
     features = geojson_data.get("features", [])
     if not features:
-        raise HTTPException(status_code=404, detail="No features returned from external service")
+        raise HTTPException(
+            status_code=404, detail="No features returned from external service"
+        )
 
-    name = re.sub(r'[^\w\s-]', '', dataset.name)[:64].strip() or "export"
-    safe_name = name.replace(' ', '_')
+    name = re.sub(r"[^\w\s-]", "", dataset.name)[:64].strip() or "export"
+    safe_name = name.replace(" ", "_")
 
     # GeoJSON: return directly
     if format == "geojson":
@@ -462,6 +476,7 @@ async def export_external_dataset(
             )
         finally:
             import shutil
+
             shutil.rmtree(tmp_dir, ignore_errors=True)
 
     elif format == "kml":
@@ -501,8 +516,10 @@ async def export_style_sld(
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     style_config = dataset.style_config or {}
-    sld_xml = generate_sld(style_config, layer_name=dataset.name, geometry_type=dataset.geometry_type)
-    safe_name = re.sub(r'[^\w\-.]', '_', dataset.name)
+    sld_xml = generate_sld(
+        style_config, layer_name=dataset.name, geometry_type=dataset.geometry_type
+    )
+    safe_name = re.sub(r"[^\w\-.]", "_", dataset.name)
 
     return StreamingResponse(
         io.BytesIO(sld_xml.encode("utf-8")),
@@ -528,8 +545,10 @@ async def export_style_lyrx(
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     style_config = dataset.style_config or {}
-    lyrx_json = generate_lyrx(style_config, layer_name=dataset.name, geometry_type=dataset.geometry_type)
-    safe_name = re.sub(r'[^\w\-.]', '_', dataset.name)
+    lyrx_json = generate_lyrx(
+        style_config, layer_name=dataset.name, geometry_type=dataset.geometry_type
+    )
+    safe_name = re.sub(r"[^\w\-.]", "_", dataset.name)
 
     return StreamingResponse(
         io.BytesIO(lyrx_json.encode("utf-8")),
@@ -555,8 +574,10 @@ async def export_style_qml(
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     style_config = dataset.style_config or {}
-    qml_xml = generate_qml(style_config, layer_name=dataset.name, geometry_type=dataset.geometry_type)
-    safe_name = re.sub(r'[^\w\-.]', '_', dataset.name)
+    qml_xml = generate_qml(
+        style_config, layer_name=dataset.name, geometry_type=dataset.geometry_type
+    )
+    safe_name = re.sub(r"[^\w\-.]", "_", dataset.name)
 
     return StreamingResponse(
         io.BytesIO(qml_xml.encode("utf-8")),

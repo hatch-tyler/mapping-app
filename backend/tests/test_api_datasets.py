@@ -1,6 +1,7 @@
 """
 Tests for datasets API endpoints.
 """
+
 import uuid
 import pytest
 from httpx import AsyncClient
@@ -40,14 +41,18 @@ class TestListDatasets:
 
     @pytest.mark.asyncio
     async def test_list_datasets_visible_only(
-        self, client: AsyncClient, db_session: AsyncSession, admin_user: User, auth_headers: dict
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        admin_user: User,
+        auth_headers: dict,
     ):
         """Test listing only visible datasets."""
         from app.crud import dataset as dataset_crud
         from app.schemas.dataset import DatasetCreate
 
         # Create visible dataset
-        visible = await dataset_crud.create_dataset(
+        _visible = await dataset_crud.create_dataset(
             db_session,
             DatasetCreate(name="Visible"),
             "vector",
@@ -243,7 +248,11 @@ class TestToggleVisibility:
 
     @pytest.mark.asyncio
     async def test_toggle_visibility_on(
-        self, client: AsyncClient, db_session: AsyncSession, admin_user: User, admin_auth_headers: dict
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        admin_user: User,
+        admin_auth_headers: dict,
     ):
         """Test turning visibility on."""
         from app.crud import dataset as dataset_crud
@@ -303,7 +312,11 @@ class TestGetDatasetGeoJSON:
 
     @pytest.mark.asyncio
     async def test_geojson_requires_vector_type(
-        self, client: AsyncClient, db_session: AsyncSession, admin_user: User, auth_headers: dict
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        admin_user: User,
+        auth_headers: dict,
     ):
         """Test that GeoJSON endpoint requires vector dataset."""
         from app.crud import dataset as dataset_crud
@@ -328,7 +341,11 @@ class TestGetDatasetGeoJSON:
 
     @pytest.mark.asyncio
     async def test_geojson_requires_table_name(
-        self, client: AsyncClient, db_session: AsyncSession, admin_user: User, auth_headers: dict
+        self,
+        client: AsyncClient,
+        db_session: AsyncSession,
+        admin_user: User,
+        auth_headers: dict,
     ):
         """Test that GeoJSON endpoint requires table name."""
         from app.crud import dataset as dataset_crud

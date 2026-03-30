@@ -46,10 +46,12 @@ async def list_services(
 
     services = []
     for ds in datasets:
-        services.append({
-            "name": slugify(ds.name),
-            "type": "FeatureServer",
-        })
+        services.append(
+            {
+                "name": slugify(ds.name),
+                "type": "FeatureServer",
+            }
+        )
 
     response = {
         "currentVersion": 10.81,
@@ -72,15 +74,25 @@ async def get_feature_server(
 
         if not dataset:
             return json_response(
-                {"error": {"code": 404, "message": f"Service '{service_name}' not found"}},
+                {
+                    "error": {
+                        "code": 404,
+                        "message": f"Service '{service_name}' not found",
+                    }
+                },
                 status_code=404,
             )
 
         layer_info = await handler.get_layer_info(dataset)
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error getting feature server info for {service_name}")
         return json_response(
-            {"error": {"code": 500, "message": "An error occurred processing the request"}},
+            {
+                "error": {
+                    "code": 500,
+                    "message": "An error occurred processing the request",
+                }
+            },
             status_code=500,
         )
 
@@ -139,15 +151,25 @@ async def get_layer(
 
         if not dataset:
             return json_response(
-                {"error": {"code": 404, "message": f"Service '{service_name}' not found"}},
+                {
+                    "error": {
+                        "code": 404,
+                        "message": f"Service '{service_name}' not found",
+                    }
+                },
                 status_code=404,
             )
 
         layer_info = await handler.get_layer_info(dataset)
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error getting layer info for {service_name}/{layer_id}")
         return json_response(
-            {"error": {"code": 500, "message": "An error occurred processing the request"}},
+            {
+                "error": {
+                    "code": 500,
+                    "message": "An error occurred processing the request",
+                }
+            },
             status_code=500,
         )
 
@@ -165,7 +187,10 @@ async def get_layer(
         "relationships": [],
         "isDataVersioned": False,
         "supportsRollbackOnFailureParameter": False,
-        "archivingInfo": {"supportsQueryWithHistoricMoment": False, "startArchivingMoment": -1},
+        "archivingInfo": {
+            "supportsQueryWithHistoricMoment": False,
+            "startArchivingMoment": -1,
+        },
         "supportsStatistics": False,
         "supportsAdvancedQueries": True,
         "supportsCalculate": False,
@@ -210,7 +235,11 @@ async def get_layer(
         "htmlPopupType": "esriServerHTMLPopupTypeNone",
         "objectIdField": "OBJECTID",
         "globalIdField": "",
-        "displayField": layer_info["fields"][1]["name"] if len(layer_info.get("fields", [])) > 1 else "OBJECTID",
+        "displayField": (
+            layer_info["fields"][1]["name"]
+            if len(layer_info.get("fields", [])) > 1
+            else "OBJECTID"
+        ),
         "typeIdField": "",
         "subtypeField": "",
         "fields": layer_info.get("fields", []),
@@ -237,7 +266,9 @@ async def query_layer(
     objectIds: str | None = Query(None, description="Comma-separated object IDs"),
     geometry: str | None = Query(None, description="Geometry filter (JSON envelope)"),
     geometryType: str | None = Query(None, description="Geometry type"),
-    spatialRel: str = Query("esriSpatialRelIntersects", description="Spatial relationship"),
+    spatialRel: str = Query(
+        "esriSpatialRelIntersects", description="Spatial relationship"
+    ),
     outFields: str = Query("*", description="Fields to return"),
     returnGeometry: bool = Query(True, description="Return geometry"),
     outSR: str = Query("4326", description="Output spatial reference (WKID or JSON)"),
@@ -260,6 +291,7 @@ async def query_layer(
     try:
         if outSR.startswith("{"):
             import json
+
             sr_obj = json.loads(outSR)
             out_sr_wkid = sr_obj.get("wkid", 4326)
         else:
@@ -273,7 +305,12 @@ async def query_layer(
 
         if not dataset:
             return json_response(
-                {"error": {"code": 404, "message": f"Service '{service_name}' not found"}},
+                {
+                    "error": {
+                        "code": 404,
+                        "message": f"Service '{service_name}' not found",
+                    }
+                },
                 status_code=404,
             )
 
@@ -294,10 +331,15 @@ async def query_layer(
         )
 
         return json_response(result)
-    except Exception as e:
+    except Exception:
         logger.exception(f"Error querying layer {service_name}/{layer_id}")
         return json_response(
-            {"error": {"code": 500, "message": "An error occurred processing the request"}},
+            {
+                "error": {
+                    "code": 500,
+                    "message": "An error occurred processing the request",
+                }
+            },
             status_code=500,
         )
 

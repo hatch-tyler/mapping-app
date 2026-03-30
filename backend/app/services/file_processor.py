@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 def _validate_table_name(table_name: str) -> bool:
     """Validate table name to prevent SQL injection."""
     # Only allow alphanumeric characters and underscores
-    return bool(re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', table_name))
+    return bool(re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name))
 
 
 def _serialize_properties(row: Any) -> dict[str, Any]:
@@ -45,7 +45,18 @@ def _serialize_properties(row: Any) -> dict[str, Any]:
 
 class FileProcessor:
     SUPPORTED_VECTOR = {".geojson", ".json", ".shp", ".gpkg", ".zip"}
-    SUPPORTED_RASTER = {".tif", ".tiff", ".geotiff", ".jp2", ".img", ".asc", ".bil", ".bip", ".bsq", ".flt"}
+    SUPPORTED_RASTER = {
+        ".tif",
+        ".tiff",
+        ".geotiff",
+        ".jp2",
+        ".img",
+        ".asc",
+        ".bil",
+        ".bip",
+        ".bsq",
+        ".flt",
+    }
 
     @staticmethod
     def get_file_extension(filename: str) -> str:
@@ -83,8 +94,13 @@ class FileProcessor:
         # Strip Z coordinates if present (PostGIS column is 2D)
         if gdf.geometry.has_z.any():
             from shapely.ops import transform
-            gdf['geometry'] = gdf.geometry.apply(
-                lambda geom: transform(lambda x, y, z=None: (x, y), geom) if geom and geom.has_z else geom
+
+            gdf["geometry"] = gdf.geometry.apply(
+                lambda geom: (
+                    transform(lambda x, y, z=None: (x, y), geom)
+                    if geom and geom.has_z
+                    else geom
+                )
             )
 
         # Get geometry type
@@ -107,7 +123,11 @@ class FileProcessor:
             "crs": str(gdf.crs) if gdf.crs else None,
             "crs_epsg": gdf.crs.to_epsg() if gdf.crs else None,
             "field_count": len([c for c in gdf.columns if c != "geometry"]),
-            "fields": [{"name": c, "dtype": str(gdf[c].dtype)} for c in gdf.columns if c != "geometry"],
+            "fields": [
+                {"name": c, "dtype": str(gdf[c].dtype)}
+                for c in gdf.columns
+                if c != "geometry"
+            ],
         }
 
         # Additional metadata
@@ -116,12 +136,15 @@ class FileProcessor:
         metadata["geometry_types"] = gdf.geometry.geom_type.unique().tolist()
 
         # GeoPackage embedded metadata
-        if str(file_path).lower().endswith('.gpkg'):
+        if str(file_path).lower().endswith(".gpkg"):
             try:
                 import sqlite3
+
                 conn = sqlite3.connect(str(file_path))
                 try:
-                    cursor = conn.execute("SELECT md_scope, metadata FROM gpkg_metadata LIMIT 1")
+                    cursor = conn.execute(
+                        "SELECT md_scope, metadata FROM gpkg_metadata LIMIT 1"
+                    )
                     row = cursor.fetchone()
                     if row:
                         metadata["gpkg_metadata_scope"] = row[0]
@@ -135,26 +158,28 @@ class FileProcessor:
 
         # Shapefile companion XML metadata
         import glob as _glob
+
         xml_files = _glob.glob(str(file_path.parent / "*.xml"))
         if xml_files:
             try:
-                with open(xml_files[0], 'r', errors='ignore') as xf:
+                with open(xml_files[0], "r", errors="ignore") as xf:
                     xml_content = xf.read()[:10000]
-                metadata["metadata_xml_source"] = xml_files[0].split('/')[-1]
+                metadata["metadata_xml_source"] = xml_files[0].split("/")[-1]
                 # Try to extract key fields from FGDC XML
                 try:
                     from xml.etree import ElementTree as ET
+
                     root = ET.fromstring(xml_content)
                     # FGDC abstract
-                    abstract = root.find('.//abstract')
+                    abstract = root.find(".//abstract")
                     if abstract is not None and abstract.text:
                         metadata["abstract"] = abstract.text[:2000]
                     # FGDC purpose
-                    purpose = root.find('.//purpose')
+                    purpose = root.find(".//purpose")
                     if purpose is not None and purpose.text:
                         metadata["purpose"] = purpose.text[:2000]
                     # FGDC origin (publisher)
-                    origin = root.find('.//origin')
+                    origin = root.find(".//origin")
                     if origin is not None and origin.text:
                         metadata["origin"] = origin.text[:500]
                 except ET.ParseError:
@@ -263,9 +288,7 @@ class FileProcessor:
 
                     job = await dataset_crud.get_upload_job(db, job_id)
                     if job:
-                        await dataset_crud.update_upload_job(
-                            db, job, progress=progress
-                        )
+                        await dataset_crud.update_upload_job(db, job, progress=progress)
                 except Exception:
                     pass  # Don't fail inserts over progress updates
 
@@ -302,40 +325,52 @@ class FileProcessor:
                 # Strip Z coordinates if present (PostGIS column is 2D)
                 if gdf.geometry.has_z.any():
                     from shapely.ops import transform
-                    gdf['geometry'] = gdf.geometry.apply(
-                        lambda geom: transform(lambda x, y, z=None: (x, y), geom) if geom and geom.has_z else geom
+
+                    gdf["geometry"] = gdf.geometry.apply(
+                        lambda geom: (
+                            transform(lambda x, y, z=None: (x, y), geom)
+                            if geom and geom.has_z
+                            else geom
+                        )
                     )
 
                 geom_types = gdf.geometry.geom_type.unique()
                 geom_type = geom_types[0] if len(geom_types) == 1 else "Geometry"
-                bounds = gdf.total_bounds.tolist()
+                _bounds = gdf.total_bounds.tolist()
                 table_name = f"vector_data_{str(dataset_id).replace('-', '_')}"
 
                 await self._create_vector_table(db, table_name)
-                await self._insert_features_batched(
-                    db, table_name, gdf, job_id=job_id
-                )
+                await self._insert_features_batched(db, table_name, gdf, job_id=job_id)
 
                 # Extract file metadata
                 file_metadata = {
                     "crs": str(gdf.crs) if gdf.crs else None,
                     "crs_epsg": gdf.crs.to_epsg() if gdf.crs else None,
                     "field_count": len([c for c in gdf.columns if c != "geometry"]),
-                    "fields": [{"name": c, "dtype": str(gdf[c].dtype)} for c in gdf.columns if c != "geometry"],
+                    "fields": [
+                        {"name": c, "dtype": str(gdf[c].dtype)}
+                        for c in gdf.columns
+                        if c != "geometry"
+                    ],
                 }
 
                 # Additional metadata
                 file_metadata["total_features"] = len(gdf)
                 file_metadata["total_bounds"] = gdf.total_bounds.tolist()
-                file_metadata["geometry_types"] = gdf.geometry.geom_type.unique().tolist()
+                file_metadata["geometry_types"] = (
+                    gdf.geometry.geom_type.unique().tolist()
+                )
 
                 # GeoPackage embedded metadata
-                if str(file_path).lower().endswith('.gpkg'):
+                if str(file_path).lower().endswith(".gpkg"):
                     try:
                         import sqlite3
+
                         conn = sqlite3.connect(str(file_path))
                         try:
-                            cursor = conn.execute("SELECT md_scope, metadata FROM gpkg_metadata LIMIT 1")
+                            cursor = conn.execute(
+                                "SELECT md_scope, metadata FROM gpkg_metadata LIMIT 1"
+                            )
                             row = cursor.fetchone()
                             if row:
                                 file_metadata["gpkg_metadata_scope"] = row[0]
@@ -349,26 +384,30 @@ class FileProcessor:
 
                 # Shapefile companion XML metadata
                 import glob as _glob
+
                 xml_files = _glob.glob(str(file_path.parent / "*.xml"))
                 if xml_files:
                     try:
-                        with open(xml_files[0], 'r', errors='ignore') as xf:
+                        with open(xml_files[0], "r", errors="ignore") as xf:
                             xml_content = xf.read()[:10000]
-                        file_metadata["metadata_xml_source"] = xml_files[0].split('/')[-1]
+                        file_metadata["metadata_xml_source"] = xml_files[0].split("/")[
+                            -1
+                        ]
                         # Try to extract key fields from FGDC XML
                         try:
                             from xml.etree import ElementTree as ET
+
                             root = ET.fromstring(xml_content)
                             # FGDC abstract
-                            abstract = root.find('.//abstract')
+                            abstract = root.find(".//abstract")
                             if abstract is not None and abstract.text:
                                 file_metadata["abstract"] = abstract.text[:2000]
                             # FGDC purpose
-                            purpose = root.find('.//purpose')
+                            purpose = root.find(".//purpose")
                             if purpose is not None and purpose.text:
                                 file_metadata["purpose"] = purpose.text[:2000]
                             # FGDC origin (publisher)
-                            origin = root.find('.//origin')
+                            origin = root.find(".//origin")
                             if origin is not None and origin.text:
                                 file_metadata["origin"] = origin.text[:500]
                         except ET.ParseError:
@@ -423,9 +462,7 @@ class FileProcessor:
                             )
 
                         # Clean up orphaned dataset if no table was created
-                        dataset = await dataset_crud.get_dataset(
-                            err_db, dataset_id
-                        )
+                        dataset = await dataset_crud.get_dataset(err_db, dataset_id)
                         if dataset and not dataset.table_name:
                             await dataset_crud.delete_dataset(err_db, dataset)
                             logger.info(
@@ -512,9 +549,7 @@ class FileProcessor:
         dataset_id: uuid.UUID,
     ) -> dict[str, Any]:
         # Run blocking I/O in a thread pool to avoid blocking the event loop
-        return await asyncio.to_thread(
-            self._process_raster_sync, file_path, dataset_id
-        )
+        return await asyncio.to_thread(self._process_raster_sync, file_path, dataset_id)
 
     def _process_raster_sync(
         self,

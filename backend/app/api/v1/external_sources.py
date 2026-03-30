@@ -14,11 +14,15 @@ from app.schemas.service_catalog import (
 )
 from app.crud import dataset as dataset_crud
 from app.crud import service_catalog as catalog_crud
-from app.api.deps import get_current_admin_user, get_current_editor_or_admin_user, get_current_user
+from app.api.deps import (
+    get_current_admin_user,
+    get_current_editor_or_admin_user,
+    get_current_user,
+)
 from app.api.v1.datasets import dataset_to_response
 from app.models.user import User
 from app.models.dataset import Dataset
-from app.services.external_source import probe_service, browse_directory, proxy_request, fetch_all_features
+from app.services.external_source import probe_service, browse_directory, proxy_request
 
 router = APIRouter(prefix="/external-sources", tags=["external-sources"])
 
@@ -41,13 +45,21 @@ def _validate_external_url(url: str) -> None:
     try:
         ip = ipaddress.ip_address(hostname)
         if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-            raise ValueError("URLs pointing to private/internal addresses are not allowed")
+            raise ValueError(
+                "URLs pointing to private/internal addresses are not allowed"
+            )
     except ValueError as e:
         if "not allowed" in str(e):
             raise
         # hostname is a domain name, not an IP — allow it
         pass
-    blocked = ("localhost", "127.0.0.1", "0.0.0.0", "169.254.169.254", "metadata.google")
+    blocked = (
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "169.254.169.254",
+        "metadata.google",
+    )
     if any(b in hostname.lower() for b in blocked):
         raise ValueError("URLs pointing to internal services are not allowed")
 
@@ -141,6 +153,7 @@ async def browse_external_directory(
 
 # --- Catalog CRUD ---
 
+
 @router.post("/catalogs", response_model=ServiceCatalogResponse)
 async def create_catalog(
     catalog_in: ServiceCatalogCreate,
@@ -175,7 +188,9 @@ async def delete_catalog(
 ):
     catalog = await catalog_crud.get_catalog(db, catalog_id)
     if not catalog:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Catalog not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Catalog not found"
+        )
     await catalog_crud.delete_catalog(db, catalog)
     return {"message": "Catalog deleted"}
 
@@ -187,6 +202,7 @@ async def refresh_all_external_metadata(
 ):
     """Refresh metadata for all external datasets."""
     from sqlalchemy import select
+
     result = await db.execute(
         select(Dataset).where(
             Dataset.source_type == "external",
@@ -265,11 +281,14 @@ async def register_external_source(
 
     # Check for duplicate external source
     from sqlalchemy import select
+
     dup_result = await db.execute(
-        select(Dataset).where(
+        select(Dataset)
+        .where(
             Dataset.service_url == request.service_url,
             Dataset.service_layer_id == request.service_layer_id,
-        ).limit(1)
+        )
+        .limit(1)
     )
     duplicate = dup_result.scalar_one_or_none()
     if duplicate:
@@ -296,10 +315,11 @@ async def register_external_source(
                 service_metadata["total_bounds"] = layers[0]["extent"]
 
         # For ArcGIS services, fetch per-layer extent if we still have no bounds
-        if (
-            not service_metadata.get("total_bounds")
-            and request.service_type
-            in ("arcgis_feature", "arcgis_map", "arcgis_map_export", "arcgis_image")
+        if not service_metadata.get("total_bounds") and request.service_type in (
+            "arcgis_feature",
+            "arcgis_map",
+            "arcgis_map_export",
+            "arcgis_image",
         ):
             from app.services.external_source import fetch_arcgis_layer_extent
 
@@ -321,7 +341,13 @@ async def register_external_source(
         service_metadata = None
 
     # Determine data_type from service_type
-    if request.service_type in ("wms", "arcgis_map", "arcgis_map_export", "arcgis_image", "xyz"):
+    if request.service_type in (
+        "wms",
+        "arcgis_map",
+        "arcgis_map_export",
+        "arcgis_image",
+        "xyz",
+    ):
         data_type = "raster"
     else:
         data_type = "vector"
@@ -334,7 +360,9 @@ async def register_external_source(
         auto_min_zoom = suggest_min_zoom(service_metadata["feature_count"])
 
     # Geographic scope is only valid for reference category
-    geographic_scope = request.geographic_scope if request.category != "project" else None
+    geographic_scope = (
+        request.geographic_scope if request.category != "project" else None
+    )
 
     dataset_in = DatasetCreate(
         name=request.name,
@@ -373,9 +401,13 @@ async def proxy_external_service(
     """Proxy requests to an external service to avoid CORS issues."""
     dataset = await dataset_crud.get_dataset(db, dataset_id)
     if not dataset:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
     if dataset.source_type != "external" or not dataset.service_url:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not an external dataset")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Not an external dataset"
+        )
 
     # Build the correct target URL based on service type
     params = dict(request.query_params)
@@ -421,13 +453,21 @@ async def proxy_external_service(
             return Response(
                 content='{"type":"FeatureCollection","features":[]}',
                 media_type="application/json",
-                headers={"Cache-Control": "no-cache", "Access-Control-Allow-Origin": "*"},
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Access-Control-Allow-Origin": "*",
+                },
             )
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Failed to fetch data from external service")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to fetch data from external service",
+        )
 
     # Determine cache headers based on content type
     content_type = resp.headers.get("content-type", "application/octet-stream")
-    cache_control = "public, max-age=3600" if "image" in content_type else "public, max-age=300"
+    cache_control = (
+        "public, max-age=3600" if "image" in content_type else "public, max-age=300"
+    )
 
     return Response(
         content=resp.content,
@@ -448,9 +488,13 @@ async def validate_external_source(
     """Re-check if an external service is still accessible."""
     dataset = await dataset_crud.get_dataset(db, dataset_id)
     if not dataset:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
     if dataset.source_type != "external" or not dataset.service_url:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not an external dataset")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Not an external dataset"
+        )
 
     try:
         await probe_service(dataset.service_url)
@@ -460,7 +504,9 @@ async def validate_external_source(
     except ValueError as e:
         return {"status": "changed", "detail": str(e)}
     except Exception as e:
-        logger.error("External source validation failed for dataset %s: %s", dataset_id, e)
+        logger.error(
+            "External source validation failed for dataset %s: %s", dataset_id, e
+        )
         return {"status": "unreachable", "detail": "Service is unreachable"}
 
 
@@ -525,7 +571,9 @@ async def refresh_external_metadata(
         return {"status": "ok", "metadata": metadata}
     except Exception as e:
         logger.error("Failed to refresh metadata for %s: %s", dataset_id, e)
-        raise HTTPException(status_code=502, detail="Failed to fetch metadata from external service")
+        raise HTTPException(
+            status_code=502, detail="Failed to fetch metadata from external service"
+        )
 
 
 @router.post("/{dataset_id}/import", response_model=UploadJobResponse, status_code=202)
@@ -541,9 +589,13 @@ async def import_external_to_local(
     """
     dataset = await dataset_crud.get_dataset(db, dataset_id)
     if not dataset:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
     if dataset.source_type != "external" or not dataset.service_url:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not an external dataset")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Not an external dataset"
+        )
     if dataset.service_type not in ("arcgis_feature", "wfs"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -557,7 +609,9 @@ async def import_external_to_local(
     service_url = dataset.service_url
     service_type = dataset.service_type
     service_layer_id = dataset.service_layer_id or "0"
-    original_metadata = dict(dataset.service_metadata) if dataset.service_metadata else {}
+    original_metadata = (
+        dict(dataset.service_metadata) if dataset.service_metadata else {}
+    )
 
     # Spawn background task
     import asyncio

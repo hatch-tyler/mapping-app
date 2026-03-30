@@ -29,9 +29,8 @@ async def get_projects(
     count_query = select(func.count(Project.id))
 
     if not is_admin and user_id:
-        member_subquery = (
-            select(ProjectMember.project_id)
-            .where(ProjectMember.user_id == user_id)
+        member_subquery = select(ProjectMember.project_id).where(
+            ProjectMember.user_id == user_id
         )
         query = query.where(Project.id.in_(member_subquery))
         count_query = count_query.where(Project.id.in_(member_subquery))
@@ -83,9 +82,7 @@ async def update_project(
 
 async def delete_project(db: AsyncSession, project: Project) -> None:
     # Unlink datasets from this project (don't delete them)
-    datasets = await db.execute(
-        select(Dataset).where(Dataset.project_id == project.id)
-    )
+    datasets = await db.execute(select(Dataset).where(Dataset.project_id == project.id))
     for dataset in datasets.scalars():
         dataset.project_id = None
         dataset.category = "reference"
@@ -95,16 +92,16 @@ async def delete_project(db: AsyncSession, project: Project) -> None:
 
 async def get_member_count(db: AsyncSession, project_id: UUID) -> int:
     result = await db.execute(
-        select(func.count(ProjectMember.id))
-        .where(ProjectMember.project_id == project_id)
+        select(func.count(ProjectMember.id)).where(
+            ProjectMember.project_id == project_id
+        )
     )
     return result.scalar() or 0
 
 
 async def get_dataset_count(db: AsyncSession, project_id: UUID) -> int:
     result = await db.execute(
-        select(func.count(Dataset.id))
-        .where(Dataset.project_id == project_id)
+        select(func.count(Dataset.id)).where(Dataset.project_id == project_id)
     )
     return result.scalar() or 0
 

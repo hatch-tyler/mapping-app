@@ -1,6 +1,18 @@
 from fastapi import APIRouter
 
-from app.api.v1 import auth, users, datasets, upload, wfs, export, registration, tiles, projects, external_sources, templates
+from app.api.v1 import (
+    auth,
+    users,
+    datasets,
+    upload,
+    wfs,
+    export,
+    registration,
+    tiles,
+    projects,
+    external_sources,
+    templates,
+)
 
 api_router = APIRouter()
 

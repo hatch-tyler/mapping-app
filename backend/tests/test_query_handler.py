@@ -4,7 +4,6 @@ import pytest
 
 from app.services.arcgis.query_handler import slugify
 
-
 # ── Pure Function Tests ───────────────────────────────────────────────
 
 

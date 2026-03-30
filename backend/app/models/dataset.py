@@ -1,7 +1,17 @@
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING
-from sqlalchemy import String, Boolean, Integer, DateTime, Text, ForeignKey, func, Table, Column
+from sqlalchemy import (
+    String,
+    Boolean,
+    Integer,
+    DateTime,
+    Text,
+    ForeignKey,
+    func,
+    Table,
+    Column,
+)
 from sqlalchemy import Uuid, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from geoalchemy2 import Geometry
@@ -17,17 +27,25 @@ if TYPE_CHECKING:
 dataset_projects = Table(
     "dataset_projects",
     Base.metadata,
-    Column("dataset_id", Uuid(), ForeignKey("datasets.id", ondelete="CASCADE"), primary_key=True),
-    Column("project_id", Uuid(), ForeignKey("projects.id", ondelete="CASCADE"), primary_key=True),
+    Column(
+        "dataset_id",
+        Uuid(),
+        ForeignKey("datasets.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column(
+        "project_id",
+        Uuid(),
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
 )
 
 
 class Dataset(Base):
     __tablename__ = "datasets"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     data_type: Mapped[str] = mapped_column(
@@ -96,18 +114,22 @@ class Dataset(Base):
 
     # Relationships
     created_by_user: Mapped["User"] = relationship(back_populates="datasets")
-    project: Mapped["Project | None"] = relationship(back_populates="datasets", foreign_keys=[project_id])
+    project: Mapped["Project | None"] = relationship(
+        back_populates="datasets", foreign_keys=[project_id]
+    )
     tags: Mapped[list["Tag"]] = relationship(secondary=dataset_tags, lazy="selectin")
-    linked_projects: Mapped[list["Project"]] = relationship(secondary=dataset_projects, lazy="selectin")
-    snapshot_source: Mapped["Dataset | None"] = relationship(remote_side="Dataset.id", foreign_keys=[snapshot_source_id])
+    linked_projects: Mapped[list["Project"]] = relationship(
+        secondary=dataset_projects, lazy="selectin"
+    )
+    snapshot_source: Mapped["Dataset | None"] = relationship(
+        remote_side="Dataset.id", foreign_keys=[snapshot_source_id]
+    )
 
 
 class UploadJob(Base):
     __tablename__ = "upload_jobs"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
     dataset_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(), ForeignKey("datasets.id", ondelete="CASCADE")
     )

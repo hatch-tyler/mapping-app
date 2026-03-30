@@ -68,7 +68,15 @@ async def lifespan(app: FastAPI):
         if acquired:
             try:
                 logger.info("Running database initialization")
-                from app.models import user, dataset, registration, email_confirmation, tag, project, service_catalog  # noqa: F401
+                from app.models import (  # noqa: F401
+                    user,  # noqa: F401
+                    dataset,  # noqa: F401
+                    registration,  # noqa: F401
+                    email_confirmation,  # noqa: F401
+                    tag,  # noqa: F401
+                    project,  # noqa: F401
+                    service_catalog,  # noqa: F401
+                )
                 from app.database import Base
 
                 await conn.run_sync(Base.metadata.create_all)
@@ -162,7 +170,9 @@ app.include_router(arcgis_router)
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error("Unhandled exception: %s", exc, exc_info=True)
-    return JSONResponse(status_code=500, content={"detail": "An unexpected error occurred"})
+    return JSONResponse(
+        status_code=500, content={"detail": "An unexpected error occurred"}
+    )
 
 
 @app.get("/health")

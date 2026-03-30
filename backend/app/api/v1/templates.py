@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -21,6 +21,7 @@ router = APIRouter(tags=["templates"])
 
 # ===== Schemas =====
 
+
 class LayoutTemplateCreate(BaseModel):
     name: str
     description: str | None = None
@@ -28,11 +29,13 @@ class LayoutTemplateCreate(BaseModel):
     page_config: dict
     elements: list[dict]
 
+
 class LayoutTemplateUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     page_config: dict | None = None
     elements: list[dict] | None = None
+
 
 class LayoutTemplateResponse(BaseModel):
     id: UUID
@@ -49,6 +52,7 @@ class LayoutTemplateResponse(BaseModel):
     class Config:
         from_attributes = True
 
+
 class MapViewCreate(BaseModel):
     name: str
     description: str | None = None
@@ -56,12 +60,14 @@ class MapViewCreate(BaseModel):
     map_config: dict
     layer_configs: list[dict]
 
+
 class MapViewUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
     project_id: UUID | None = None
     map_config: dict | None = None
     layer_configs: list[dict] | None = None
+
 
 class MapViewResponse(BaseModel):
     id: UUID
@@ -80,7 +86,10 @@ class MapViewResponse(BaseModel):
 
 # ===== Layout Template Endpoints =====
 
-@router.post("/layout-templates/", response_model=LayoutTemplateResponse, status_code=201)
+
+@router.post(
+    "/layout-templates/", response_model=LayoutTemplateResponse, status_code=201
+)
 async def create_layout_template(
     data: LayoutTemplateCreate,
     db: AsyncSession = Depends(get_db),
@@ -119,7 +128,9 @@ async def get_layout_template(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    result = await db.execute(select(LayoutTemplate).where(LayoutTemplate.id == template_id))
+    result = await db.execute(
+        select(LayoutTemplate).where(LayoutTemplate.id == template_id)
+    )
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Layout template not found")
@@ -133,7 +144,9 @@ async def update_layout_template(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_editor_or_admin_user),
 ):
-    result = await db.execute(select(LayoutTemplate).where(LayoutTemplate.id == template_id))
+    result = await db.execute(
+        select(LayoutTemplate).where(LayoutTemplate.id == template_id)
+    )
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Layout template not found")
@@ -152,7 +165,9 @@ async def delete_layout_template(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_editor_or_admin_user),
 ):
-    result = await db.execute(select(LayoutTemplate).where(LayoutTemplate.id == template_id))
+    result = await db.execute(
+        select(LayoutTemplate).where(LayoutTemplate.id == template_id)
+    )
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Layout template not found")
@@ -170,13 +185,15 @@ async def export_layout_qpt(
     """Export layout template as QGIS Print Layout Template (.qpt)."""
     from app.services.layout_generator import generate_qpt
 
-    result = await db.execute(select(LayoutTemplate).where(LayoutTemplate.id == template_id))
+    result = await db.execute(
+        select(LayoutTemplate).where(LayoutTemplate.id == template_id)
+    )
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Layout template not found")
 
     qpt_xml = generate_qpt(template.page_config, template.elements, template.name)
-    safe_name = re.sub(r'[^\w\-.]', '_', template.name)
+    safe_name = re.sub(r"[^\w\-.]", "_", template.name)
 
     return StreamingResponse(
         io.BytesIO(qpt_xml.encode("utf-8")),
@@ -194,13 +211,15 @@ async def export_layout_pagx(
     """Export layout template as ArcGIS Pro Layout (.pagx)."""
     from app.services.layout_generator import generate_pagx
 
-    result = await db.execute(select(LayoutTemplate).where(LayoutTemplate.id == template_id))
+    result = await db.execute(
+        select(LayoutTemplate).where(LayoutTemplate.id == template_id)
+    )
     template = result.scalar_one_or_none()
     if not template:
         raise HTTPException(status_code=404, detail="Layout template not found")
 
     pagx_xml = generate_pagx(template.page_config, template.elements, template.name)
-    safe_name = re.sub(r'[^\w\-.]', '_', template.name)
+    safe_name = re.sub(r"[^\w\-.]", "_", template.name)
 
     return StreamingResponse(
         io.BytesIO(pagx_xml.encode("utf-8")),
@@ -210,6 +229,7 @@ async def export_layout_pagx(
 
 
 # ===== Map View Endpoints =====
+
 
 @router.post("/map-views/", response_model=MapViewResponse, status_code=201)
 async def create_map_view(

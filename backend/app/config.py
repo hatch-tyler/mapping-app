@@ -4,7 +4,9 @@ from functools import lru_cache
 
 class Settings(BaseSettings):
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://gis_user:gis_password@localhost:5432/gis_db"
+    DATABASE_URL: str = (
+        "postgresql+asyncpg://gis_user:gis_password@localhost:5432/gis_db"
+    )
 
     # Authentication
     SECRET_KEY: str = "your-secret-key-change-in-production"
