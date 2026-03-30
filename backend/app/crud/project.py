@@ -11,7 +11,7 @@ from app.schemas.project import ProjectCreate, ProjectUpdate
 async def get_project(db: AsyncSession, project_id: UUID) -> Project | None:
     result = await db.execute(
         select(Project)
-        .options(selectinload(Project.members))
+        .options(selectinload(Project.members).selectinload(ProjectMember.user))
         .where(Project.id == project_id)
     )
     return result.scalar_one_or_none()
@@ -139,7 +139,9 @@ async def get_project_member(
     db: AsyncSession, project_id: UUID, user_id: UUID
 ) -> ProjectMember | None:
     result = await db.execute(
-        select(ProjectMember).where(
+        select(ProjectMember)
+        .options(selectinload(ProjectMember.user))
+        .where(
             ProjectMember.project_id == project_id,
             ProjectMember.user_id == user_id,
         )
@@ -166,7 +168,7 @@ async def update_member_role(
 ) -> ProjectMember:
     member.role = role
     await db.commit()
-    await db.refresh(member)
+    await db.refresh(member, attribute_names=["user"])
     return member
 
 
