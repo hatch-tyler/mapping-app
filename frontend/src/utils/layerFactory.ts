@@ -96,20 +96,27 @@ function createExternalLayer(dataset: Dataset): LayerType {
     case 'arcgis_map_export': {
       // Dynamic MapServer (no tile cache) via proxy /export endpoint
       const exportLayerId = dataset.service_layer_id || '0';
-      const exportUrl = `${proxyBase}?bbox={west},{south},{east},{north}&bboxSR=4326&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:${exportLayerId}&f=image`;
       return new TileLayer({
         id: `ext-arcmap-export-${dataset.id}`,
-        data: exportUrl,
+        data: proxyBase,
         tileSize: 256,
         minZoom: dataset.min_zoom,
         maxZoom: dataset.max_zoom,
-        loadOptions: { fetch: { headers: authHeaders } },
+        getTileData: (tile: { bbox: { west: number; south: number; east: number; north: number }; signal?: AbortSignal }) => {
+          const { west, south, east, north } = tile.bbox;
+          const url = `${proxyBase}?bbox=${west},${south},${east},${north}&bboxSR=4326&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:${exportLayerId}&f=image`;
+          return fetch(url, { headers: authHeaders, signal: tile.signal })
+            .then(r => r.ok ? r.blob() : null)
+            .then(b => b ? createImageBitmap(b) : null)
+            .catch(() => null);
+        },
         renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
+          if (!props.data) return null;
           const { boundingBox } = props.tile;
           return new BitmapLayer({
             ...props,
             data: undefined,
-            image: props.data as string,
+            image: props.data as unknown as string,
             bounds: [boundingBox[0][0], boundingBox[0][1], boundingBox[1][0], boundingBox[1][1]],
           });
         },
@@ -117,22 +124,28 @@ function createExternalLayer(dataset: Dataset): LayerType {
     }
 
     case 'arcgis_image': {
-      // ArcGIS ImageServer — direct access (faster, no proxy)
-      const imageUrl = `${dataset.service_url}/exportImage?bbox={west},{south},{east},{north}&bboxSR=4326&imageSR=3857&size=256,256&format=png32&transparent=true&f=image`;
+      // ArcGIS ImageServer — direct access via getTileData (bbox-based, not {x}/{y}/{z})
       return new TileLayer({
         id: `ext-arcimg-${dataset.id}`,
-        data: imageUrl,
+        data: `${dataset.service_url}/exportImage`,
         tileSize: 256,
         minZoom: dataset.min_zoom,
         maxZoom: dataset.max_zoom,
-        onTileError: () => {},
+        getTileData: (tile: { bbox: { west: number; south: number; east: number; north: number }; signal?: AbortSignal }) => {
+          const { west, south, east, north } = tile.bbox;
+          const url = `${dataset.service_url}/exportImage?bbox=${west},${south},${east},${north}&bboxSR=4326&imageSR=3857&size=256,256&format=png32&transparent=true&f=image`;
+          return fetch(url, { signal: tile.signal })
+            .then(r => r.ok ? r.blob() : null)
+            .then(b => b ? createImageBitmap(b) : null)
+            .catch(() => null);
+        },
         renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
           if (!props.data) return null;
           const { boundingBox } = props.tile;
           return new BitmapLayer({
             ...props,
             data: undefined,
-            image: props.data as string,
+            image: props.data as unknown as string,
             bounds: [boundingBox[0][0], boundingBox[0][1], boundingBox[1][0], boundingBox[1][1]],
           });
         },
@@ -141,21 +154,28 @@ function createExternalLayer(dataset: Dataset): LayerType {
 
     case 'wms': {
       // WMS via proxy with GetMap requests
-      const layerId = dataset.service_layer_id || '';
-      const wmsUrl = `${proxyBase}?service=WMS&request=GetMap&layers=${encodeURIComponent(layerId)}&styles=&format=image/png&transparent=true&version=1.1.1&srs=EPSG:4326&width=256&height=256&bbox={west},{south},{east},{north}`;
+      const wmsLayerId = dataset.service_layer_id || '';
       return new TileLayer({
         id: `ext-wms-${dataset.id}`,
-        data: wmsUrl,
+        data: proxyBase,
         tileSize: 256,
         minZoom: dataset.min_zoom,
         maxZoom: dataset.max_zoom,
-        loadOptions: { fetch: { headers: authHeaders } },
+        getTileData: (tile: { bbox: { west: number; south: number; east: number; north: number }; signal?: AbortSignal }) => {
+          const { west, south, east, north } = tile.bbox;
+          const url = `${proxyBase}?service=WMS&request=GetMap&layers=${encodeURIComponent(wmsLayerId)}&styles=&format=image/png&transparent=true&version=1.1.1&srs=EPSG:4326&width=256&height=256&bbox=${west},${south},${east},${north}`;
+          return fetch(url, { headers: authHeaders, signal: tile.signal })
+            .then(r => r.ok ? r.blob() : null)
+            .then(b => b ? createImageBitmap(b) : null)
+            .catch(() => null);
+        },
         renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
+          if (!props.data) return null;
           const { boundingBox } = props.tile;
           return new BitmapLayer({
             ...props,
             data: undefined,
-            image: props.data as string,
+            image: props.data as unknown as string,
             bounds: [boundingBox[0][0], boundingBox[0][1], boundingBox[1][0], boundingBox[1][1]],
           });
         },
