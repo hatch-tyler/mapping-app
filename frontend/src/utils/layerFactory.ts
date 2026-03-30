@@ -107,7 +107,7 @@ function createExternalLayer(dataset: Dataset): LayerType {
           const url = `${proxyBase}?bbox=${west},${south},${east},${north}&bboxSR=4326&imageSR=3857&size=256,256&format=png32&transparent=true&layers=show:${exportLayerId}&f=image`;
           return fetch(url, { headers: authHeaders, signal: tile.signal })
             .then(r => r.ok ? r.blob() : null)
-            .then(b => b ? createImageBitmap(b) : null)
+            .then(b => b ? URL.createObjectURL(b) : null)
             .catch(() => null);
         },
         renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
@@ -116,7 +116,7 @@ function createExternalLayer(dataset: Dataset): LayerType {
           return new BitmapLayer({
             ...props,
             data: undefined,
-            image: props.data as unknown as string,
+            image: props.data as string,
             bounds: [boundingBox[0][0], boundingBox[0][1], boundingBox[1][0], boundingBox[1][1]],
           });
         },
@@ -135,8 +135,14 @@ function createExternalLayer(dataset: Dataset): LayerType {
           const { west, south, east, north } = tile.bbox;
           const url = `${dataset.service_url}/exportImage?bbox=${west},${south},${east},${north}&bboxSR=4326&imageSR=3857&size=256,256&format=png32&transparent=true&f=image`;
           return fetch(url, { signal: tile.signal })
-            .then(r => r.ok ? r.blob() : null)
-            .then(b => b ? createImageBitmap(b) : null)
+            .then(r => {
+              if (!r.ok) return null;
+              return r.blob();
+            })
+            .then(b => {
+              if (!b) return null;
+              return URL.createObjectURL(b);
+            })
             .catch(() => null);
         },
         renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
@@ -145,7 +151,7 @@ function createExternalLayer(dataset: Dataset): LayerType {
           return new BitmapLayer({
             ...props,
             data: undefined,
-            image: props.data as unknown as string,
+            image: props.data as string,
             bounds: [boundingBox[0][0], boundingBox[0][1], boundingBox[1][0], boundingBox[1][1]],
           });
         },
@@ -166,7 +172,7 @@ function createExternalLayer(dataset: Dataset): LayerType {
           const url = `${proxyBase}?service=WMS&request=GetMap&layers=${encodeURIComponent(wmsLayerId)}&styles=&format=image/png&transparent=true&version=1.1.1&srs=EPSG:4326&width=256&height=256&bbox=${west},${south},${east},${north}`;
           return fetch(url, { headers: authHeaders, signal: tile.signal })
             .then(r => r.ok ? r.blob() : null)
-            .then(b => b ? createImageBitmap(b) : null)
+            .then(b => b ? URL.createObjectURL(b) : null)
             .catch(() => null);
         },
         renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
@@ -175,7 +181,7 @@ function createExternalLayer(dataset: Dataset): LayerType {
           return new BitmapLayer({
             ...props,
             data: undefined,
-            image: props.data as unknown as string,
+            image: props.data as string,
             bounds: [boundingBox[0][0], boundingBox[0][1], boundingBox[1][0], boundingBox[1][1]],
           });
         },
