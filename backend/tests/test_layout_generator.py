@@ -63,6 +63,50 @@ class TestGenerateQpt:
         assert 'labelText="My Map"' in result
         assert "Arial,18" in result
 
+    def test_subtitle_element(self):
+        elems = [{"type": "subtitle", "x": 10, "y": 20, "w": 100, "h": 12, "text": "A Subtitle", "fontSize": 16}]
+        result = generate_qpt(self.page, elems)
+        root = fromstring(result)
+        item = root.find('.//LayoutItem[@type="65641"]')
+        assert item is not None
+        assert item.get("labelText") == "A Subtitle"
+        # Default subtitle: center-aligned, normal weight
+        assert item.get("halign") == "4"
+        font_desc = item.find("LabelFont").get("description")
+        assert "Arial,16" in font_desc
+        assert ",50," in font_desc  # normal weight
+
+    def test_title_default_alignment_and_weight(self):
+        elems = [{"type": "title", "x": 10, "y": 5, "w": 100, "h": 15, "text": "T"}]
+        result = generate_qpt(self.page, elems)
+        root = fromstring(result)
+        item = root.find('.//LayoutItem[@type="65641"]')
+        assert item.get("halign") == "4"  # center
+        font_desc = item.find("LabelFont").get("description")
+        assert ",75," in font_desc  # bold
+
+    def test_text_default_alignment(self):
+        elems = [{"type": "text", "x": 10, "y": 10, "w": 50, "h": 10, "text": "Hello"}]
+        result = generate_qpt(self.page, elems)
+        root = fromstring(result)
+        item = root.find('.//LayoutItem[@type="65641"]')
+        assert item.get("halign") == "1"  # left
+
+    def test_text_align_right(self):
+        elems = [{"type": "title", "x": 10, "y": 5, "w": 100, "h": 15, "text": "R", "textAlign": "right"}]
+        result = generate_qpt(self.page, elems)
+        root = fromstring(result)
+        item = root.find('.//LayoutItem[@type="65641"]')
+        assert item.get("halign") == "2"  # right
+
+    def test_font_weight_override(self):
+        elems = [{"type": "title", "x": 10, "y": 5, "w": 100, "h": 15, "text": "T", "fontWeight": "normal"}]
+        result = generate_qpt(self.page, elems)
+        root = fromstring(result)
+        item = root.find('.//LayoutItem[@type="65641"]')
+        font_desc = item.find("LabelFont").get("description")
+        assert ",50," in font_desc  # overridden to normal
+
     def test_legend_element(self):
         elems = [{"type": "legend", "x": 200, "y": 20, "w": 60, "h": 80}]
         result = generate_qpt(self.page, elems)
@@ -83,6 +127,9 @@ class TestGenerateQpt:
         elems = [{"type": "text", "x": 10, "y": 10, "w": 50, "h": 10, "text": "Hello"}]
         result = generate_qpt(self.page, elems)
         assert 'labelText="Hello"' in result
+        root = fromstring(result)
+        item = root.find('.//LayoutItem[@type="65641"]')
+        assert item.get("valign") == "128"  # vcenter
 
     def test_horizontal_rule_element(self):
         elems = [{"type": "horizontal_rule", "x": 10, "y": 100, "w": 200, "h": 1, "thickness": 0.5, "color": "#ff0000"}]
@@ -137,6 +184,31 @@ class TestGeneratePagx:
         elems = [{"type": "title", "x": 10, "y": 5, "w": 100, "h": 15, "text": "My Map"}]
         result = generate_pagx(self.page, elems)
         assert "My Map" in result
+        assert "<HorizontalAlignment>Center</HorizontalAlignment>" in result
+        assert "<FontStyleName>Bold</FontStyleName>" in result
+
+    def test_subtitle_element(self):
+        elems = [{"type": "subtitle", "x": 10, "y": 20, "w": 100, "h": 12, "text": "Sub"}]
+        result = generate_pagx(self.page, elems)
+        assert "Sub" in result
+        assert "<HorizontalAlignment>Center</HorizontalAlignment>" in result
+        assert "<FontStyleName>Regular</FontStyleName>" in result
+
+    def test_text_element_exports(self):
+        elems = [{"type": "text", "x": 10, "y": 10, "w": 50, "h": 10, "text": "Note"}]
+        result = generate_pagx(self.page, elems)
+        assert "Note" in result
+        assert "<HorizontalAlignment>Left</HorizontalAlignment>" in result
+
+    def test_text_align_right(self):
+        elems = [{"type": "title", "x": 10, "y": 5, "w": 100, "h": 15, "text": "R", "textAlign": "right"}]
+        result = generate_pagx(self.page, elems)
+        assert "<HorizontalAlignment>Right</HorizontalAlignment>" in result
+
+    def test_font_weight_override(self):
+        elems = [{"type": "title", "x": 10, "y": 5, "w": 100, "h": 15, "text": "T", "fontWeight": "normal"}]
+        result = generate_pagx(self.page, elems)
+        assert "<FontStyleName>Regular</FontStyleName>" in result
 
     def test_legend_element(self):
         elems = [{"type": "legend", "x": 200, "y": 20, "w": 60, "h": 80}]
@@ -173,6 +245,8 @@ class TestGeneratePagx:
         elems = [
             {"type": "map_frame", "x": 10, "y": 20, "w": 180, "h": 150},
             {"type": "title", "x": 10, "y": 5, "w": 180, "h": 15, "text": "Title"},
+            {"type": "subtitle", "x": 10, "y": 20, "w": 180, "h": 12, "text": "Subtitle"},
+            {"type": "text", "x": 10, "y": 180, "w": 50, "h": 10, "text": "Note"},
             {"type": "legend", "x": 200, "y": 20, "w": 60, "h": 80},
             {"type": "scale_bar", "x": 10, "y": 190, "w": 60, "h": 10},
             {"type": "north_arrow", "x": 240, "y": 100, "w": 15, "h": 20},

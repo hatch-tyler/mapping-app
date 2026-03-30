@@ -42,6 +42,7 @@ export const DEFAULT_MARGINS = { top: 25.4, right: 25.4, bottom: 25.4, left: 25.
 export const ELEMENT_LABELS: Record<LayoutElement['type'], string> = {
   map_frame: 'Map Frame',
   title: 'Title',
+  subtitle: 'Subtitle',
   legend: 'Legend',
   scale_bar: 'Scale Bar',
   north_arrow: 'North Arrow',
@@ -55,6 +56,7 @@ export const ELEMENT_LABELS: Record<LayoutElement['type'], string> = {
 export const ELEMENT_ICONS: Record<LayoutElement['type'], string> = {
   map_frame: 'M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7',
   title: 'M4 6h16M4 12h8m-8 6h16',
+  subtitle: 'M4 6h16M4 12h12',
   legend: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2',
   scale_bar: 'M4 20h16M4 20V4m0 16h16V4H4',
   north_arrow: 'M5 15l7-13 7 13M12 2v20',
@@ -64,6 +66,10 @@ export const ELEMENT_ICONS: Record<LayoutElement['type'], string> = {
   header_decorator: 'M4 5h16v4H4V5z',
   footer_decorator: 'M4 15h16v4H4v-4z',
 };
+
+export function isTextElement(type: LayoutElement['type']): boolean {
+  return type === 'title' || type === 'subtitle' || type === 'text';
+}
 
 export const MIN_ELEMENT_SIZE = { w: 5, h: 3 }; // mm
 
@@ -88,12 +94,13 @@ export function clampPosition(
 export function getDefaultElement(type: LayoutElement['type'], pageW: number, pageH: number): LayoutElement {
   const defaults: Record<LayoutElement['type'], Partial<LayoutElement>> = {
     map_frame: { x: 25.4, y: 38, w: pageW - 101.6, h: pageH - 63.5 },
-    title: { x: 25.4, y: 12.7, w: pageW - 50.8, h: 19, text: 'Map Title', fontSize: 24 },
+    title: { x: 25.4, y: 12.7, w: pageW - 50.8, h: 19, text: 'Map Title', fontSize: 24, textAlign: 'center', fontWeight: 'bold' },
+    subtitle: { x: 25.4, y: 31.75, w: pageW - 50.8, h: 12.7, text: 'Subtitle', fontSize: 16, textAlign: 'center', fontWeight: 'normal' },
     legend: { x: pageW - 76.2, y: 38, w: 50.8, h: 76.2 },
     scale_bar: { x: 25.4, y: pageH - 25.4, w: 76.2, h: 12.7, units: 'feet' },
     north_arrow: { x: pageW - 38, y: pageH - 50.8, w: 19, h: 25.4 },
     logo: { x: 25.4, y: pageH - 25.4, w: 25.4, h: 19 },
-    text: { x: 25.4, y: pageH - 38, w: 50.8, h: 12.7, text: 'Text' },
+    text: { x: 25.4, y: pageH - 38, w: 50.8, h: 12.7, text: 'Text', fontSize: 12, textAlign: 'left', fontWeight: 'normal' },
     horizontal_rule: { x: 25.4, y: pageH / 2, w: pageW - 50.8, h: 1, thickness: 0.5, color: '#000000' },
     header_decorator: { x: 0, y: 0, w: pageW, h: 12.7, color: '#1e40af' },
     footer_decorator: { x: 0, y: pageH - 12.7, w: pageW, h: 12.7, color: '#1e40af' },

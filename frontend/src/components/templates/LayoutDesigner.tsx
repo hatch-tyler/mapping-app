@@ -16,7 +16,7 @@ interface Props {
 }
 
 const ADDABLE_TYPES: LayoutElement['type'][] = [
-  'map_frame', 'title', 'legend', 'scale_bar', 'north_arrow',
+  'map_frame', 'title', 'subtitle', 'legend', 'scale_bar', 'north_arrow',
   'text', 'logo', 'horizontal_rule', 'header_decorator', 'footer_decorator',
 ];
 

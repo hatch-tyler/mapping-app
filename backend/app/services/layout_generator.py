@@ -27,6 +27,84 @@ def _hex_to_rgb_list(hex_color: str) -> list[int]:
     return [0, 0, 0]
 
 
+_QGIS_HALIGN = {"left": "1", "center": "4", "right": "2"}
+
+
+def _build_qpt_label(
+    layout: Element,
+    elem: dict,
+    idx: int,
+    default_font_size: int = 12,
+    default_halign: str = "left",
+    default_font_weight: str = "normal",
+) -> Element:
+    """Build a QgsLayoutItemLabel for title, subtitle, or text elements."""
+    x, y = elem.get("x", 0), elem.get("y", 0)
+    w, h = elem.get("w", 50), elem.get("h", 20)
+    text = elem.get("text", "")
+    font_size = elem.get("fontSize", default_font_size)
+    halign = _QGIS_HALIGN.get(elem.get("textAlign", default_halign), "1")
+    # Qt font weight: 50=normal, 75=bold
+    weight_str = elem.get("fontWeight", default_font_weight)
+    qt_weight = 75 if weight_str == "bold" else 50
+
+    item = SubElement(layout, "LayoutItem", {
+        "type": "65641",  # QgsLayoutItemLabel
+        "uuid": f"{{00000000-0000-0000-0000-00000000{idx:04d}}}",
+        "position": f"{_mm(x)},{_mm(y)},mm",
+        "size": f"{_mm(w)},{_mm(h)},mm",
+        "labelText": text,
+        "halign": halign,
+        "valign": "128",  # Qt::AlignVCenter
+    })
+    font = SubElement(item, "LabelFont")
+    font.set("style", "")
+    font.set("description", f"Arial,{font_size},-1,5,{qt_weight},0,0,0,0,0")
+    return item
+
+
+def _build_pagx_text(
+    elem_container: Element,
+    elem: dict,
+    height_pt: float,
+    name: str = "Text",
+    default_font_size: int = 12,
+    default_halign: str = "Left",
+    default_font_weight: str = "Regular",
+) -> Element:
+    """Build a CIMTextGraphic for title, subtitle, or text elements."""
+    x = elem.get("x", 0) * 2.8346
+    y = elem.get("y", 0) * 2.8346
+    text = elem.get("text", "")
+    font_size = elem.get("fontSize", default_font_size)
+
+    align_map = {"left": "Left", "center": "Center", "right": "Right"}
+    halign = align_map.get(elem.get("textAlign", ""), default_halign)
+
+    weight_str = elem.get("fontWeight", "")
+    if weight_str == "bold":
+        font_style = "Bold"
+    elif weight_str == "normal":
+        font_style = "Regular"
+    else:
+        font_style = default_font_weight
+
+    te = SubElement(elem_container, "CIMGraphicElement")
+    SubElement(te, "Name").text = name
+    graphic = SubElement(te, "Graphic")
+    SubElement(graphic, "xsi:type").text = "typens:CIMTextGraphic"
+    SubElement(graphic, "Text").text = text
+    symbol = SubElement(graphic, "Symbol")
+    SubElement(symbol, "xsi:type").text = "typens:CIMTextSymbol"
+    SubElement(symbol, "Height").text = str(font_size)
+    SubElement(symbol, "FontStyleName").text = font_style
+    SubElement(symbol, "HorizontalAlignment").text = halign
+    anchor = SubElement(te, "Anchor")
+    SubElement(anchor, "X").text = _mm(x)
+    SubElement(anchor, "Y").text = _mm(height_pt - y)
+    return te
+
+
 def generate_qpt(page_config: dict, elements: list[dict], template_name: str = "Map Layout") -> str:
     """Generate QGIS Print Layout Template (.qpt) XML.
 
@@ -78,20 +156,12 @@ def generate_qpt(page_config: dict, elements: list[dict], template_name: str = "
             SubElement(item, "LayoutObject")
 
         elif elem_type == "title":
-            text = elem.get("text", "Map Title")
-            font_size = elem.get("fontSize", 24)
-            item = SubElement(layout, "LayoutItem", {
-                "type": "65641",  # QgsLayoutItemLabel
-                "uuid": "{00000000-0000-0000-0000-000000000020}",
-                "position": f"{_mm(x)},{_mm(y)},mm",
-                "size": f"{_mm(w)},{_mm(h)},mm",
-                "labelText": text,
-                "halign": "4",  # Center
-                "valign": "128",  # Center
-            })
-            font = SubElement(item, "LabelFont")
-            font.set("style", "")
-            font.set("description", f"Arial,{font_size},-1,5,75,0,0,0,0,0")
+            _build_qpt_label(layout, elem, elements.index(elem),
+                             default_font_size=24, default_halign="center", default_font_weight="bold")
+
+        elif elem_type == "subtitle":
+            _build_qpt_label(layout, elem, elements.index(elem),
+                             default_font_size=16, default_halign="center", default_font_weight="normal")
 
         elif elem_type == "legend":
             item = SubElement(layout, "LayoutItem", {
@@ -137,14 +207,8 @@ def generate_qpt(page_config: dict, elements: list[dict], template_name: str = "
             SubElement(item, "LayoutObject")
 
         elif elem_type == "text":
-            text_content = elem.get("text", "")
-            item = SubElement(layout, "LayoutItem", {
-                "type": "65641",  # QgsLayoutItemLabel
-                "uuid": f"{{00000000-0000-0000-0000-00000000007{elements.index(elem)}}}",
-                "position": f"{_mm(x)},{_mm(y)},mm",
-                "size": f"{_mm(w)},{_mm(h)},mm",
-                "labelText": text_content,
-            })
+            _build_qpt_label(layout, elem, elements.index(elem),
+                             default_font_size=12, default_halign="left", default_font_weight="normal")
 
         elif elem_type == "horizontal_rule":
             thickness = elem.get("thickness", 0.5)
@@ -221,18 +285,16 @@ def generate_pagx(page_config: dict, elements: list[dict], template_name: str = 
             SubElement(mf, "Height").text = _mm(h)
 
         elif elem_type == "title":
-            text = elem.get("text", "Map Title")
-            font_size = elem.get("fontSize", 24)
-            te = SubElement(elem_container, "CIMGraphicElement")
-            SubElement(te, "Name").text = "Title"
-            graphic = SubElement(te, "Graphic")
-            SubElement(graphic, "xsi:type").text = "typens:CIMTextGraphic"
-            SubElement(graphic, "Text").text = text
-            symbol = SubElement(graphic, "Symbol")
-            SubElement(symbol, "Height").text = str(font_size)
-            anchor = SubElement(te, "Anchor")
-            SubElement(anchor, "X").text = _mm(x)
-            SubElement(anchor, "Y").text = _mm(height_pt - y)
+            _build_pagx_text(elem_container, elem, height_pt,
+                             name="Title", default_font_size=24, default_halign="Center", default_font_weight="Bold")
+
+        elif elem_type == "subtitle":
+            _build_pagx_text(elem_container, elem, height_pt,
+                             name="Subtitle", default_font_size=16, default_halign="Center", default_font_weight="Regular")
+
+        elif elem_type == "text":
+            _build_pagx_text(elem_container, elem, height_pt,
+                             name="Text", default_font_size=12, default_halign="Left", default_font_weight="Regular")
 
         elif elem_type == "legend":
             le = SubElement(elem_container, "CIMLegend")

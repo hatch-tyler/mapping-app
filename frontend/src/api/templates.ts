@@ -25,6 +25,7 @@ export interface LayoutElement {
   type:
     | 'map_frame'
     | 'title'
+    | 'subtitle'
     | 'legend'
     | 'scale_bar'
     | 'north_arrow'
@@ -39,6 +40,8 @@ export interface LayoutElement {
   h: number;
   text?: string;
   fontSize?: number;
+  textAlign?: 'left' | 'center' | 'right';
+  fontWeight?: 'normal' | 'bold';
   units?: string;
   color?: string;
   thickness?: number;

@@ -93,7 +93,7 @@ export function PropertiesPanel({
         </div>
 
         {/* Type-specific properties */}
-        {(selectedElement.type === 'title' || selectedElement.type === 'text') && (
+        {(selectedElement.type === 'title' || selectedElement.type === 'subtitle' || selectedElement.type === 'text') && (
           <div>
             <p className="text-[10px] font-semibold text-gray-500 mb-1">Text</p>
             <textarea
@@ -106,10 +106,56 @@ export function PropertiesPanel({
               <label className="block text-[10px] font-medium text-gray-500">Font Size</label>
               <input
                 type="number"
-                value={selectedElement.fontSize || 12}
+                value={selectedElement.fontSize || (selectedElement.type === 'title' ? 24 : selectedElement.type === 'subtitle' ? 16 : 12)}
                 onChange={(e) => onUpdateElement(selectedIndex, { fontSize: parseInt(e.target.value) || 12 })}
                 className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
+            </div>
+            <div className="mt-1">
+              <label className="block text-[10px] font-medium text-gray-500">Alignment</label>
+              <div className="flex rounded overflow-hidden border border-gray-300 mt-0.5">
+                {(['left', 'center', 'right'] as const).map((align) => {
+                  const defaultAlign = selectedElement.type === 'text' ? 'left' : 'center';
+                  const isActive = (selectedElement.textAlign || defaultAlign) === align;
+                  return (
+                    <button
+                      key={align}
+                      onClick={() => onUpdateElement(selectedIndex, { textAlign: align })}
+                      className={`flex-1 px-2 py-1 text-xs font-medium ${
+                        isActive ? 'bg-blue-600 text-white' : 'bg-white text-gray-600 hover:bg-gray-50'
+                      }`}
+                      title={`Align ${align}`}
+                    >
+                      <svg className="w-3 h-3 mx-auto" viewBox="0 0 16 16" fill="currentColor">
+                        {align === 'left' && <><rect x="1" y="2" width="14" height="1.5" /><rect x="1" y="6" width="10" height="1.5" /><rect x="1" y="10" width="12" height="1.5" /><rect x="1" y="14" width="8" height="1.5" /></>}
+                        {align === 'center' && <><rect x="1" y="2" width="14" height="1.5" /><rect x="3" y="6" width="10" height="1.5" /><rect x="2" y="10" width="12" height="1.5" /><rect x="4" y="14" width="8" height="1.5" /></>}
+                        {align === 'right' && <><rect x="1" y="2" width="14" height="1.5" /><rect x="5" y="6" width="10" height="1.5" /><rect x="3" y="10" width="12" height="1.5" /><rect x="7" y="14" width="8" height="1.5" /></>}
+                      </svg>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mt-1">
+              <label className="block text-[10px] font-medium text-gray-500">Bold</label>
+              {(() => {
+                const defaultWeight = selectedElement.type === 'title' ? 'bold' : 'normal';
+                const currentWeight = selectedElement.fontWeight || defaultWeight;
+                return (
+                  <button
+                    onClick={() => onUpdateElement(selectedIndex, {
+                      fontWeight: currentWeight === 'bold' ? 'normal' : 'bold'
+                    })}
+                    className={`px-2 py-1 text-xs font-bold border rounded mt-0.5 ${
+                      currentWeight === 'bold'
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    B
+                  </button>
+                );
+              })()}
             </div>
           </div>
         )}

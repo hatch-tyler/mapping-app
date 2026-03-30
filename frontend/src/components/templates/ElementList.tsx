@@ -62,7 +62,7 @@ export function ElementList({ elements, selectedIndex, onSelect, onReorder, onDe
             <path d={ELEMENT_ICONS[elem.type]} />
           </svg>
           <span className="flex-1 truncate text-[11px]">
-            {elem.type === 'title' || elem.type === 'text'
+            {elem.type === 'title' || elem.type === 'subtitle' || elem.type === 'text'
               ? (elem.text || ELEMENT_LABELS[elem.type])
               : ELEMENT_LABELS[elem.type]}
           </span>

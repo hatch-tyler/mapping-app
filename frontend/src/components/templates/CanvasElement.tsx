@@ -98,23 +98,27 @@ export function CanvasElement({ element, index, scale, isSelected, pageW, pageH,
       );
     }
 
-    if (type === 'title') {
-      const fontSize = Math.max(8, Math.min(32, (element.fontSize || 24) * scale * 0.6));
-      return (
-        <div className="w-full h-full flex items-center justify-center px-1 overflow-hidden">
-          <span className="font-bold text-gray-800 truncate" style={{ fontSize: `${fontSize}px` }}>
-            {element.text || 'Map Title'}
-          </span>
-        </div>
-      );
-    }
+    if (type === 'title' || type === 'subtitle' || type === 'text') {
+      const defaultFontSize = type === 'title' ? 24 : type === 'subtitle' ? 16 : 12;
+      const defaultFontWeight = type === 'title' ? 'bold' : 'normal';
+      const defaultAlign = type === 'text' ? 'left' : 'center';
+      const defaultText = type === 'title' ? 'Map Title' : type === 'subtitle' ? 'Subtitle' : 'Text';
 
-    if (type === 'text') {
-      const fontSize = Math.max(6, Math.min(20, (element.fontSize || 12) * scale * 0.6));
+      const fontSize = Math.max(6, Math.min(32, (element.fontSize || defaultFontSize) * scale * 0.6));
+      const fontWeight = element.fontWeight || defaultFontWeight;
+      const textAlign = element.textAlign || defaultAlign;
+      const justifyMap = { left: 'flex-start', center: 'center', right: 'flex-end' } as const;
+
       return (
-        <div className="w-full h-full flex items-start p-1 overflow-hidden">
-          <span className="text-gray-700 truncate" style={{ fontSize: `${fontSize}px` }}>
-            {element.text || 'Text'}
+        <div
+          className="w-full h-full flex items-center px-1 overflow-hidden"
+          style={{ justifyContent: justifyMap[textAlign] }}
+        >
+          <span
+            className="text-gray-800 truncate"
+            style={{ fontSize: `${fontSize}px`, fontWeight }}
+          >
+            {element.text || defaultText}
           </span>
         </div>
       );
