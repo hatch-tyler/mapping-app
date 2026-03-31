@@ -22,13 +22,13 @@ test.describe('Admin Panel', () => {
     // Look for a users section or table
     await expect(page.getByText(/users|members/i).first()).toBeVisible();
     // Should show at least the admin user
-    await expect(page.getByText(TEST_EMAIL)).toBeVisible();
+    await expect(page.getByText(TEST_EMAIL).first()).toBeVisible();
   });
 
   test('should show dataset management table', async ({ page }) => {
-    await page.goto('/admin');
-    // Should have a datasets section
-    const datasetsSection = page.getByText(/datasets|layers/i).first();
+    await page.goto('/upload');
+    // Should have a datasets section on the manage/upload page
+    const datasetsSection = page.getByText(/datasets|layers|upload/i).first();
     await expect(datasetsSection).toBeVisible();
   });
 

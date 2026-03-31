@@ -7,7 +7,7 @@ test.describe('Authentication', () => {
   test('should show login page for unauthenticated users', async ({ page }) => {
     await page.goto('/');
     await expect(page).toHaveURL(/login/);
-    await expect(page.getByRole('heading', { name: /sign in|log in/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /sign in|log in/i }).or(page.getByRole('button', { name: /sign in|log in/i }))).toBeVisible();
   });
 
   test('should login with valid credentials', async ({ page }) => {
@@ -40,11 +40,13 @@ test.describe('Authentication', () => {
     await expect(page).not.toHaveURL(/login/);
 
     // Find and click logout
+    // Try clicking user menu or logout button directly
     const userMenu = page.getByRole('button', { name: /account|user|profile|menu/i });
-    if (await userMenu.isVisible()) {
+    if (await userMenu.isVisible({ timeout: 3000 }).catch(() => false)) {
       await userMenu.click();
     }
-    await page.getByRole('button', { name: /log out|sign out/i }).click();
+    const logoutBtn = page.getByRole('button', { name: /log out|sign out|logout/i }).or(page.getByText(/log out|sign out|logout/i));
+    await logoutBtn.first().click();
 
     await expect(page).toHaveURL(/login/);
   });

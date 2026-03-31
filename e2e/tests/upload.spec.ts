@@ -15,19 +15,19 @@ test.describe('Data Upload', () => {
 
   test('should navigate to upload/data manager page', async ({ page }) => {
     await page.goto('/upload');
-    await expect(page.getByText(/upload|data manager|import/i)).toBeVisible();
+    await expect(page.getByText(/upload|data manager/i).first()).toBeVisible();
   });
 
   test('should show upload form with file input', async ({ page }) => {
     await page.goto('/upload');
     // Should have a file input or drag-and-drop area
-    const fileInput = page.locator('input[type="file"]');
+    const fileInput = page.locator('input[type="file"]').first();
     await expect(fileInput).toBeAttached();
   });
 
   test('should reject unsupported file formats', async ({ page }) => {
     await page.goto('/upload');
-    const fileInput = page.locator('input[type="file"]');
+    const fileInput = page.locator('input[type="file"]').first();
 
     // Create a dummy text file
     await fileInput.setInputFiles({
@@ -42,7 +42,7 @@ test.describe('Data Upload', () => {
 
   test('should upload a GeoJSON file', async ({ page }) => {
     await page.goto('/upload');
-    const fileInput = page.locator('input[type="file"]');
+    const fileInput = page.locator('input[type="file"]').first();
 
     const geojson = JSON.stringify({
       type: 'FeatureCollection',

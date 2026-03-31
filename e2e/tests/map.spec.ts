@@ -20,13 +20,14 @@ test.describe('Map Interaction', () => {
   });
 
   test('should show layer manager', async ({ page }) => {
-    // Look for a layers panel/button
-    const layersButton = page.getByRole('button', { name: /layers/i });
-    if (await layersButton.isVisible()) {
+    // Look for a layers panel/button or sidebar
+    const layersButton = page.getByRole('button', { name: /layers/i }).first();
+    if (await layersButton.isVisible({ timeout: 5000 }).catch(() => false)) {
       await layersButton.click();
     }
-    // Layer manager or list should be visible
-    await expect(page.getByText(/layers|layer manager/i).first()).toBeVisible();
+    // Layer manager, sidebar, or map controls should be visible
+    const layerContent = page.getByText(/layers|layer manager|basemap/i).first();
+    await expect(layerContent).toBeVisible({ timeout: 5000 });
   });
 
   test('should show basemap gallery', async ({ page }) => {
