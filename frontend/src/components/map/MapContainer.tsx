@@ -6,7 +6,6 @@ import { useMapStore } from '../../stores/mapStore';
 import { useDatasetStore } from '../../stores/datasetStore';
 import { createLayerFromDataset } from '../../utils/layerFactory';
 import { createClusteredLayer, shouldUseClustering, clearClusterCache } from '../../utils/clusterLayer';
-import { BasemapGallery } from './BasemapGallery';
 import { FeatureDetailPanel } from './FeatureDetailPanel';
 import { MeasureTool } from './MeasureTool';
 import { MapControls, MapWarnings } from './MapControls';
@@ -241,7 +240,6 @@ export function MapContainer() {
       >
         <Map mapStyle={mapStyle} preserveDrawingBuffer={true} />
       </DeckGL>
-      <BasemapGallery />
       <FeatureDetailPanel />
       <MapControls
         showMeasure={showMeasure}

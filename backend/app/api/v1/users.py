@@ -62,20 +62,33 @@ async def change_password(
     return {"message": "Password changed successfully"}
 
 
-@router.get("/", response_model=list[UserResponse])
+@router.get("/")
 async def list_users(
     skip: int = 0,
     limit: int = 100,
-    role: str | None = Query(None, description="Filter by role"),
-    is_active: bool | None = Query(None, description="Filter by active status"),
+    role: str | None = Query(None, description="Filter by role (admin only)"),
+    is_active: bool | None = Query(None, description="Filter by active status (admin only)"),
     search: str | None = Query(None, description="Search by email or name"),
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_admin_user),
+    current_user: User = Depends(get_current_user),
 ):
+    is_admin = current_user.role == "admin" or current_user.is_admin
+    # Non-admins only see active users and cannot filter by role/status
     users = await user_crud.get_users(
-        db, skip=skip, limit=limit, role=role, is_active=is_active, search=search
+        db,
+        skip=skip,
+        limit=limit,
+        role=role if is_admin else None,
+        is_active=is_active if is_admin else True,
+        search=search,
     )
-    return users
+    if is_admin:
+        return users
+    # Non-admins get a limited response (id, email, full_name only)
+    return [
+        {"id": u.id, "email": u.email, "full_name": u.full_name}
+        for u in users
+    ]
 
 
 @router.get("/{user_id}", response_model=UserResponse)

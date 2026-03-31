@@ -135,10 +135,18 @@ class TestListUsers:
     async def test_list_users_as_regular_user(
         self, client: AsyncClient, auth_headers: dict
     ):
-        """Test that regular users cannot list all users."""
+        """Test that regular users get a limited user list (no admin fields)."""
         response = await client.get("/api/v1/users/", headers=auth_headers)
 
-        assert response.status_code == 403
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data) > 0
+        # Non-admins should not see admin-sensitive fields
+        for user in data:
+            assert "id" in user
+            assert "email" in user
+            assert "is_admin" not in user
+            assert "role" not in user
 
     @pytest.mark.asyncio
     async def test_list_users_unauthorized(self, client: AsyncClient):

@@ -1,51 +1,12 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback } from 'react';
 import { useMapStore, AVAILABLE_BASEMAPS, Basemap } from '../../stores/mapStore';
 
-export function BasemapGallery() {
-  const {
-    currentBasemap,
-    isBasemapGalleryOpen,
-    setBasemap,
-    toggleBasemapGallery,
-    setBasemapGalleryOpen,
-  } = useMapStore();
+interface BasemapGalleryProps {
+  inline?: boolean;
+}
 
-  const galleryRef = useRef<HTMLDivElement>(null);
-
-  // Close gallery when clicking outside
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (
-        galleryRef.current &&
-        !galleryRef.current.contains(event.target as Node)
-      ) {
-        setBasemapGalleryOpen(false);
-      }
-    }
-
-    if (isBasemapGalleryOpen) {
-      document.addEventListener('mousedown', handleClickOutside);
-      return () => {
-        document.removeEventListener('mousedown', handleClickOutside);
-      };
-    }
-  }, [isBasemapGalleryOpen, setBasemapGalleryOpen]);
-
-  // Close on escape key
-  useEffect(() => {
-    function handleEscape(event: KeyboardEvent) {
-      if (event.key === 'Escape') {
-        setBasemapGalleryOpen(false);
-      }
-    }
-
-    if (isBasemapGalleryOpen) {
-      document.addEventListener('keydown', handleEscape);
-      return () => {
-        document.removeEventListener('keydown', handleEscape);
-      };
-    }
-  }, [isBasemapGalleryOpen, setBasemapGalleryOpen]);
+export function BasemapGallery({ inline = false }: BasemapGalleryProps) {
+  const { currentBasemap, setBasemap } = useMapStore();
 
   const handleBasemapSelect = useCallback(
     (basemap: Basemap) => {
@@ -54,112 +15,70 @@ export function BasemapGallery() {
     [setBasemap]
   );
 
-  return (
-    <div ref={galleryRef} className="basemap-gallery-container">
-      {/* Toggle Button */}
-      <button
-        onClick={toggleBasemapGallery}
-        className="basemap-toggle-btn"
-        title="Change basemap"
-        aria-label="Open basemap gallery"
-        aria-expanded={isBasemapGalleryOpen}
-      >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
+  const gridContent = (
+    <div className={inline ? "grid grid-cols-2 gap-3 p-3" : "basemap-gallery-grid"}>
+      {AVAILABLE_BASEMAPS.map((basemap) => (
+        <button
+          key={basemap.id}
+          onClick={() => handleBasemapSelect(basemap)}
+          className={inline
+            ? `flex flex-col items-center gap-1.5 p-2 rounded-lg border-2 transition-colors ${
+                currentBasemap.id === basemap.id
+                  ? 'border-blue-500 bg-blue-50'
+                  : 'border-transparent hover:bg-gray-50'
+              }`
+            : `basemap-item ${currentBasemap.id === basemap.id ? 'basemap-item-selected' : ''}`
+          }
+          aria-pressed={currentBasemap.id === basemap.id}
         >
-          <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
-          <line x1="8" y1="2" x2="8" y2="18" />
-          <line x1="16" y1="6" x2="16" y2="22" />
-        </svg>
-      </button>
-
-      {/* Gallery Panel */}
-      {isBasemapGalleryOpen && (
-        <div className="basemap-gallery-panel">
-          <div className="basemap-gallery-header">
-            <h3>Basemap Gallery</h3>
-            <button
-              onClick={() => setBasemapGalleryOpen(false)}
-              className="basemap-gallery-close"
-              aria-label="Close basemap gallery"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
+          <div className={inline ? "w-full aspect-[16/10] rounded overflow-hidden bg-gray-100" : "basemap-thumbnail"}>
+            <img
+              src={basemap.thumbnail}
+              alt={basemap.name}
+              crossOrigin="anonymous"
+              loading="lazy"
+              className={inline ? "w-full h-full object-cover" : undefined}
+              onError={(e) => {
+                const el = e.target as HTMLImageElement;
+                el.style.display = 'none';
+                const parent = el.parentElement;
+                if (parent && !parent.querySelector('.basemap-fallback')) {
+                  const fallback = document.createElement('div');
+                  fallback.className = 'basemap-fallback';
+                  fallback.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#e5e7eb;border-radius:6px;font-size:11px;color:#6b7280;font-weight:500;';
+                  fallback.textContent = basemap.name;
+                  parent.appendChild(fallback);
+                }
+              }}
+            />
+          </div>
+          <span className={inline ? "text-xs font-medium text-gray-700" : "basemap-name"}>{basemap.name}</span>
+          {currentBasemap.id === basemap.id && (
+            <div className={inline ? "absolute top-1 right-1 w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center" : "basemap-check"}>
+              <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="20 6 9 17 4 12" />
               </svg>
-            </button>
-          </div>
-          <div className="basemap-gallery-grid">
-            {AVAILABLE_BASEMAPS.map((basemap) => (
-              <button
-                key={basemap.id}
-                onClick={() => handleBasemapSelect(basemap)}
-                className={`basemap-item ${
-                  currentBasemap.id === basemap.id ? 'basemap-item-selected' : ''
-                }`}
-                aria-pressed={currentBasemap.id === basemap.id}
-              >
-                <div className="basemap-thumbnail">
-                  <img
-                    src={basemap.thumbnail}
-                    alt={basemap.name}
-                    crossOrigin="anonymous"
-                    loading="lazy"
-                    onError={(e) => {
-                      const el = e.target as HTMLImageElement;
-                      el.style.display = 'none';
-                      const parent = el.parentElement;
-                      if (parent && !parent.querySelector('.basemap-fallback')) {
-                        const fallback = document.createElement('div');
-                        fallback.className = 'basemap-fallback';
-                        fallback.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#e5e7eb;border-radius:6px;font-size:11px;color:#6b7280;font-weight:500;';
-                        fallback.textContent = basemap.name;
-                        parent.appendChild(fallback);
-                      }
-                    }}
-                  />
-                </div>
-                <span className="basemap-name">{basemap.name}</span>
-                {currentBasemap.id === basemap.id && (
-                  <div className="basemap-check">
-                    <svg
-                      xmlns="http://www.w3.org/2000/svg"
-                      width="14"
-                      height="14"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <polyline points="20 6 9 17 4 12" />
-                    </svg>
-                  </div>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+            </div>
+          )}
+        </button>
+      ))}
     </div>
   );
+
+  if (inline) {
+    return (
+      <div className="absolute top-12 left-11 bottom-0 w-[340px] bg-white/95 backdrop-blur-sm border-r border-gray-200 z-10 flex flex-col">
+        <div className="px-3 py-2 border-b border-gray-200 shrink-0">
+          <h3 className="text-sm font-semibold text-gray-800">Basemaps</h3>
+          <p className="text-xs text-gray-500 mt-0.5">Current: {currentBasemap.name}</p>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {gridContent}
+        </div>
+      </div>
+    );
+  }
+
+  // Legacy floating mode (not used when toolbar is active)
+  return null;
 }

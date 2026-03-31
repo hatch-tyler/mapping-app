@@ -28,10 +28,7 @@ vi.mock('../../utils/layerFactory', () => ({
   })),
 }));
 
-// Mock the BasemapGallery component
-vi.mock('./BasemapGallery', () => ({
-  BasemapGallery: () => <div data-testid="basemap-gallery">Basemap Gallery</div>,
-}));
+// BasemapGallery is now rendered in MapToolbar, not MapContainer
 
 const mockViewState = {
   longitude: -98.5795,
@@ -162,12 +159,6 @@ describe('MapContainer', () => {
     render(<MapContainer />);
 
     expect(screen.getByTestId('deckgl-container')).toBeInTheDocument();
-  });
-
-  it('should render the basemap gallery', () => {
-    render(<MapContainer />);
-
-    expect(screen.getByTestId('basemap-gallery')).toBeInTheDocument();
   });
 
   it('should render when datasets array is empty', () => {

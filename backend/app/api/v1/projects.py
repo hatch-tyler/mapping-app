@@ -132,6 +132,25 @@ def _check_project_permission(project, current_user: User) -> None:
         )
 
 
+async def _check_project_manage_permission(project, current_user: User, db) -> None:
+    """Check if user can manage project members.
+
+    Allowed for: global admins, global editors who created the project,
+    or project-level owners.
+    """
+    if current_user.role == "admin" or current_user.is_admin:
+        return
+    if current_user.role == "editor" and project.created_by_id == current_user.id:
+        return
+    member = await project_crud.get_project_member(db, project.id, current_user.id)
+    if member and member.role == "owner":
+        return
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Only project owners and admins can manage project members",
+    )
+
+
 @router.put("/{project_id}", response_model=ProjectResponse)
 async def update_project(
     project_id: UUID,
@@ -174,14 +193,14 @@ async def add_member(
     project_id: UUID,
     request: AddMemberRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_editor_or_admin_user),
+    current_user: User = Depends(get_current_user),
 ):
     project = await project_crud.get_project(db, project_id)
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
         )
-    _check_project_permission(project, current_user)
+    await _check_project_manage_permission(project, current_user, db)
 
     # Verify user exists
     user = await user_crud.get_user(db, request.user_id)
@@ -216,14 +235,14 @@ async def update_member(
     user_id: UUID,
     request: UpdateMemberRequest,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_editor_or_admin_user),
+    current_user: User = Depends(get_current_user),
 ):
     project = await project_crud.get_project(db, project_id)
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
         )
-    _check_project_permission(project, current_user)
+    await _check_project_manage_permission(project, current_user, db)
 
     member = await project_crud.get_project_member(db, project_id, user_id)
     if not member:
@@ -245,14 +264,14 @@ async def remove_member(
     project_id: UUID,
     user_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_editor_or_admin_user),
+    current_user: User = Depends(get_current_user),
 ):
     project = await project_crud.get_project(db, project_id)
     if not project:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Project not found"
         )
-    _check_project_permission(project, current_user)
+    await _check_project_manage_permission(project, current_user, db)
 
     member = await project_crud.get_project_member(db, project_id, user_id)
     if not member:

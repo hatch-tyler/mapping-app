@@ -1,11 +1,12 @@
 import { useState, useCallback } from 'react';
 import { LayerManager } from './LayerManager';
 import { LegendPanel } from './LegendPanel';
+import { BasemapGallery } from './BasemapGallery';
 import { useMapStore } from '@/stores/mapStore';
 import { useToastStore } from '@/stores/toastStore';
 import * as templatesApi from '@/api/templates';
 
-type PanelType = 'layers' | 'legend' | null;
+type PanelType = 'layers' | 'legend' | 'basemap' | null;
 
 export function MapToolbar() {
   const [activePanel, setActivePanel] = useState<PanelType>('layers');
@@ -67,6 +68,17 @@ export function MapToolbar() {
           <circle cx="4" cy="10" r="1" fill="currentColor" />
           <circle cx="4" cy="14" r="1" fill="currentColor" />
           <circle cx="4" cy="18" r="1" fill="currentColor" />
+        </svg>
+      ),
+    },
+    {
+      id: 'basemap' as const,
+      title: 'Basemaps',
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+          <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+          <line x1="8" y1="2" x2="8" y2="18" />
+          <line x1="16" y1="6" x2="16" y2="22" />
         </svg>
       ),
     },
@@ -137,6 +149,7 @@ export function MapToolbar() {
       {/* Sliding Panels */}
       {activePanel === 'layers' && <LayerManager />}
       {activePanel === 'legend' && <LegendPanel />}
+      {activePanel === 'basemap' && <BasemapGallery inline />}
     </>
   );
 }
