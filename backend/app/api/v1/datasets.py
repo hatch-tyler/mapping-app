@@ -51,7 +51,6 @@ from app.models.dataset import Dataset
 
 from app.utils.sql_validation import validate_table_name as _validate_table_name
 
-
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
 

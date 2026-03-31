@@ -67,7 +67,9 @@ async def list_users(
     skip: int = 0,
     limit: int = 100,
     role: str | None = Query(None, description="Filter by role (admin only)"),
-    is_active: bool | None = Query(None, description="Filter by active status (admin only)"),
+    is_active: bool | None = Query(
+        None, description="Filter by active status (admin only)"
+    ),
     search: str | None = Query(None, description="Search by email or name"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -85,10 +87,7 @@ async def list_users(
     if is_admin:
         return users
     # Non-admins get a limited response (id, email, full_name only)
-    return [
-        {"id": u.id, "email": u.email, "full_name": u.full_name}
-        for u in users
-    ]
+    return [{"id": u.id, "email": u.email, "full_name": u.full_name} for u in users]
 
 
 @router.get("/{user_id}", response_model=UserResponse)

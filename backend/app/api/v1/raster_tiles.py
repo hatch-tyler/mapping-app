@@ -38,7 +38,9 @@ def _render_tile(file_path: str, z: int, x: int, y: int) -> bytes | None:
     except TileOutsideBounds:
         return None
     except Exception:
-        logger.debug("Tile render error for %s/%s/%s/%s", file_path, z, x, y, exc_info=True)
+        logger.debug(
+            "Tile render error for %s/%s/%s/%s", file_path, z, x, y, exc_info=True
+        )
         return None
 
 
@@ -97,9 +99,7 @@ async def get_raster_tile(
         )
 
     # Render tile in thread pool (rio-tiler uses blocking I/O)
-    tile_data = await asyncio.to_thread(
-        _render_tile, dataset.file_path, z, x, y
-    )
+    tile_data = await asyncio.to_thread(_render_tile, dataset.file_path, z, x, y)
 
     headers = _get_tile_cors_headers()
     headers["Cache-Control"] = "public, max-age=86400"

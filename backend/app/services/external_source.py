@@ -37,6 +37,7 @@ def _validate_url_not_internal(url: str) -> None:
                 "Requests to private/internal networks are not allowed."
             )
 
+
 # ArcGIS WKID values that mean Web Mercator (EPSG:3857)
 _WEB_MERCATOR_WKIDS = {3857, 102100, 102113, 900913}
 

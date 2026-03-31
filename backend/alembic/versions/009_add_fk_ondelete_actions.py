@@ -18,9 +18,7 @@ depends_on: Union[str, Sequence[str], None] = None
 
 def upgrade() -> None:
     # datasets.created_by_id
-    op.drop_constraint(
-        "datasets_created_by_id_fkey", "datasets", type_="foreignkey"
-    )
+    op.drop_constraint("datasets_created_by_id_fkey", "datasets", type_="foreignkey")
     op.create_foreign_key(
         "datasets_created_by_id_fkey",
         "datasets",
@@ -31,9 +29,7 @@ def upgrade() -> None:
     )
 
     # projects.created_by_id
-    op.drop_constraint(
-        "projects_created_by_id_fkey", "projects", type_="foreignkey"
-    )
+    op.drop_constraint("projects_created_by_id_fkey", "projects", type_="foreignkey")
     op.create_foreign_key(
         "projects_created_by_id_fkey",
         "projects",
@@ -83,6 +79,4 @@ def downgrade() -> None:
         ("service_catalogs", "service_catalogs_created_by_id_fkey"),
     ]:
         op.drop_constraint(constraint, table, type_="foreignkey")
-        op.create_foreign_key(
-            constraint, table, "users", ["created_by_id"], ["id"]
-        )
+        op.create_foreign_key(constraint, table, "users", ["created_by_id"], ["id"])

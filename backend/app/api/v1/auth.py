@@ -47,7 +47,11 @@ async def login(
         )
 
     if not user.is_active:
-        logger.warning("Login attempt for inactive account email=%s user_id=%s", login_data.email, user.id)
+        logger.warning(
+            "Login attempt for inactive account email=%s user_id=%s",
+            login_data.email,
+            user.id,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive",

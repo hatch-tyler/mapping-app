@@ -615,9 +615,7 @@ async def query_features(
         if sort_field == "id":
             order_sql = f"id {safe_order}"
         elif _validate_field_name(sort_field):
-            order_sql = (
-                f"properties->>'{_escape_field_name(sort_field)}' {safe_order}"
-            )
+            order_sql = f"properties->>'{_escape_field_name(sort_field)}' {safe_order}"
 
     # Calculate offset
     offset = (page - 1) * page_size

@@ -508,7 +508,9 @@ class FileProcessor:
                 try:
                     shutil.rmtree(str(parent))
                 except Exception as cleanup_err:
-                    logger.warning("Failed to clean up processing dir %s: %s", parent, cleanup_err)
+                    logger.warning(
+                        "Failed to clean up processing dir %s: %s", parent, cleanup_err
+                    )
 
     async def process_raster_background(
         self,
@@ -591,7 +593,9 @@ class FileProcessor:
                 try:
                     shutil.rmtree(str(parent))
                 except Exception as cleanup_err:
-                    logger.warning("Failed to clean up processing dir %s: %s", parent, cleanup_err)
+                    logger.warning(
+                        "Failed to clean up processing dir %s: %s", parent, cleanup_err
+                    )
 
     async def process_raster(
         self,
@@ -679,7 +683,9 @@ class FileProcessor:
                     transformer = Transformer.from_crs(
                         original_crs, "EPSG:4326", always_xy=True
                     )
-                    left, bottom = transformer.transform(src.bounds.left, src.bounds.bottom)
+                    left, bottom = transformer.transform(
+                        src.bounds.left, src.bounds.bottom
+                    )
                     right, top = transformer.transform(src.bounds.right, src.bounds.top)
                     bounds_wgs84 = [left, bottom, right, top]
                 else:
@@ -714,6 +720,7 @@ class FileProcessor:
                 try:
                     with rasterio.open(str(output_path), "r+") as dst:
                         from rasterio.enums import Resampling as RasterResampling
+
                         overview_levels = [2, 4, 8, 16]
                         dst.build_overviews(overview_levels, RasterResampling.nearest)
                         dst.update_tags(ns="rio_overview", resampling="nearest")

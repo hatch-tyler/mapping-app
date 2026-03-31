@@ -59,7 +59,9 @@ async def get_current_admin_user(
 ) -> User:
     if current_user.role != "admin" and not current_user.is_admin:
         security_logger.warning(
-            "Admin access denied for user_id=%s role=%s", current_user.id, current_user.role
+            "Admin access denied for user_id=%s role=%s",
+            current_user.id,
+            current_user.role,
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -73,7 +75,9 @@ async def get_current_editor_or_admin_user(
 ) -> User:
     if current_user.role not in ("admin", "editor"):
         security_logger.warning(
-            "Editor access denied for user_id=%s role=%s", current_user.id, current_user.role
+            "Editor access denied for user_id=%s role=%s",
+            current_user.id,
+            current_user.role,
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

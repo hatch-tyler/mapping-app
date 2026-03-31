@@ -20,9 +20,7 @@ class RateLimiter:
 
     def _cleanup(self, key: str, now: float) -> None:
         cutoff = now - self.window_seconds
-        self._requests[key] = [
-            t for t in self._requests[key] if t > cutoff
-        ]
+        self._requests[key] = [t for t in self._requests[key] if t > cutoff]
 
     def check(self, key: str) -> None:
         now = time.monotonic()
