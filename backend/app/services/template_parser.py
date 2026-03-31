@@ -171,16 +171,152 @@ def parse_qpt(xml_content: str) -> tuple[dict, list[dict]]:
     return page_config, elements
 
 
-def parse_pagx(xml_content: str) -> tuple[dict, list[dict]]:
-    """Parse ArcGIS Pro Layout (.pagx) XML into page_config and elements."""
+def parse_pagx(content: str) -> tuple[dict, list[dict]]:
+    """Parse ArcGIS Pro Layout (.pagx) into page_config and elements.
+
+    Modern .pagx files are JSON (CIMLayoutDocument). Older ones may be XML.
+    This function detects the format and handles both.
+    """
+    import json
+
+    content = content.strip()
+
+    # Detect JSON vs XML
+    if content.startswith("{"):
+        return _parse_pagx_json(json.loads(content))
+    else:
+        return _parse_pagx_xml(content)
+
+
+def _parse_pagx_json(data: dict) -> tuple[dict, list[dict]]:
+    """Parse JSON-format .pagx (ArcGIS Pro 3.x+)."""
+    INCH_TO_MM = 25.4
+
+    layout = data.get("layoutDefinition", {})
+    page = layout.get("page", {})
+
+    # Page dimensions (in inches -> mm)
+    width_in = page.get("width", 11)
+    height_in = page.get("height", 8.5)
+    width_mm = width_in * INCH_TO_MM
+    height_mm = height_in * INCH_TO_MM
+    orientation = "landscape" if width_mm >= height_mm else "portrait"
+
+    page_config = {
+        "width": round(width_mm, 1),
+        "height": round(height_mm, 1),
+        "orientation": orientation,
+    }
+
+    elements: list[dict] = []
+
+    for el in layout.get("elements", []):
+        try:
+            el_type = el.get("type", "")
+            name = el.get("name", "")
+
+            # Extract position from frame.rings polygon (in inches)
+            pos = _pagx_json_position(el, INCH_TO_MM)
+
+            if el_type == "CIMMapFrame":
+                elem = {**pos, "type": "map_frame"}
+                elements.append(elem)
+
+            elif el_type in ("CIMLegend",):
+                elem = {**pos, "type": "legend"}
+                elements.append(elem)
+
+            elif el_type in ("CIMScaleBar", "CIMScaleLine"):
+                elem = {**pos, "type": "scale_bar"}
+                elements.append(elem)
+
+            elif el_type in ("CIMNorthArrow", "CIMMarkerNorthArrow"):
+                elem = {**pos, "type": "north_arrow"}
+                elements.append(elem)
+
+            elif el_type == "CIMGraphicElement":
+                graphic = el.get("graphic", {})
+                gtype = graphic.get("type", "")
+
+                if gtype in ("CIMTextGraphic", "CIMParagraphTextGraphic"):
+                    text = graphic.get("text", "")
+                    # Strip ArcGIS dynamic tags for display
+                    import re
+
+                    clean_text = re.sub(r"<[^>]+>", "", text).strip()
+                    elem = {
+                        **pos,
+                        "type": "text",
+                        "text": clean_text[:200] if clean_text else name,
+                    }
+                    # Extract font info from symbol
+                    symbol = graphic.get("symbol", {}).get("symbol", {})
+                    font_size = _pagx_json_font_size(symbol)
+                    if font_size:
+                        elem["fontSize"] = font_size
+                    elements.append(elem)
+
+                elif gtype == "CIMPictureGraphic":
+                    elem = {**pos, "type": "image", "text": name}
+                    elements.append(elem)
+
+                elif gtype == "CIMPolygonGraphic":
+                    elem = {**pos, "type": "shape", "text": name}
+                    elements.append(elem)
+
+                else:
+                    logger.debug("Skipping unknown graphic type: %s", gtype)
+
+            else:
+                logger.debug("Skipping unknown ArcGIS element: %s", el_type)
+
+        except Exception as e:
+            logger.warning("Failed to parse ArcGIS element %s: %s", el.get("type"), e)
+
+    return page_config, elements
+
+
+def _pagx_json_position(el: dict, inch_to_mm: float) -> dict:
+    """Extract x, y, w, h from a JSON .pagx element's frame.rings."""
+    frame = el.get("frame", {})
+    rings = frame.get("rings", [])
+    if not rings or not rings[0]:
+        return {"x": 0, "y": 0, "w": 25, "h": 25}
+
+    coords = rings[0]
+    xs = [p[0] for p in coords]
+    ys = [p[1] for p in coords]
+    min_x, max_x = min(xs), max(xs)
+    min_y, max_y = min(ys), max(ys)
+
+    return {
+        "x": round(min_x * inch_to_mm, 1),
+        "y": round(min_y * inch_to_mm, 1),
+        "w": round((max_x - min_x) * inch_to_mm, 1),
+        "h": round((max_y - min_y) * inch_to_mm, 1),
+    }
+
+
+def _pagx_json_font_size(symbol: dict) -> int | None:
+    """Extract font size from a CIM text symbol."""
+    layers = symbol.get("symbolLayers", [])
+    for layer in layers:
+        if layer.get("type") == "CIMCharacterMarker":
+            return int(layer.get("size", 12))
+    height = symbol.get("height")
+    if height:
+        return int(height)
+    return None
+
+
+def _parse_pagx_xml(xml_content: str) -> tuple[dict, list[dict]]:
+    """Parse XML-format .pagx (older ArcGIS Pro versions)."""
     root = fromstring(xml_content)
 
-    # Handle namespaces - find the actual namespace URI
     ns = ""
     if root.tag.startswith("{"):
         ns = root.tag.split("}")[0] + "}"
 
-    # Page dimensions (in points -> mm)
     width_pt, height_pt = 279.4 * 2.8346, 215.9 * 2.8346
     page = root.find(f"{ns}Page")
     if page is not None:
@@ -211,7 +347,6 @@ def parse_pagx(xml_content: str) -> tuple[dict, list[dict]]:
             if tag == "CIMMapFrame":
                 elem = _parse_pagx_positioned(child, ns, height_pt)
                 elem["type"] = "map_frame"
-                # Also extract Width/Height if present
                 w_el = child.find(f"{ns}Width")
                 h_el = child.find(f"{ns}Height")
                 if w_el is not None and w_el.text:
@@ -224,7 +359,6 @@ def parse_pagx(xml_content: str) -> tuple[dict, list[dict]]:
                 graphic = child.find(f"{ns}Graphic")
                 if graphic is None:
                     continue
-                # xsi:type uses its own namespace
                 xsi_ns = "{http://www.w3.org/2001/XMLSchema-instance}"
                 gtype_el = graphic.find(f"{xsi_ns}type")
                 if gtype_el is None:
@@ -251,12 +385,12 @@ def parse_pagx(xml_content: str) -> tuple[dict, list[dict]]:
                     elem["h"] = round(float(h_el.text) * PT_TO_MM, 1)
                 elements.append(elem)
 
-            elif tag == "CIMScaleBar":
+            elif tag in ("CIMScaleBar", "CIMScaleLine"):
                 elem = _parse_pagx_positioned(child, ns, height_pt)
                 elem["type"] = "scale_bar"
                 elements.append(elem)
 
-            elif tag == "CIMNorthArrow":
+            elif tag in ("CIMNorthArrow", "CIMMarkerNorthArrow"):
                 elem = _parse_pagx_positioned(child, ns, height_pt)
                 elem["type"] = "north_arrow"
                 w_el = child.find(f"{ns}Width")
@@ -376,22 +510,22 @@ def _parse_pagx_polygon(
     return elem
 
 
-def parse_template_file(xml_content: str, fmt: str) -> tuple[dict, list[dict]]:
+def parse_template_file(content: str, fmt: str) -> tuple[dict, list[dict]]:
     """Parse a template file into (page_config, elements).
 
     Args:
-        xml_content: Raw XML string
+        content: Raw file content (XML for .qpt, JSON or XML for .pagx)
         fmt: 'qpt' or 'pagx'
 
     Returns:
         Tuple of (page_config dict, elements list)
 
     Raises:
-        ValueError: If format is unsupported or XML is invalid
+        ValueError: If format is unsupported or content is invalid
     """
     if fmt == "qpt":
-        return parse_qpt(xml_content)
+        return parse_qpt(content)
     elif fmt == "pagx":
-        return parse_pagx(xml_content)
+        return parse_pagx(content)
     else:
         raise ValueError(f"Unsupported template format: {fmt}")
