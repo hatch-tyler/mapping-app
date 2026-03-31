@@ -176,6 +176,10 @@ export function getRasterTileUrl(datasetId: string): string {
   return `${API_URL}/api/v1/raster/${datasetId}/tiles/{z}/{x}/{y}.png`;
 }
 
+export function getRasterExportUrl(datasetId: string, format: 'tif' | 'png' | 'jpg'): string {
+  return `${API_URL}/api/v1/export/${datasetId}/raster/${format}`;
+}
+
 export function getMVTTileUrl(datasetId: string): string {
   return `${API_URL}/api/v1/datasets/${datasetId}/tiles/{z}/{x}/{y}.pbf`;
 }

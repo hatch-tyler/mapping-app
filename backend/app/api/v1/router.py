@@ -9,6 +9,8 @@ from app.api.v1 import (
     export,
     registration,
     tiles,
+    raster_tiles,
+    raster_export,
     projects,
     external_sources,
     templates,
@@ -24,6 +26,8 @@ api_router.include_router(wfs.router)
 api_router.include_router(export.router)
 api_router.include_router(registration.router)
 api_router.include_router(tiles.router)
+api_router.include_router(raster_tiles.router)
+api_router.include_router(raster_export.router)
 api_router.include_router(projects.router)
 api_router.include_router(external_sources.router)
 api_router.include_router(templates.router)

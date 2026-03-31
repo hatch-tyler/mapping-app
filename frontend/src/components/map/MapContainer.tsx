@@ -237,8 +237,9 @@ export function MapContainer() {
         layers={layers}
         onClick={onClick}
         getTooltip={getTooltip}
+        glOptions={{ preserveDrawingBuffer: true }}
       >
-        <Map mapStyle={mapStyle} />
+        <Map mapStyle={mapStyle} preserveDrawingBuffer={true} />
       </DeckGL>
       <BasemapGallery />
       <FeatureDetailPanel />

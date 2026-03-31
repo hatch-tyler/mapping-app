@@ -173,6 +173,17 @@ async def upload_raster(
             detail=f"Unsupported file format: {ext}. Supported: {FileProcessor.SUPPORTED_RASTER} or .zip archive",
         )
 
+    # Sidecar-dependent raster formats cannot be uploaded as bare files
+    sidecar_formats = {".asc", ".bil", ".bip", ".bsq", ".flt"}
+    if ext in sidecar_formats:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=(
+                f"{ext} format requires sidecar files (.prj, .hdr) for spatial reference. "
+                "Please upload as a ZIP archive containing the raster file and all required sidecar files."
+            ),
+        )
+
     # Read file content for hashing
     file_content = await file.read()
     file_hash = hashlib.sha256(file_content).hexdigest()

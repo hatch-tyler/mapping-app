@@ -23,13 +23,30 @@ export function MapControls({ showMeasure, onToggleMeasure, deckRef }: MapContro
       </button>
       <button
         onClick={() => {
-          const canvas = deckRef.current?.querySelector('canvas');
-          if (canvas) {
-            const link = document.createElement('a');
-            link.download = 'map-export.png';
-            link.href = (canvas as HTMLCanvasElement).toDataURL('image/png');
-            link.click();
-          }
+          const container = deckRef.current;
+          if (!container) return;
+
+          // Find all canvases: MapLibre basemap + DeckGL overlay
+          const canvases = container.querySelectorAll('canvas');
+          if (canvases.length === 0) return;
+
+          // Create a compositing canvas
+          const first = canvases[0] as HTMLCanvasElement;
+          const exportCanvas = document.createElement('canvas');
+          exportCanvas.width = first.width;
+          exportCanvas.height = first.height;
+          const ctx = exportCanvas.getContext('2d');
+          if (!ctx) return;
+
+          // Draw each canvas layer in order (basemap first, then DeckGL overlay)
+          canvases.forEach((c) => {
+            ctx.drawImage(c as HTMLCanvasElement, 0, 0);
+          });
+
+          const link = document.createElement('a');
+          link.download = 'map-export.png';
+          link.href = exportCanvas.toDataURL('image/png');
+          link.click();
         }}
         className="p-2 rounded-lg shadow border bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
         title="Export map as PNG"

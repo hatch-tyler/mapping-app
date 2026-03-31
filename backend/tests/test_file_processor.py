@@ -168,9 +168,25 @@ class TestFileProcessorRaster:
             mock_src.bounds = BoundingBox(
                 left=-122.5, bottom=37.5, right=-122.0, top=38.0
             )
-            mock_src.crs = "EPSG:4326"
+            mock_crs = MagicMock()
+            mock_crs.to_epsg.return_value = 4326
+            mock_crs.__str__ = lambda self: "EPSG:4326"
+            mock_crs.__bool__ = lambda self: True
+            mock_src.crs = mock_crs
             mock_src.width = 1000
             mock_src.height = 1000
+            mock_src.count = 1
+            mock_src.dtypes = ("uint8",)
+            mock_src.nodata = None
+            mock_src.profile = {
+                "driver": "GTiff",
+                "dtype": "uint8",
+                "width": 1000,
+                "height": 1000,
+                "count": 1,
+            }
+            mock_src.colormap.side_effect = ValueError("No colormap")
+            mock_src.read.return_value = MagicMock()
 
             mock.open.return_value.__enter__ = MagicMock(return_value=mock_src)
             mock.open.return_value.__exit__ = MagicMock(return_value=False)
@@ -192,15 +208,13 @@ class TestFileProcessorRaster:
                 processor = FileProcessor()
                 dataset_id = uuid.uuid4()
 
-                with patch("app.services.file_processor.shutil.copy"):
-                    result = await processor.process_raster(input_file, dataset_id)
+                result = await processor.process_raster(input_file, dataset_id)
 
         assert "file_path" in result
-        assert "bounds" in result
-        assert len(result["bounds"]) == 4
-        assert result["crs"] == "EPSG:4326"
-        assert result["width"] == 1000
-        assert result["height"] == 1000
+        assert "bounds_wgs84" in result
+        assert len(result["bounds_wgs84"]) == 4
+        assert "metadata" in result
+        assert result["metadata"]["band_count"] == 1
 
 
 class TestNaNHandling:

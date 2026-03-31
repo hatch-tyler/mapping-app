@@ -306,6 +306,39 @@ class FileProcessor:
                         db, job, status="processing", progress=5
                     )
 
+                # Validate shapefile ZIP contents before reading
+                crs_warning = None
+                if str(file_path).lower().endswith(".zip"):
+                    import zipfile
+
+                    with zipfile.ZipFile(str(file_path), "r") as zf:
+                        names_lower = [n.lower() for n in zf.namelist()]
+                        has_shp = any(n.endswith(".shp") for n in names_lower)
+                        if has_shp:
+                            has_shx = any(n.endswith(".shx") for n in names_lower)
+                            has_dbf = any(n.endswith(".dbf") for n in names_lower)
+                            has_prj = any(n.endswith(".prj") for n in names_lower)
+                            missing = []
+                            if not has_shx:
+                                missing.append(".shx")
+                            if not has_dbf:
+                                missing.append(".dbf")
+                            if missing:
+                                raise ValueError(
+                                    f"Shapefile ZIP is missing required files: "
+                                    f"{', '.join(missing)}. A valid shapefile "
+                                    f"requires .shp, .shx, and .dbf files."
+                                )
+                            if not has_prj:
+                                crs_warning = (
+                                    "Shapefile is missing .prj file. Data will be "
+                                    "assumed to be in WGS84 (EPSG:4326) which may "
+                                    "cause misalignment if the actual projection differs."
+                                )
+                                logger.warning(
+                                    "Shapefile ZIP %s missing .prj file", file_path
+                                )
+
                 # Read file in thread pool to avoid blocking event loop
                 gdf = await asyncio.to_thread(gpd.read_file, str(file_path))
 
@@ -421,15 +454,16 @@ class FileProcessor:
                     await db.commit()
 
                 # Mark job completed
+                job_kwargs: dict[str, Any] = {
+                    "status": "completed",
+                    "progress": 100,
+                    "completed_at": datetime.now(timezone.utc),
+                }
+                if crs_warning:
+                    job_kwargs["error_message"] = crs_warning
                 job = await dataset_crud.get_upload_job(db, job_id)
                 if job:
-                    await dataset_crud.update_upload_job(
-                        db,
-                        job,
-                        status="completed",
-                        progress=100,
-                        completed_at=datetime.now(timezone.utc),
-                    )
+                    await dataset_crud.update_upload_job(db, job, **job_kwargs)
 
                 logger.info(
                     "Background vector processing completed: dataset=%s features=%d",
@@ -497,21 +531,35 @@ class FileProcessor:
                     self._process_raster_sync, file_path, dataset_id
                 )
 
-                # Update dataset
+                # Update dataset with file path and raster metadata
                 dataset = await dataset_crud.get_dataset(db, dataset_id)
                 if dataset:
                     dataset.file_path = result["file_path"]
+                    dataset.service_metadata = result.get("metadata", {})
+                    # Store WGS84 bounds for map display
+                    bounds = result.get("bounds_wgs84")
+                    if bounds and len(bounds) == 4:
+                        from geoalchemy2.shape import from_shape
+                        from shapely.geometry import box
+
+                        dataset.bounds = from_shape(
+                            box(bounds[0], bounds[1], bounds[2], bounds[3]),
+                            srid=4326,
+                        )
                     await db.commit()
+
+                # Build job completion message
+                job_kwargs: dict[str, Any] = {
+                    "status": "completed",
+                    "progress": 100,
+                    "completed_at": datetime.now(timezone.utc),
+                }
+                if result.get("crs_warning"):
+                    job_kwargs["error_message"] = result["crs_warning"]
 
                 job = await dataset_crud.get_upload_job(db, job_id)
                 if job:
-                    await dataset_crud.update_upload_job(
-                        db,
-                        job,
-                        status="completed",
-                        progress=100,
-                        completed_at=datetime.now(timezone.utc),
-                    )
+                    await dataset_crud.update_upload_job(db, job, **job_kwargs)
 
                 logger.info(
                     "Background raster processing completed: dataset=%s", dataset_id
@@ -553,34 +601,134 @@ class FileProcessor:
         # Run blocking I/O in a thread pool to avoid blocking the event loop
         return await asyncio.to_thread(self._process_raster_sync, file_path, dataset_id)
 
+    def _extract_raster_from_zip(self, zip_path: Path) -> Path:
+        """Extract a ZIP archive and return the path to the primary raster file."""
+        import zipfile
+
+        extract_dir = zip_path.parent / "extracted"
+        extract_dir.mkdir(exist_ok=True)
+
+        with zipfile.ZipFile(str(zip_path), "r") as zf:
+            zf.extractall(str(extract_dir))
+
+        # Find the primary raster file by extension
+        raster_extensions = {e for e in self.SUPPORTED_RASTER}
+        for f in extract_dir.rglob("*"):
+            if f.suffix.lower() in raster_extensions and not f.name.startswith("."):
+                return f
+
+        raise ValueError(
+            "ZIP archive does not contain a supported raster file. "
+            f"Supported: {', '.join(sorted(raster_extensions))}"
+        )
+
     def _process_raster_sync(
         self,
         file_path: Path,
         dataset_id: uuid.UUID,
     ) -> dict[str, Any]:
-        """Synchronous raster processing (runs in thread pool)."""
+        """Synchronous raster processing (runs in thread pool).
+
+        Converts uploaded rasters to Cloud Optimized GeoTIFF (COG) for
+        efficient tile serving via rio-tiler.
+        """
+        from pyproj import Transformer
+
+        # Handle ZIP archives
+        if file_path.suffix.lower() == ".zip":
+            file_path = self._extract_raster_from_zip(file_path)
+
         output_dir = Path(settings.RASTER_DIR)
         output_dir.mkdir(parents=True, exist_ok=True)
         output_path = output_dir / f"{dataset_id}.tif"
 
-        # For now, just copy the file (in production, convert to COG)
-        # COG conversion requires GDAL which may not be available in all environments
-        shutil.copy(str(file_path), str(output_path))
+        metadata: dict[str, Any] = {}
+        crs_warning = None
 
-        # Get metadata
-        with rasterio.open(output_path) as src:
-            bounds = list(src.bounds)
-            crs = str(src.crs) if src.crs else "EPSG:4326"
-            width = src.width
-            height = src.height
+        with rasterio.open(str(file_path)) as src:
+            original_crs = src.crs
+            metadata["original_crs"] = str(original_crs) if original_crs else None
+            metadata["band_count"] = src.count
+            metadata["dtypes"] = list(src.dtypes)
+            metadata["nodata"] = src.nodata
+            metadata["width"] = src.width
+            metadata["height"] = src.height
 
-        return {
+            # Extract colormap if present (classified rasters)
+            try:
+                cmap = src.colormap(1)
+                if cmap:
+                    metadata["colormap"] = {str(k): list(v) for k, v in cmap.items()}
+            except ValueError:
+                pass
+
+            if original_crs is None:
+                crs_warning = (
+                    "No coordinate reference system found in the raster file. "
+                    "Data will be assumed to be in WGS84 (EPSG:4326) which may "
+                    "cause misalignment if the actual projection differs."
+                )
+                metadata["crs_missing"] = True
+                logger.warning("Raster %s has no CRS, assuming EPSG:4326", dataset_id)
+                # Copy as-is, assume 4326
+                shutil.copy(str(file_path), str(output_path))
+                bounds_wgs84 = list(src.bounds)
+            else:
+                # Reproject bounds to WGS84 for storage
+                if original_crs.to_epsg() != 4326:
+                    transformer = Transformer.from_crs(
+                        original_crs, "EPSG:4326", always_xy=True
+                    )
+                    left, bottom = transformer.transform(src.bounds.left, src.bounds.bottom)
+                    right, top = transformer.transform(src.bounds.right, src.bounds.top)
+                    bounds_wgs84 = [left, bottom, right, top]
+                else:
+                    bounds_wgs84 = list(src.bounds)
+
+                # Convert to COG (Cloud Optimized GeoTIFF) for efficient tile serving
+                # Write with internal tiling and overviews
+                profile = src.profile.copy()
+                profile.update(
+                    driver="GTiff",
+                    tiled=True,
+                    blockxsize=512,
+                    blockysize=512,
+                    compress="deflate",
+                    predictor=2 if src.dtypes[0].startswith("float") else 1,
+                )
+
+                with rasterio.open(str(output_path), "w", **profile) as dst:
+                    for band_idx in range(1, src.count + 1):
+                        data = src.read(band_idx)
+                        dst.write(data, band_idx)
+
+                    # Copy colormap if present
+                    try:
+                        cmap = src.colormap(1)
+                        if cmap:
+                            dst.write_colormap(1, cmap)
+                    except ValueError:
+                        pass
+
+                # Build overviews for faster tile serving at low zoom levels
+                try:
+                    with rasterio.open(str(output_path), "r+") as dst:
+                        from rasterio.enums import Resampling as RasterResampling
+                        overview_levels = [2, 4, 8, 16]
+                        dst.build_overviews(overview_levels, RasterResampling.nearest)
+                        dst.update_tags(ns="rio_overview", resampling="nearest")
+                except Exception:
+                    logger.debug("Could not build overviews for %s", output_path)
+
+        result = {
             "file_path": str(output_path),
-            "bounds": [bounds[0], bounds[1], bounds[2], bounds[3]],
-            "crs": crs,
-            "width": width,
-            "height": height,
+            "bounds_wgs84": bounds_wgs84,
+            "metadata": metadata,
         }
+        if crs_warning:
+            result["crs_warning"] = crs_warning
+
+        return result
 
 
 file_processor = FileProcessor()
