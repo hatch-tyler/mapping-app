@@ -1,0 +1,397 @@
+"""Parse QGIS .qpt and ArcGIS Pro .pagx layout template files.
+
+This is the inverse of layout_generator.py. Parsing is best-effort:
+unknown elements are skipped and the original file is always preserved.
+"""
+
+import logging
+from xml.etree.ElementTree import fromstring, Element
+
+logger = logging.getLogger(__name__)
+
+PT_TO_MM = 1.0 / 2.8346
+
+# QGIS halign values -> our textAlign
+_QGIS_HALIGN_REV = {"1": "left", "4": "center", "2": "right"}
+
+# QGIS LayoutItem type codes
+_QGS_PAGE = "65638"
+_QGS_MAP_FRAME = "65639"
+_QGS_PICTURE = "65640"
+_QGS_LABEL = "65641"
+_QGS_LEGEND = "65642"
+_QGS_SHAPE = "65643"
+_QGS_SCALE_BAR = "65646"
+
+
+def _parse_position_size(item: Element) -> dict:
+    """Extract x, y, w, h from QGIS LayoutItem position/size attrs."""
+    pos = item.get("position", "0,0,mm").replace(",mm", "").split(",")
+    size = item.get("size", "50,50,mm").replace(",mm", "").split(",")
+    return {
+        "x": float(pos[0]) if len(pos) >= 1 else 0,
+        "y": float(pos[1]) if len(pos) >= 2 else 0,
+        "w": float(size[0]) if len(size) >= 1 else 50,
+        "h": float(size[1]) if len(size) >= 2 else 50,
+    }
+
+
+def _parse_qpt_label(item: Element) -> dict:
+    """Parse a QgsLayoutItemLabel into a text element."""
+    elem = _parse_position_size(item)
+    elem["text"] = item.get("labelText", "")
+
+    # Font info from LabelFont description: "Arial,size,-1,5,weight,..."
+    font_el = item.find("LabelFont")
+    font_size = 12
+    font_weight = "normal"
+    if font_el is not None:
+        desc = font_el.get("description", "")
+        parts = desc.split(",")
+        if len(parts) >= 2:
+            try:
+                font_size = int(parts[1])
+            except ValueError:
+                pass
+        if len(parts) >= 5:
+            try:
+                font_weight = "bold" if int(parts[4]) >= 75 else "normal"
+            except ValueError:
+                pass
+    elem["fontSize"] = font_size
+    elem["fontWeight"] = font_weight
+
+    # Alignment
+    halign = item.get("halign", "1")
+    elem["textAlign"] = _QGIS_HALIGN_REV.get(halign, "left")
+
+    # Determine type by font size
+    if font_size >= 20:
+        elem["type"] = "title"
+    elif font_size >= 14:
+        elem["type"] = "subtitle"
+    else:
+        elem["type"] = "text"
+
+    return elem
+
+
+def _rgba_to_hex(rgba_str: str) -> str:
+    """Convert '30,64,175,255' to '#1e40af'."""
+    parts = rgba_str.split(",")
+    if len(parts) >= 3:
+        try:
+            r, g, b = int(parts[0]), int(parts[1]), int(parts[2])
+            return f"#{r:02x}{g:02x}{b:02x}"
+        except ValueError:
+            pass
+    return "#000000"
+
+
+def parse_qpt(xml_content: str) -> tuple[dict, list[dict]]:
+    """Parse QGIS Print Layout Template (.qpt) XML into page_config and elements."""
+    root = fromstring(xml_content)
+
+    # Page dimensions
+    width, height = 279.4, 215.9
+    page_item = root.find(".//PageCollection/LayoutItem")
+    if page_item is not None:
+        size_str = page_item.get("size", "").replace(",mm", "")
+        parts = size_str.split(",")
+        if len(parts) >= 2:
+            try:
+                width, height = float(parts[0]), float(parts[1])
+            except ValueError:
+                pass
+
+    orientation = "landscape" if width >= height else "portrait"
+    page_config = {"width": width, "height": height, "orientation": orientation}
+
+    # Elements
+    elements: list[dict] = []
+    for item in root.findall(".//LayoutItem"):
+        item_type = item.get("type", "")
+
+        if item_type == _QGS_PAGE:
+            continue
+
+        try:
+            if item_type == _QGS_MAP_FRAME:
+                elem = _parse_position_size(item)
+                elem["type"] = "map_frame"
+                elements.append(elem)
+
+            elif item_type == _QGS_LABEL:
+                elements.append(_parse_qpt_label(item))
+
+            elif item_type == _QGS_LEGEND:
+                elem = _parse_position_size(item)
+                elem["type"] = "legend"
+                elements.append(elem)
+
+            elif item_type == _QGS_SCALE_BAR:
+                elem = _parse_position_size(item)
+                elem["type"] = "scale_bar"
+                elem["units"] = item.get("units", "meters")
+                elements.append(elem)
+
+            elif item_type == _QGS_PICTURE:
+                elem = _parse_position_size(item)
+                if item.get("northMode") is not None:
+                    elem["type"] = "north_arrow"
+                else:
+                    elem["type"] = "logo"
+                elements.append(elem)
+
+            elif item_type == _QGS_SHAPE:
+                elem = _parse_position_size(item)
+                # Extract color
+                color_prop = item.find(".//prop[@k='color']")
+                color = "#000000"
+                if color_prop is not None:
+                    color = _rgba_to_hex(color_prop.get("v", "0,0,0,255"))
+                elem["color"] = color
+
+                # Classify: thin = horizontal_rule, else decorator by y position
+                if elem["h"] < 3:
+                    elem["type"] = "horizontal_rule"
+                    elem["thickness"] = elem["h"]
+                elif elem["y"] < height * 0.2:
+                    elem["type"] = "header_decorator"
+                else:
+                    elem["type"] = "footer_decorator"
+                elements.append(elem)
+
+            else:
+                logger.debug("Skipping unknown QGIS element type: %s", item_type)
+
+        except Exception as e:
+            logger.warning("Failed to parse QGIS element type=%s: %s", item_type, e)
+
+    return page_config, elements
+
+
+def parse_pagx(xml_content: str) -> tuple[dict, list[dict]]:
+    """Parse ArcGIS Pro Layout (.pagx) XML into page_config and elements."""
+    root = fromstring(xml_content)
+
+    # Handle namespaces - find the actual namespace URI
+    ns = ""
+    if root.tag.startswith("{"):
+        ns = root.tag.split("}")[0] + "}"
+
+    # Page dimensions (in points -> mm)
+    width_pt, height_pt = 279.4 * 2.8346, 215.9 * 2.8346
+    page = root.find(f"{ns}Page")
+    if page is not None:
+        w_el = page.find(f"{ns}Width")
+        h_el = page.find(f"{ns}Height")
+        if w_el is not None and w_el.text:
+            width_pt = float(w_el.text)
+        if h_el is not None and h_el.text:
+            height_pt = float(h_el.text)
+
+    width_mm = width_pt * PT_TO_MM
+    height_mm = height_pt * PT_TO_MM
+    orientation = "landscape" if width_mm >= height_mm else "portrait"
+    page_config = {
+        "width": round(width_mm, 1),
+        "height": round(height_mm, 1),
+        "orientation": orientation,
+    }
+
+    elements: list[dict] = []
+    elem_container = root.find(f"{ns}Elements")
+    if elem_container is None:
+        return page_config, elements
+
+    for child in elem_container:
+        tag = child.tag.replace(ns, "")
+        try:
+            if tag == "CIMMapFrame":
+                elem = _parse_pagx_positioned(child, ns, height_pt)
+                elem["type"] = "map_frame"
+                # Also extract Width/Height if present
+                w_el = child.find(f"{ns}Width")
+                h_el = child.find(f"{ns}Height")
+                if w_el is not None and w_el.text:
+                    elem["w"] = round(float(w_el.text) * PT_TO_MM, 1)
+                if h_el is not None and h_el.text:
+                    elem["h"] = round(float(h_el.text) * PT_TO_MM, 1)
+                elements.append(elem)
+
+            elif tag == "CIMGraphicElement":
+                graphic = child.find(f"{ns}Graphic")
+                if graphic is None:
+                    continue
+                # xsi:type uses its own namespace
+                xsi_ns = "{http://www.w3.org/2001/XMLSchema-instance}"
+                gtype_el = graphic.find(f"{xsi_ns}type")
+                if gtype_el is None:
+                    gtype_el = graphic.find(f"{ns}xsi:type")
+                if gtype_el is None:
+                    gtype_el = graphic.find("xsi:type")
+                gtype = gtype_el.text if gtype_el is not None else ""
+
+                if "CIMTextGraphic" in gtype:
+                    elem = _parse_pagx_text(child, graphic, ns, height_pt)
+                    elements.append(elem)
+                elif "CIMPolygonGraphic" in gtype:
+                    elem = _parse_pagx_polygon(child, graphic, ns, height_pt, height_mm)
+                    elements.append(elem)
+
+            elif tag == "CIMLegend":
+                elem = _parse_pagx_positioned(child, ns, height_pt)
+                elem["type"] = "legend"
+                w_el = child.find(f"{ns}Width")
+                h_el = child.find(f"{ns}Height")
+                if w_el is not None and w_el.text:
+                    elem["w"] = round(float(w_el.text) * PT_TO_MM, 1)
+                if h_el is not None and h_el.text:
+                    elem["h"] = round(float(h_el.text) * PT_TO_MM, 1)
+                elements.append(elem)
+
+            elif tag == "CIMScaleBar":
+                elem = _parse_pagx_positioned(child, ns, height_pt)
+                elem["type"] = "scale_bar"
+                elements.append(elem)
+
+            elif tag == "CIMNorthArrow":
+                elem = _parse_pagx_positioned(child, ns, height_pt)
+                elem["type"] = "north_arrow"
+                w_el = child.find(f"{ns}Width")
+                h_el = child.find(f"{ns}Height")
+                if w_el is not None and w_el.text:
+                    elem["w"] = round(float(w_el.text) * PT_TO_MM, 1)
+                if h_el is not None and h_el.text:
+                    elem["h"] = round(float(h_el.text) * PT_TO_MM, 1)
+                elements.append(elem)
+
+            else:
+                logger.debug("Skipping unknown ArcGIS element: %s", tag)
+
+        except Exception as e:
+            logger.warning("Failed to parse ArcGIS element %s: %s", tag, e)
+
+    return page_config, elements
+
+
+def _parse_pagx_positioned(elem: Element, ns: str, height_pt: float) -> dict:
+    """Extract x, y from Anchor element (points -> mm, flip Y)."""
+    anchor = elem.find(f"{ns}Anchor")
+    x_mm, y_mm = 0.0, 0.0
+    if anchor is not None:
+        x_el = anchor.find(f"{ns}X")
+        y_el = anchor.find(f"{ns}Y")
+        if x_el is not None and x_el.text:
+            x_mm = round(float(x_el.text) * PT_TO_MM, 1)
+        if y_el is not None and y_el.text:
+            y_mm = round((height_pt - float(y_el.text)) * PT_TO_MM, 1)
+    return {"x": x_mm, "y": y_mm, "w": 50, "h": 50}
+
+
+def _parse_pagx_text(
+    container: Element, graphic: Element, ns: str, height_pt: float
+) -> dict:
+    """Parse CIMTextGraphic into a text element."""
+    elem = _parse_pagx_positioned(container, ns, height_pt)
+
+    text_el = graphic.find(f"{ns}Text")
+    elem["text"] = text_el.text if text_el is not None else ""
+
+    symbol = graphic.find(f"{ns}Symbol")
+    font_size = 12
+    font_weight = "normal"
+    text_align = "left"
+    if symbol is not None:
+        h_el = symbol.find(f"{ns}Height")
+        if h_el is not None and h_el.text:
+            try:
+                font_size = int(float(h_el.text))
+            except ValueError:
+                pass
+        style_el = symbol.find(f"{ns}FontStyleName")
+        if style_el is not None and style_el.text:
+            font_weight = "bold" if "Bold" in style_el.text else "normal"
+        align_el = symbol.find(f"{ns}HorizontalAlignment")
+        if align_el is not None and align_el.text:
+            text_align = align_el.text.lower()
+
+    elem["fontSize"] = font_size
+    elem["fontWeight"] = font_weight
+    elem["textAlign"] = text_align
+
+    if font_size >= 20:
+        elem["type"] = "title"
+    elif font_size >= 14:
+        elem["type"] = "subtitle"
+    else:
+        elem["type"] = "text"
+
+    return elem
+
+
+def _parse_pagx_polygon(
+    container: Element,
+    graphic: Element,
+    ns: str,
+    height_pt: float,
+    height_mm: float,
+) -> dict:
+    """Parse CIMPolygonGraphic into a shape element."""
+    polygon = graphic.find(f"{ns}Polygon")
+    x, y, w, h = 0.0, 0.0, 50.0, 10.0
+    if polygon is not None:
+        xmin = float(polygon.findtext(f"{ns}XMin", "0"))
+        ymin = float(polygon.findtext(f"{ns}YMin", "0"))
+        xmax = float(polygon.findtext(f"{ns}XMax", "50"))
+        ymax = float(polygon.findtext(f"{ns}YMax", "10"))
+        x = round(xmin * PT_TO_MM, 1)
+        y = round((height_pt - ymax) * PT_TO_MM, 1)
+        w = round((xmax - xmin) * PT_TO_MM, 1)
+        h = round((ymax - ymin) * PT_TO_MM, 1)
+
+    # Extract color
+    color = "#000000"
+    color_el = graphic.find(f".//{ns}Color") or graphic.find(".//Color")
+    if color_el is not None:
+        r = color_el.findtext(f"{ns}R", "0") or color_el.findtext("R", "0")
+        g = color_el.findtext(f"{ns}G", "0") or color_el.findtext("G", "0")
+        b = color_el.findtext(f"{ns}B", "0") or color_el.findtext("B", "0")
+        try:
+            color = f"#{int(r):02x}{int(g):02x}{int(b):02x}"
+        except ValueError:
+            pass
+
+    elem = {"x": x, "y": y, "w": w, "h": h, "color": color}
+
+    if h < 3:
+        elem["type"] = "horizontal_rule"
+        elem["thickness"] = h
+    elif y < height_mm * 0.2:
+        elem["type"] = "header_decorator"
+    else:
+        elem["type"] = "footer_decorator"
+
+    return elem
+
+
+def parse_template_file(xml_content: str, fmt: str) -> tuple[dict, list[dict]]:
+    """Parse a template file into (page_config, elements).
+
+    Args:
+        xml_content: Raw XML string
+        fmt: 'qpt' or 'pagx'
+
+    Returns:
+        Tuple of (page_config dict, elements list)
+
+    Raises:
+        ValueError: If format is unsupported or XML is invalid
+    """
+    if fmt == "qpt":
+        return parse_qpt(xml_content)
+    elif fmt == "pagx":
+        return parse_pagx(xml_content)
+    else:
+        raise ValueError(f"Unsupported template format: {fmt}")

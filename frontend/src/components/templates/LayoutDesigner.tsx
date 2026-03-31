@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useToastStore } from '@/stores/toastStore';
 import * as templatesApi from '@/api/templates';
 import type { LayoutTemplate, LayoutElement, DisplayUnit } from '@/api/templates';
@@ -36,6 +36,8 @@ export function LayoutDesigner({ onClose }: Props) {
   const [saving, setSaving] = useState(false);
   const [editingTemplate, setEditingTemplate] = useState<LayoutTemplate | null>(null);
   const [exporting, setExporting] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const importInputRef = useRef<HTMLInputElement>(null);
 
   const preset = PAGE_PRESETS[pagePreset];
 
@@ -154,6 +156,32 @@ export function LayoutDesigner({ onClose }: Props) {
     }
   };
 
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    // Reset input so the same file can be re-selected
+    e.target.value = '';
+    const defaultName = file.name.replace(/\.(qpt|pagx)$/i, '');
+    setImporting(true);
+    try {
+      await templatesApi.importLayoutTemplate(file, defaultName);
+      useToastStore.getState().addToast('Template imported', 'success');
+      fetchTemplates();
+    } catch {
+      useToastStore.getState().addToast('Failed to import template', 'error');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleDownloadOriginal = async (t: LayoutTemplate) => {
+    try {
+      await templatesApi.downloadOriginalTemplate(t.id, t.name, t.source_format || 'xml');
+    } catch {
+      useToastStore.getState().addToast('Failed to download template', 'error');
+    }
+  };
+
   const loadForEdit = (template: LayoutTemplate) => {
     setEditingTemplate(template);
     setName(template.name);
@@ -231,7 +259,23 @@ export function LayoutDesigner({ onClose }: Props) {
         <div className="w-56 border-r border-gray-200 bg-white flex flex-col overflow-hidden">
           {/* Saved Templates */}
           <div className="p-3 border-b border-gray-200 overflow-y-auto" style={{ maxHeight: '35%' }}>
-            <h3 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Templates</h3>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Templates</h3>
+              <button
+                onClick={() => importInputRef.current?.click()}
+                disabled={importing}
+                className="text-[9px] px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded hover:bg-purple-100 disabled:opacity-50 font-medium"
+              >
+                {importing ? '...' : 'Import'}
+              </button>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".qpt,.pagx"
+                onChange={handleImport}
+                className="hidden"
+              />
+            </div>
             {templates.length === 0 ? (
               <p className="text-[10px] text-gray-400 italic">No saved templates</p>
             ) : (
@@ -246,11 +290,27 @@ export function LayoutDesigner({ onClose }: Props) {
                     }`}
                     onClick={() => loadForEdit(t)}
                   >
-                    <p className="font-medium text-gray-800 truncate">{t.name}</p>
+                    <div className="flex items-center gap-1">
+                      <p className="font-medium text-gray-800 truncate flex-1">{t.name}</p>
+                      {t.source_format && (
+                        <span className="text-[8px] px-1 py-0.5 bg-purple-100 text-purple-700 rounded font-semibold uppercase shrink-0">
+                          {t.source_format}
+                        </span>
+                      )}
+                    </div>
                     <p className="text-[10px] text-gray-500 mt-0.5">
                       {t.page_config.orientation} {t.page_config.width}x{t.page_config.height}mm
                     </p>
                     <div className="flex gap-1 mt-1">
+                      {t.source_format && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDownloadOriginal(t); }}
+                          className="text-[9px] px-1 py-0.5 bg-purple-50 text-purple-600 rounded hover:bg-purple-100"
+                          title="Download original file"
+                        >
+                          Original
+                        </button>
+                      )}
                       <button
                         onClick={(e) => { e.stopPropagation(); handleExport(t.id, 'qpt'); }}
                         disabled={exporting === `${t.id}-qpt`}

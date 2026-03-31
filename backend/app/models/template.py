@@ -20,6 +20,8 @@ class LayoutTemplate(Base):
     page_config: Mapped[dict] = mapped_column(JSONB, nullable=False)
     elements: Mapped[dict] = mapped_column(JSONB, nullable=False)
     logo_path: Mapped[str | None] = mapped_column(String(500))
+    source_file_path: Mapped[str | None] = mapped_column(String(500))
+    source_format: Mapped[str | None] = mapped_column(String(10))
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(), ForeignKey("users.id", ondelete="SET NULL")
     )

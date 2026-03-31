@@ -16,6 +16,8 @@ export interface LayoutTemplate {
   };
   elements: LayoutElement[];
   logo_path: string | null;
+  source_file_path: string | null;
+  source_format: 'qpt' | 'pagx' | null;
   created_by_id: string | null;
   created_at: string;
   updated_at: string;
@@ -95,6 +97,33 @@ export async function updateLayoutTemplate(
 
 export async function deleteLayoutTemplate(id: string): Promise<void> {
   await apiClient.delete(`/layout-templates/${id}`);
+}
+
+export async function importLayoutTemplate(
+  file: File,
+  name: string,
+  description?: string,
+  projectId?: string,
+): Promise<LayoutTemplate> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('name', name);
+  if (description) formData.append('description', description);
+  if (projectId) formData.append('project_id', projectId);
+  const response = await apiClient.post<LayoutTemplate>('/layout-templates/import', formData);
+  return response.data;
+}
+
+export async function downloadOriginalTemplate(id: string, name: string, format: string): Promise<void> {
+  const response = await apiClient.get(`/layout-templates/${id}/download`, {
+    responseType: 'blob',
+  });
+  const url = URL.createObjectURL(response.data);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${name}.${format}`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export function getLayoutExportUrl(id: string, format: 'qpt' | 'pagx'): string {
