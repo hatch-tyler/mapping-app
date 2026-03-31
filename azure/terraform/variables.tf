@@ -37,9 +37,8 @@ variable "ssh_public_key_path" {
 }
 
 variable "ssh_allowed_cidr" {
-  description = "CIDR block allowed for SSH access (restrict to your IP)"
+  description = "CIDR block allowed for SSH access. Restrict to your IP (e.g., 203.0.113.10/32). No default — must be explicitly set."
   type        = string
-  default     = "0.0.0.0/0"
 }
 
 # Domain Configuration

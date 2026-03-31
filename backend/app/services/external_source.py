@@ -1,5 +1,8 @@
+import ipaddress
 import logging
 import math
+import socket
+from urllib.parse import urlparse
 from xml.etree import ElementTree
 
 import httpx
@@ -7,6 +10,32 @@ import httpx
 logger = logging.getLogger(__name__)
 
 TIMEOUT = 60.0
+
+
+def _validate_url_not_internal(url: str) -> None:
+    """Reject URLs that target localhost, private, or link-local IP ranges (SSRF prevention)."""
+    parsed = urlparse(url)
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL has no hostname")
+
+    # Reject obvious localhost aliases
+    if hostname.lower() in ("localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]"):
+        raise ValueError(f"Requests to localhost ({hostname}) are not allowed")
+
+    # Resolve hostname and check all resulting IPs
+    try:
+        addrinfo = socket.getaddrinfo(hostname, None, proto=socket.IPPROTO_TCP)
+    except socket.gaierror:
+        raise ValueError(f"Cannot resolve hostname: {hostname}")
+
+    for family, _type, _proto, _canonname, sockaddr in addrinfo:
+        ip = ipaddress.ip_address(sockaddr[0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
+            raise ValueError(
+                f"URL resolves to non-public IP address ({ip}). "
+                "Requests to private/internal networks are not allowed."
+            )
 
 # ArcGIS WKID values that mean Web Mercator (EPSG:3857)
 _WEB_MERCATOR_WKIDS = {3857, 102100, 102113, 900913}
@@ -48,6 +77,7 @@ async def browse_directory(url: str) -> dict:
     subdirectories (e.g., /arcgis/rest/services/Geoscientific).
     """
     url = url.strip().rstrip("/")
+    _validate_url_not_internal(url)
 
     async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
         resp = await client.get(url, params={"f": "json"})
@@ -96,23 +126,26 @@ async def probe_service(url: str) -> dict:
     """
     url = url.strip().rstrip("/")
 
-    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
-        # Check for XYZ/TMS pattern
-        if any(p in url for p in ["{z}", "{x}", "{y}"]):
-            return {
-                "service_type": "xyz",
-                "layers": [
-                    {
-                        "id": "tiles",
-                        "name": "Tile Layer",
-                        "geometry_type": None,
-                        "extent": None,
-                    }
-                ],
-                "capabilities_url": url,
-                "metadata": None,
-            }
+    # XYZ/TMS patterns are tile templates — skip SSRF check since they're
+    # evaluated client-side and never fetched directly by the server.
+    if any(p in url for p in ["{z}", "{x}", "{y}"]):
+        return {
+            "service_type": "xyz",
+            "layers": [
+                {
+                    "id": "tiles",
+                    "name": "Tile Layer",
+                    "geometry_type": None,
+                    "extent": None,
+                }
+            ],
+            "capabilities_url": url,
+            "metadata": None,
+        }
 
+    _validate_url_not_internal(url)
+
+    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
         # Try ArcGIS REST
         result = await _try_arcgis(client, url)
         if result:
@@ -511,6 +544,7 @@ async def fetch_all_features(
 
     Returns a GeoJSON FeatureCollection dict.
     """
+    _validate_url_not_internal(service_url)
     all_features: list[dict] = []
     page_size = 2000
 
@@ -648,6 +682,7 @@ async def proxy_request(
     params: dict,
 ) -> httpx.Response:
     """Proxy a request to an external service."""
+    _validate_url_not_internal(service_url)
     async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
         resp = await client.get(service_url, params=params)
         resp.raise_for_status()

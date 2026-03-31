@@ -204,7 +204,7 @@ function ProjectDetailView({
 
   useEffect(() => {
     // Load all users for the member dropdown
-    apiClient.get<User[]>('/users/').then((r) => setUsers(r.data)).catch(() => {});
+    apiClient.get<User[]>('/users/').then((r) => setUsers(r.data)).catch((e) => console.warn('Failed to load users:', e));
   }, []);
 
   const reload = async () => {

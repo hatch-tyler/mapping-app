@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { User } from '../api/types';
 import * as authApi from '../api/auth';
+import { getAccessToken, getRefreshToken, setTokens, clearTokens } from '../api/tokenService';
 
 interface AuthState {
   user: User | null;
@@ -26,8 +27,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     set({ isLoginLoading: true, error: null });
     try {
       const tokens = await authApi.login({ email, password });
-      localStorage.setItem('access_token', tokens.access_token);
-      localStorage.setItem('refresh_token', tokens.refresh_token);
+      setTokens(tokens.access_token, tokens.refresh_token);
 
       const user = await authApi.getCurrentUser();
       set({ user, isAuthenticated: true, isLoginLoading: false });
@@ -41,7 +41,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: async () => {
-    const refreshToken = localStorage.getItem('refresh_token');
+    const refreshToken = getRefreshToken();
     if (refreshToken) {
       try {
         await authApi.logout(refreshToken);
@@ -49,13 +49,12 @@ export const useAuthStore = create<AuthState>((set) => ({
         // Ignore errors during logout
       }
     }
-    localStorage.removeItem('access_token');
-    localStorage.removeItem('refresh_token');
+    clearTokens();
     set({ user: null, isAuthenticated: false });
   },
 
   checkAuth: async () => {
-    const token = localStorage.getItem('access_token');
+    const token = getAccessToken();
     if (!token) {
       set({ isLoading: false, isAuthenticated: false });
       return;
@@ -65,8 +64,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       const user = await authApi.getCurrentUser();
       set({ user, isAuthenticated: true, isLoading: false });
     } catch {
-      localStorage.removeItem('access_token');
-      localStorage.removeItem('refresh_token');
+      clearTokens();
       set({ isAuthenticated: false, isLoading: false });
     }
   },

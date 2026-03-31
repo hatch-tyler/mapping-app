@@ -15,8 +15,8 @@ export function AdminPage() {
       try {
         const data = await getRegistrationRequests(true, 0, 1);
         setPendingCount(data.total);
-      } catch {
-        /* silent */
+      } catch (err) {
+        console.warn('Failed to fetch pending registrations:', err);
       }
     };
     fetchPending();

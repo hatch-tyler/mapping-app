@@ -1,4 +1,3 @@
-import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -9,11 +8,7 @@ from app.database import get_db
 from app.crud import dataset as dataset_crud
 from app.api.deps import get_optional_current_user
 from app.models.user import User
-
-
-def _validate_table_name(table_name: str) -> bool:
-    """Validate table name to prevent SQL injection."""
-    return bool(re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name))
+from app.utils.sql_validation import validate_table_name as _validate_table_name
 
 
 def _get_tile_cors_headers() -> dict[str, str]:

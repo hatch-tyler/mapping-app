@@ -42,7 +42,7 @@ export function UploadForm({ onSuccess }: Props) {
 
   // Load projects for the dropdown
   useEffect(() => {
-    projectsApi.getProjects().then((r) => setProjects(r.projects)).catch(() => {});
+    projectsApi.getProjects().then((r) => setProjects(r.projects)).catch((e) => console.warn('Failed to load projects:', e));
   }, []);
 
   // Clean up polling on unmount

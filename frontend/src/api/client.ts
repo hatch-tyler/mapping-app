@@ -1,4 +1,5 @@
 import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
+import { getAccessToken, getRefreshToken, setTokens, clearTokens } from './tokenService';
 
 const API_URL = import.meta.env.VITE_API_URL ?? '';
 
@@ -19,7 +20,7 @@ export const uploadClient = axios.create({
 // Add auth token to upload client
 uploadClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('access_token');
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -33,7 +34,7 @@ uploadClient.interceptors.request.use(
 // Request interceptor to add auth token and handle FormData
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
-    const token = localStorage.getItem('access_token');
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -54,7 +55,7 @@ apiClient.interceptors.request.use(
 let refreshPromise: Promise<string> | null = null;
 
 async function refreshAccessToken(): Promise<string> {
-  const refreshToken = localStorage.getItem('refresh_token');
+  const refreshToken = getRefreshToken();
   if (!refreshToken) {
     throw new Error('No refresh token');
   }
@@ -64,8 +65,7 @@ async function refreshAccessToken(): Promise<string> {
   });
 
   const { access_token, refresh_token: newRefreshToken } = response.data;
-  localStorage.setItem('access_token', access_token);
-  localStorage.setItem('refresh_token', newRefreshToken);
+  setTokens(access_token, newRefreshToken);
   return access_token;
 }
 
@@ -92,8 +92,7 @@ function createRefreshInterceptor(client: typeof apiClient) {
           originalRequest.headers.Authorization = `Bearer ${newToken}`;
           return client(originalRequest);
         } catch {
-          localStorage.removeItem('access_token');
-          localStorage.removeItem('refresh_token');
+          clearTokens();
           window.location.href = '/login';
         }
       }

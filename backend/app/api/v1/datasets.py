@@ -1,4 +1,3 @@
-import re
 import uuid as uuid_mod
 from datetime import datetime, timezone
 from uuid import UUID
@@ -6,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, Response, 
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text, select, insert
+from sqlalchemy.exc import IntegrityError
 import geopandas as gpd
 import logging
 
@@ -49,9 +49,7 @@ from app.models.user import User
 from app.models.dataset import Dataset
 
 
-def _validate_table_name(table_name: str) -> bool:
-    """Validate table name to prevent SQL injection."""
-    return bool(re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name))
+from app.utils.sql_validation import validate_table_name as _validate_table_name
 
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
@@ -288,7 +286,7 @@ async def link_dataset_to_project(
             )
         )
         await db.commit()
-    except Exception:
+    except IntegrityError:
         await db.rollback()
         raise HTTPException(400, "Dataset is already linked to this project")
 
@@ -737,6 +735,11 @@ async def get_dataset_geojson(
     if bbox:
         try:
             minx, miny, maxx, maxy = map(float, bbox.split(","))
+            if minx >= maxx or miny >= maxy:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid bbox: min values must be less than max values",
+                )
             params.update({"minx": minx, "miny": miny, "maxx": maxx, "maxy": maxy})
             query = f"""
                 SELECT jsonb_build_object(

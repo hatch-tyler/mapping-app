@@ -103,7 +103,7 @@ class Dataset(Base):
     snapshot_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_by_id: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid(), ForeignKey("users.id")
+        Uuid(), ForeignKey("users.id", ondelete="SET NULL")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()

@@ -73,7 +73,11 @@ function App() {
               </ProtectedRoute>
             }
           />
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={
+            <ProtectedRoute>
+              <Navigate to="/" replace />
+            </ProtectedRoute>
+          } />
         </Routes>
       </BrowserRouter>
     </ErrorBoundary>

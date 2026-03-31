@@ -4,6 +4,7 @@ import { BitmapLayer } from '@deck.gl/layers';
 import { Dataset, GeoJSONFeatureCollection } from '../api/types';
 import { getGeoJSONUrl, getRasterTileUrl, getMVTTileUrl } from '../api/datasets';
 import { API_URL } from '../api/client';
+import { getAccessToken } from '../api/tokenService';
 import { createStyleAccessors, DEFAULT_STYLE } from './styleInterpreter';
 import { useMapStore } from '../stores/mapStore';
 
@@ -47,7 +48,7 @@ export function createLayerFromDataset(
 }
 
 function createExternalLayer(dataset: Dataset): LayerType {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
   const baseUrl = API_URL || window.location.origin;
   const proxyBase = `${baseUrl}/api/v1/external-sources/${dataset.id}/proxy`;
   const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
@@ -252,7 +253,7 @@ function createVectorLayer(
   const styleAccessors = createStyleAccessors(dataset.style_config);
 
   // Get auth token for fetching GeoJSON
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
 
   return new GeoJsonLayer({
     id: `vector-${dataset.id}`,
@@ -286,7 +287,7 @@ function createVectorLayer(
 function createMVTLayer(dataset: Dataset): MVTLayer {
   const styleAccessors = createStyleAccessors(dataset.style_config);
 
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
 
   return new MVTLayer({
     id: `mvt-${dataset.id}`,
@@ -318,7 +319,7 @@ function createMVTLayer(dataset: Dataset): MVTLayer {
 
 function createRasterLayer(dataset: Dataset): TileLayer {
   // Get auth token for fetching tiles
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
 
   return new TileLayer({
     id: `raster-${dataset.id}`,

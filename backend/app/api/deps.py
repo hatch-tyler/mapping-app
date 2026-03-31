@@ -1,3 +1,4 @@
+import logging
 from uuid import UUID
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
@@ -7,6 +8,8 @@ from sqlalchemy import select
 from app.database import get_db
 from app.core.security import verify_token
 from app.models.user import User
+
+security_logger = logging.getLogger("security")
 
 security = HTTPBearer()
 optional_security = HTTPBearer(auto_error=False)
@@ -55,6 +58,9 @@ async def get_current_admin_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
     if current_user.role != "admin" and not current_user.is_admin:
+        security_logger.warning(
+            "Admin access denied for user_id=%s role=%s", current_user.id, current_user.role
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required",
@@ -66,6 +72,9 @@ async def get_current_editor_or_admin_user(
     current_user: User = Depends(get_current_user),
 ) -> User:
     if current_user.role not in ("admin", "editor"):
+        security_logger.warning(
+            "Editor access denied for user_id=%s role=%s", current_user.id, current_user.role
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Editor or admin privileges required",

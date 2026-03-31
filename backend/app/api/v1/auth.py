@@ -22,6 +22,11 @@ from app.models.user import User
 from app.models.email_confirmation import TokenType
 from app.services.email import email_service
 from app.config import settings
+from app.core.rate_limit import rate_limit_login, rate_limit_password_reset
+
+import logging
+
+logger = logging.getLogger("security")
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -30,16 +35,19 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 async def login(
     login_data: LoginRequest,
     db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(rate_limit_login),
 ):
     user = await user_crud.get_user_by_email(db, login_data.email)
 
     if not user or not verify_password(login_data.password, user.hashed_password):
+        logger.warning("Failed login attempt for email=%s", login_data.email)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
         )
 
     if not user.is_active:
+        logger.warning("Login attempt for inactive account email=%s user_id=%s", login_data.email, user.id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is inactive",
@@ -184,6 +192,7 @@ class ResendConfirmationResponse(BaseModel):
 async def resend_confirmation(
     request: ResendConfirmationRequest,
     db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(rate_limit_password_reset),
 ):
     """Resend confirmation email for inactive user."""
     user = await user_crud.get_user_by_email(db, request.email)
@@ -240,6 +249,7 @@ class ForgotPasswordResponse(BaseModel):
 async def forgot_password(
     request: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db),
+    _rate_limit: None = Depends(rate_limit_password_reset),
 ):
     """Request a password reset link. Always returns success to avoid leaking user existence."""
     user = await user_crud.get_user_by_email(db, request.email)

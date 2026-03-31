@@ -1,5 +1,9 @@
+import os
+
 from pydantic_settings import BaseSettings
 from functools import lru_cache
+
+_INSECURE_DEFAULT_KEY = "your-secret-key-change-in-production"
 
 
 class Settings(BaseSettings):
@@ -9,7 +13,7 @@ class Settings(BaseSettings):
     )
 
     # Authentication
-    SECRET_KEY: str = "your-secret-key-change-in-production"
+    SECRET_KEY: str = _INSECURE_DEFAULT_KEY
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -50,7 +54,16 @@ class Settings(BaseSettings):
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()
+    s = Settings()
+    # Block startup if the default secret key is used outside local development.
+    # In production (Docker / Gunicorn) DATABASE_URL always points to the real DB,
+    # so checking for "localhost" is a reliable proxy for "local dev".
+    if s.SECRET_KEY == _INSECURE_DEFAULT_KEY and "localhost" not in s.DATABASE_URL:
+        raise RuntimeError(
+            "SECRET_KEY is set to the insecure default. "
+            "Set a strong random SECRET_KEY via environment variable before running in production."
+        )
+    return s
 
 
 settings = get_settings()

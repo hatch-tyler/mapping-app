@@ -1,4 +1,5 @@
 import { apiClient, uploadClient, API_URL } from './client';
+import { getAccessToken } from './tokenService';
 import axios, { AxiosProgressEvent } from 'axios';
 import {
   Dataset,
@@ -25,7 +26,7 @@ const publicClient = axios.create({
 
 // Add optional auth header if token exists
 publicClient.interceptors.request.use((config) => {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }

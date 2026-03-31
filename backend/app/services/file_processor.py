@@ -2,7 +2,6 @@ import asyncio
 import json
 import logging
 import math
-import re
 import uuid
 import shutil
 from datetime import datetime, timezone
@@ -20,10 +19,7 @@ from app.database import AsyncSessionLocal
 logger = logging.getLogger(__name__)
 
 
-def _validate_table_name(table_name: str) -> bool:
-    """Validate table name to prevent SQL injection."""
-    # Only allow alphanumeric characters and underscores
-    return bool(re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name))
+from app.utils.sql_validation import validate_table_name as _validate_table_name
 
 
 def _serialize_properties(row: Any) -> dict[str, Any]:
@@ -475,7 +471,10 @@ class FileProcessor:
             finally:
                 # Clean up temp directory
                 parent = file_path.parent
-                shutil.rmtree(str(parent), ignore_errors=True)
+                try:
+                    shutil.rmtree(str(parent))
+                except Exception as cleanup_err:
+                    logger.warning("Failed to clean up processing dir %s: %s", parent, cleanup_err)
 
     async def process_raster_background(
         self,
@@ -541,7 +540,10 @@ class FileProcessor:
 
             finally:
                 parent = file_path.parent
-                shutil.rmtree(str(parent), ignore_errors=True)
+                try:
+                    shutil.rmtree(str(parent))
+                except Exception as cleanup_err:
+                    logger.warning("Failed to clean up processing dir %s: %s", parent, cleanup_err)
 
     async def process_raster(
         self,

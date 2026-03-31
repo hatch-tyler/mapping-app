@@ -49,7 +49,7 @@ export function AddExternalSourceModal({ onClose, onSuccess }: Props) {
   const [registering, setRegistering] = useState(false);
 
   useEffect(() => {
-    externalApi.getCatalogs().then((r) => setCatalogs(r.catalogs)).catch(() => {});
+    externalApi.getCatalogs().then((r) => setCatalogs(r.catalogs)).catch((e) => console.warn('Failed to load catalogs:', e));
   }, []);
 
   const currentUrl = browseHistory[browseHistory.length - 1] || '';

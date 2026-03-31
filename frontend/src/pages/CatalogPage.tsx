@@ -54,8 +54,8 @@ export function CatalogPage() {
 
   // Fetch saved views and templates
   useEffect(() => {
-    templatesApi.getMapViews().then(setSavedViews).catch(() => {});
-    templatesApi.getLayoutTemplates().then(setLayoutTemplates).catch(() => {});
+    templatesApi.getMapViews().then(setSavedViews).catch((e) => console.warn('Failed to load map views:', e));
+    templatesApi.getLayoutTemplates().then(setLayoutTemplates).catch((e) => console.warn('Failed to load templates:', e));
   }, []);
 
   const handleOpenView = (view: MapView) => {

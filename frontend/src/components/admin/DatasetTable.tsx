@@ -46,7 +46,7 @@ export function DatasetTable({
   const importStore = useImportStore();
 
   useEffect(() => {
-    projectsApi.getProjects().then((r) => setProjects(r.projects)).catch(() => {});
+    projectsApi.getProjects().then((r) => setProjects(r.projects)).catch((e) => console.warn('Failed to load projects:', e));
   }, []);
 
   const handleDelete = (id: string) => {

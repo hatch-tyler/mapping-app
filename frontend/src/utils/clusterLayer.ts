@@ -2,6 +2,7 @@ import Supercluster from 'supercluster';
 import { GeoJsonLayer } from '@deck.gl/layers';
 import { Dataset, GeoJSONFeatureCollection, GeoJSONFeature, RGBAColor } from '../api/types';
 import { getGeoJSONUrl } from '../api/datasets';
+import { getAccessToken } from '../api/tokenService';
 import { createFillColorAccessor, DEFAULT_STYLE } from './styleInterpreter';
 
 interface ClusterProperties {
@@ -26,7 +27,7 @@ const CLUSTER_DEFAULT_STYLE = {
 };
 
 async function fetchGeoJSON(datasetId: string): Promise<GeoJSONFeatureCollection> {
-  const token = localStorage.getItem('access_token');
+  const token = getAccessToken();
   const url = getGeoJSONUrl(datasetId);
 
   const response = await fetch(url, {

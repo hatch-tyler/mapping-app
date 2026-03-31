@@ -73,7 +73,12 @@ async def upload_vector(
     dup_result = await db.execute(
         select(Dataset).where(Dataset.file_hash == file_hash).limit(1)
     )
-    dup_result.scalar_one_or_none()
+    existing = dup_result.scalar_one_or_none()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This file has already been uploaded as dataset '{existing.name}'",
+        )
 
     # Parse tags from comma-separated string
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
@@ -177,7 +182,12 @@ async def upload_raster(
     dup_result = await db.execute(
         select(Dataset).where(Dataset.file_hash == file_hash).limit(1)
     )
-    dup_result.scalar_one_or_none()
+    existing = dup_result.scalar_one_or_none()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This file has already been uploaded as dataset '{existing.name}'",
+        )
 
     # Parse tags from comma-separated string
     tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []

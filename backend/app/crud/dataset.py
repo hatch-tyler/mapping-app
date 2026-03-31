@@ -1,7 +1,9 @@
-import re
+import logging
 from datetime import datetime
 from uuid import UUID
 from typing import Any
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import select, func, text, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -17,29 +19,11 @@ from app.schemas.dataset import (
 )
 
 
-def _validate_table_name(table_name: str) -> bool:
-    """Validate table name to prevent SQL injection."""
-    return bool(re.match(r"^[a-zA-Z_][a-zA-Z0-9_]*$", table_name))
-
-
-def _validate_field_name(field_name: str) -> bool:
-    """Validate field name for safe use in JSONB SQL queries.
-
-    Allows alphanumeric, spaces, hyphens, dots, and underscores — common in
-    real-world GIS data (e.g., "Well Depth", "area-sqmi", "pop.2020").
-    Rejects quotes, semicolons, and other SQL-dangerous characters.
-    """
-    if not field_name or len(field_name) > 255:
-        return False
-    return bool(re.match(r"^[a-zA-Z0-9_][a-zA-Z0-9_ .\-]*$", field_name))
-
-
-def _escape_field_name(field_name: str) -> str:
-    """Escape a field name for safe use in JSONB accessor SQL.
-
-    Doubles any single quotes to prevent SQL injection in properties->>'name' syntax.
-    """
-    return field_name.replace("'", "''")
+from app.utils.sql_validation import (
+    validate_table_name as _validate_table_name,
+    validate_field_name as _validate_field_name,
+    escape_field_name as _escape_field_name,
+)
 
 
 async def get_dataset(db: AsyncSession, dataset_id: UUID) -> Dataset | None:
@@ -413,6 +397,12 @@ async def get_external_dataset_fields(dataset) -> list[dict]:
             fields.append({"name": key, "field_type": field_type})
         return fields
     except Exception:
+        logger.warning(
+            "Failed to fetch fields for external dataset %s (%s)",
+            dataset.id,
+            dataset.service_url,
+            exc_info=True,
+        )
         return []
 
 
@@ -618,14 +608,15 @@ async def query_features(
     count_result = await db.execute(count_query, params)
     total_count = count_result.scalar() or 0
 
-    # Build ORDER BY clause
+    # Build ORDER BY clause (whitelist sort direction to prevent injection)
+    safe_order = "ASC" if sort_order.upper() != "DESC" else "DESC"
     order_sql = "id ASC"
     if sort_field:
         if sort_field == "id":
-            order_sql = f"id {sort_order.upper()}"
+            order_sql = f"id {safe_order}"
         elif _validate_field_name(sort_field):
             order_sql = (
-                f"properties->>'{_escape_field_name(sort_field)}' {sort_order.upper()}"
+                f"properties->>'{_escape_field_name(sort_field)}' {safe_order}"
             )
 
     # Calculate offset
@@ -664,23 +655,23 @@ async def get_features_by_ids(
     if not feature_ids:
         return []
 
-    # Convert to tuple for SQL IN clause
-    ids_str = ",".join(str(int(fid)) for fid in feature_ids)
+    # Use parameterized query with ANY() to prevent SQL injection
+    safe_ids = [int(fid) for fid in feature_ids]
 
     if include_geometry:
         query = text(f"""
             SELECT id, properties, ST_AsGeoJSON(geom)::jsonb as geometry
             FROM "{dataset.table_name}"
-            WHERE id IN ({ids_str})
+            WHERE id = ANY(:ids)
         """)
     else:
         query = text(f"""
             SELECT id, properties
             FROM "{dataset.table_name}"
-            WHERE id IN ({ids_str})
+            WHERE id = ANY(:ids)
         """)
 
-    result = await db.execute(query)
+    result = await db.execute(query, {"ids": safe_ids})
     rows = result.fetchall()
 
     if include_geometry:
