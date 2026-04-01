@@ -298,28 +298,66 @@ def _parse_pagx_json(data: dict) -> tuple[dict, list[dict]]:
 
 
 def _pagx_json_position(el: dict, inch_to_mm: float, page_height_mm: float) -> dict:
-    """Extract x, y, w, h from a JSON .pagx element's frame.rings.
+    """Extract x, y, w, h from a JSON .pagx element.
 
     ArcGIS uses bottom-left origin (Y up); CSS uses top-left origin (Y down).
     We flip Y by computing: css_y = page_height - arcgis_top_edge.
+
+    Position data can be in multiple locations depending on element type:
+    1. el.frame.rings — CIMMapFrame, CIMLegend, CIMScaleLine, CIMNorthArrow
+    2. el.graphic.shape.rings — CIMGraphicElement (text, polygon)
+    3. el.graphic.box — CIMPictureGraphic (logo/image)
+    4. el.graphic.shape.x/.y — point-based CIMTextGraphic
     """
-    frame = el.get("frame", {})
-    rings = frame.get("rings", [])
-    if not rings or not rings[0]:
-        return {"x": 0, "y": 0, "w": 25, "h": 25}
 
-    coords = rings[0]
-    xs = [p[0] for p in coords]
-    ys = [p[1] for p in coords]
-    min_x, max_x = min(xs), max(xs)
-    min_y, max_y = min(ys), max(ys)
+    def _from_rings(rings: list) -> dict | None:
+        if not rings or not rings[0]:
+            return None
+        coords = rings[0]
+        xs = [p[0] for p in coords]
+        ys = [p[1] for p in coords]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        return {
+            "x": round(min_x * inch_to_mm, 1),
+            "y": round(page_height_mm - max_y * inch_to_mm, 1),
+            "w": round((max_x - min_x) * inch_to_mm, 1),
+            "h": round((max_y - min_y) * inch_to_mm, 1),
+        }
 
-    return {
-        "x": round(min_x * inch_to_mm, 1),
-        "y": round(page_height_mm - max_y * inch_to_mm, 1),  # Flip Y-axis
-        "w": round((max_x - min_x) * inch_to_mm, 1),
-        "h": round((max_y - min_y) * inch_to_mm, 1),
-    }
+    # 1. el.frame.rings (primary elements like map frame, legend)
+    result = _from_rings(el.get("frame", {}).get("rings", []))
+    if result:
+        return result
+
+    # 2. el.graphic.shape.rings (text and polygon graphic elements)
+    graphic = el.get("graphic", {})
+    result = _from_rings(graphic.get("shape", {}).get("rings", []))
+    if result:
+        return result
+
+    # 3. el.graphic.box (picture/logo elements)
+    box = graphic.get("box", {})
+    if "xmin" in box and "ymin" in box and "xmax" in box and "ymax" in box:
+        return {
+            "x": round(box["xmin"] * inch_to_mm, 1),
+            "y": round(page_height_mm - box["ymax"] * inch_to_mm, 1),
+            "w": round((box["xmax"] - box["xmin"]) * inch_to_mm, 1),
+            "h": round((box["ymax"] - box["ymin"]) * inch_to_mm, 1),
+        }
+
+    # 4. el.graphic.shape.x/.y (point-based text)
+    shape = graphic.get("shape", {})
+    if "x" in shape and "y" in shape:
+        return {
+            "x": round(shape["x"] * inch_to_mm, 1),
+            "y": round(page_height_mm - shape["y"] * inch_to_mm, 1),
+            "w": 50,
+            "h": 10,
+        }
+
+    # 5. Fallback
+    return {"x": 0, "y": 0, "w": 25, "h": 25}
 
 
 def _pagx_json_font_size(symbol: dict) -> int | None:
