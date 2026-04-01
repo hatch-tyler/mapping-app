@@ -44,10 +44,15 @@ export interface LayoutElement {
   h: number;
   text?: string;
   fontSize?: number;
+  fontFamily?: string;
   textAlign?: 'left' | 'center' | 'right';
   fontWeight?: 'normal' | 'bold';
+  textColor?: string;
   units?: string;
   color?: string;
+  fillColor?: string;
+  strokeColor?: string;
+  strokeWidth?: number;
   thickness?: number;
   imageData?: string;
 }

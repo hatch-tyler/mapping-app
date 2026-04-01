@@ -85,9 +85,15 @@ export function CanvasElement({ element, index, scale, isSelected, pageW, pageH,
     const { type } = element;
 
     if (type === 'map_frame') {
+      const borderColor = element.strokeColor || '#9ca3af';
+      const borderWidth = Math.max(1, (element.strokeWidth || 1) * scale);
       return (
-        <div className="w-full h-full bg-gray-100 flex items-center justify-center border border-gray-300"
-          style={{ backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(0,0,0,0.03) 8px, rgba(0,0,0,0.03) 16px)' }}>
+        <div className="w-full h-full bg-gray-100 flex items-center justify-center"
+          style={{
+            backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(0,0,0,0.03) 8px, rgba(0,0,0,0.03) 16px)',
+            border: `${borderWidth}px solid ${borderColor}`,
+            boxSizing: 'border-box',
+          }}>
           <div className="text-center">
             <svg className="w-8 h-8 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
@@ -107,6 +113,8 @@ export function CanvasElement({ element, index, scale, isSelected, pageW, pageH,
       const fontSize = Math.max(6, Math.min(32, (element.fontSize || defaultFontSize) * scale * 0.6));
       const fontWeight = element.fontWeight || defaultFontWeight;
       const textAlign = element.textAlign || defaultAlign;
+      const fontFamily = element.fontFamily || 'Arial, sans-serif';
+      const textColor = element.textColor || '#1f2937';
       const justifyMap = { left: 'flex-start', center: 'center', right: 'flex-end' } as const;
 
       return (
@@ -115,12 +123,28 @@ export function CanvasElement({ element, index, scale, isSelected, pageW, pageH,
           style={{ justifyContent: justifyMap[textAlign] }}
         >
           <span
-            className="text-gray-800 truncate"
-            style={{ fontSize: `${fontSize}px`, fontWeight }}
+            className="truncate"
+            style={{ fontSize: `${fontSize}px`, fontWeight, fontFamily, color: textColor }}
           >
             {element.text || defaultText}
           </span>
         </div>
+      );
+    }
+
+    if (type === 'shape') {
+      const fillColor = element.fillColor || 'transparent';
+      const strokeColor = element.strokeColor || '#000000';
+      const strokeWidth = (element.strokeWidth || 1) * scale;
+      return (
+        <div
+          className="w-full h-full"
+          style={{
+            backgroundColor: fillColor,
+            border: `${Math.max(1, strokeWidth)}px solid ${strokeColor}`,
+            boxSizing: 'border-box',
+          }}
+        />
       );
     }
 

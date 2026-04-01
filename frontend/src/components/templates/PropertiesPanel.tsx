@@ -228,6 +228,69 @@ export function PropertiesPanel({
             </div>
           </div>
         )}
+
+        {selectedElement.type === 'shape' && (
+          <>
+            <div>
+              <label className="block text-[10px] font-semibold text-gray-500 mb-1">Fill Color</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={selectedElement.fillColor === 'transparent' ? '#ffffff' : (selectedElement.fillColor || '#ffffff')}
+                  onChange={(e) => onUpdateElement(selectedIndex, { fillColor: e.target.value })}
+                  className="w-8 h-6 border border-gray-300 rounded cursor-pointer"
+                />
+                <label className="flex items-center gap-1 text-[10px] text-gray-500">
+                  <input
+                    type="checkbox"
+                    checked={selectedElement.fillColor === 'transparent' || !selectedElement.fillColor}
+                    onChange={(e) => onUpdateElement(selectedIndex, { fillColor: e.target.checked ? 'transparent' : '#ffffff' })}
+                    className="w-3 h-3"
+                  />
+                  No fill
+                </label>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-gray-500 mb-1">Border Color</label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={selectedElement.strokeColor || '#000000'}
+                  onChange={(e) => onUpdateElement(selectedIndex, { strokeColor: e.target.value })}
+                  className="w-8 h-6 border border-gray-300 rounded cursor-pointer"
+                />
+                <span className="text-[10px] text-gray-400">{selectedElement.strokeColor || '#000000'}</span>
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-gray-500 mb-1">Border Width (pt)</label>
+              <input
+                type="number"
+                step="0.5"
+                min="0"
+                value={selectedElement.strokeWidth || 1}
+                onChange={(e) => onUpdateElement(selectedIndex, { strokeWidth: parseFloat(e.target.value) || 1 })}
+                className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              />
+            </div>
+          </>
+        )}
+
+        {(selectedElement.type === 'title' || selectedElement.type === 'subtitle' || selectedElement.type === 'text') && (
+          <div>
+            <label className="block text-[10px] font-semibold text-gray-500 mb-1">Text Color</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={selectedElement.textColor || '#1f2937'}
+                onChange={(e) => onUpdateElement(selectedIndex, { textColor: e.target.value })}
+                className="w-8 h-6 border border-gray-300 rounded cursor-pointer"
+              />
+              <span className="text-[10px] text-gray-400">{selectedElement.textColor || '#1f2937'}</span>
+            </div>
+          </div>
+        )}
       </div>
     );
   }

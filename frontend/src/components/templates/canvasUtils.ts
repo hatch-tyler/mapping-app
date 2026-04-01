@@ -105,7 +105,7 @@ export function getDefaultElement(type: LayoutElement['type'], pageW: number, pa
     north_arrow: { x: pageW - 38, y: pageH - 50.8, w: 19, h: 25.4 },
     logo: { x: 25.4, y: pageH - 25.4, w: 25.4, h: 19 },
     image: { x: 25.4, y: pageH - 25.4, w: 25.4, h: 19 },
-    shape: { x: 25.4, y: 25.4, w: 50.8, h: 25.4 },
+    shape: { x: 25.4, y: 25.4, w: 50.8, h: 25.4, fillColor: 'transparent', strokeColor: '#000000', strokeWidth: 1 },
     text: { x: 25.4, y: pageH - 38, w: 50.8, h: 12.7, text: 'Text', fontSize: 12, textAlign: 'left', fontWeight: 'normal' },
     horizontal_rule: { x: 25.4, y: pageH / 2, w: pageW - 50.8, h: 1, thickness: 0.5, color: '#000000' },
     header_decorator: { x: 0, y: 0, w: pageW, h: 12.7, color: '#1e40af' },

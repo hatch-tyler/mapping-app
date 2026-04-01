@@ -217,17 +217,23 @@ def _parse_pagx_json(data: dict) -> tuple[dict, list[dict]]:
     }
 
     elements: list[dict] = []
+    import re
 
     for el in layout.get("elements", []):
         try:
             el_type = el.get("type", "")
             name = el.get("name", "")
 
-            # Extract position from frame.rings polygon (in inches)
             pos = _pagx_json_position(el, INCH_TO_MM, height_mm)
 
             if el_type == "CIMMapFrame":
                 elem = {**pos, "type": "map_frame"}
+                # Extract border from graphicFrame
+                gf = el.get("graphicFrame", {})
+                border_sym = gf.get("borderSymbol", {}).get("symbol", {})
+                stroke = _extract_cim_stroke(border_sym)
+                if stroke:
+                    elem.update(stroke)
                 elements.append(elem)
 
             elif el_type in ("CIMLegend",):
@@ -248,28 +254,21 @@ def _parse_pagx_json(data: dict) -> tuple[dict, list[dict]]:
 
                 if gtype in ("CIMTextGraphic", "CIMParagraphTextGraphic"):
                     text = graphic.get("text", "")
-                    # Strip ArcGIS dynamic tags for display
-                    import re
-
                     clean_text = re.sub(r"<[^>]+>", "", text).strip()
                     elem = {
                         **pos,
                         "type": "text",
                         "text": clean_text[:200] if clean_text else name,
                     }
-                    # Extract font info from symbol
-                    symbol = graphic.get("symbol", {}).get("symbol", {})
-                    font_size = _pagx_json_font_size(symbol)
-                    if font_size:
-                        elem["fontSize"] = font_size
+                    # Extract full text symbol properties
+                    text_sym = graphic.get("symbol", {}).get("symbol", {})
+                    _apply_cim_text_symbol(elem, text_sym)
                     elements.append(elem)
 
                 elif gtype == "CIMPictureGraphic":
                     elem = {**pos, "type": "image", "text": name}
-                    # Extract embedded image from binaryReferences
                     ref_uri = graphic.get("referenceURI", "")
                     if ref_uri and ref_uri in binary_lookup:
-                        # Detect image type from URI
                         ext = ref_uri.rsplit(".", 1)[-1].lower()
                         mime = {
                             "png": "image/png",
@@ -283,6 +282,9 @@ def _parse_pagx_json(data: dict) -> tuple[dict, list[dict]]:
 
                 elif gtype == "CIMPolygonGraphic":
                     elem = {**pos, "type": "shape", "text": name}
+                    # Extract fill and stroke from polygon symbol
+                    poly_sym = graphic.get("symbol", {}).get("symbol", {})
+                    _apply_cim_polygon_symbol(elem, poly_sym)
                     elements.append(elem)
 
                 else:
@@ -389,16 +391,83 @@ def _pagx_json_position(el: dict, inch_to_mm: float, page_height_mm: float) -> d
     return {"x": 0, "y": 0, "w": 25, "h": 25}
 
 
-def _pagx_json_font_size(symbol: dict) -> int | None:
-    """Extract font size from a CIM text symbol."""
-    layers = symbol.get("symbolLayers", [])
-    for layer in layers:
-        if layer.get("type") == "CIMCharacterMarker":
-            return int(layer.get("size", 12))
+def _cim_color_to_css(color_obj: dict | None) -> str | None:
+    """Convert CIM color object to CSS rgba string."""
+    if not color_obj:
+        return None
+    values = color_obj.get("values", [])
+    if len(values) < 3:
+        return None
+    r, g, b = int(values[0]), int(values[1]), int(values[2])
+    # CIM alpha is 0-100 (0=transparent, 100=opaque)
+    a = values[3] / 100.0 if len(values) >= 4 else 1.0
+    if a == 0:
+        return "transparent"
+    if a >= 1.0:
+        return f"#{r:02x}{g:02x}{b:02x}"
+    return f"rgba({r},{g},{b},{a:.2f})"
+
+
+def _extract_cim_stroke(symbol: dict) -> dict:
+    """Extract stroke properties from a CIM line or polygon symbol."""
+    result: dict = {}
+    for layer in symbol.get("symbolLayers", []):
+        if layer.get("type") == "CIMSolidStroke" and layer.get("enable", True):
+            color = _cim_color_to_css(layer.get("color"))
+            if color and color != "transparent":
+                result["strokeColor"] = color
+            width = layer.get("width", 1)
+            result["strokeWidth"] = round(float(width), 1)
+            break
+    return result
+
+
+def _apply_cim_polygon_symbol(elem: dict, symbol: dict) -> None:
+    """Extract fill and stroke from a CIMPolygonSymbol into element dict."""
+    for layer in symbol.get("symbolLayers", []):
+        layer_type = layer.get("type", "")
+        if not layer.get("enable", True):
+            continue
+        if layer_type == "CIMSolidFill":
+            color = _cim_color_to_css(layer.get("color"))
+            elem["fillColor"] = color or "transparent"
+        elif layer_type == "CIMSolidStroke":
+            color = _cim_color_to_css(layer.get("color"))
+            if color and color != "transparent":
+                elem["strokeColor"] = color
+            elem["strokeWidth"] = round(float(layer.get("width", 1)), 1)
+
+
+def _apply_cim_text_symbol(elem: dict, symbol: dict) -> None:
+    """Extract font properties from a CIMTextSymbol into element dict."""
+    # Font size (height in points)
     height = symbol.get("height")
     if height:
-        return int(height)
-    return None
+        elem["fontSize"] = int(round(float(height)))
+
+    # Font family
+    family = symbol.get("fontFamilyName")
+    if family:
+        elem["fontFamily"] = family
+
+    # Font weight from style name
+    style = symbol.get("fontStyleName", "").lower()
+    if "bold" in style:
+        elem["fontWeight"] = "bold"
+
+    # Text alignment
+    halign = symbol.get("horizontalAlignment", "").lower()
+    if halign in ("left", "center", "right"):
+        elem["textAlign"] = halign
+
+    # Text color — nested in symbol.symbol.symbolLayers[].CIMSolidFill.color
+    inner_sym = symbol.get("symbol", {})
+    for layer in inner_sym.get("symbolLayers", []):
+        if layer.get("type") == "CIMSolidFill" and layer.get("enable", True):
+            color = _cim_color_to_css(layer.get("color"))
+            if color and color != "transparent":
+                elem["textColor"] = color
+            break
 
 
 def _parse_pagx_xml(xml_content: str) -> tuple[dict, list[dict]]:
