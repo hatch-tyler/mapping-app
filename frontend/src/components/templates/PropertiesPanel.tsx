@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import type { LayoutElement, DisplayUnit } from '@/api/templates';
 import { ELEMENT_LABELS, toDisplayUnits, fromDisplayUnits, PAGE_PRESETS, formatPageLabel } from './canvasUtils';
 import type { PagePresetKey } from './canvasUtils';
@@ -33,15 +34,39 @@ function DimensionInput({ label, valueMm, unit, onChange }: {
   onChange: (mm: number) => void;
 }) {
   const displayVal = toDisplayUnits(valueMm, unit);
+  const formatted = parseFloat(displayVal.toFixed(unit === 'in' ? 3 : 1));
+  const [localVal, setLocalVal] = useState(String(formatted));
+  const [focused, setFocused] = useState(false);
+
+  // Sync from prop when not focused
+  useEffect(() => {
+    if (!focused) setLocalVal(String(formatted));
+  }, [formatted, focused]);
+
   return (
     <div>
       <label className="block text-[10px] font-medium text-gray-500 uppercase tracking-wider">{label}</label>
       <div className="flex items-center gap-1">
         <input
-          type="number"
-          step={unit === 'in' ? '0.01' : '1'}
-          value={parseFloat(displayVal.toFixed(unit === 'in' ? 3 : 1))}
-          onChange={(e) => onChange(fromDisplayUnits(parseFloat(e.target.value) || 0, unit))}
+          type="text"
+          inputMode="decimal"
+          value={localVal}
+          onFocus={() => setFocused(true)}
+          onChange={(e) => setLocalVal(e.target.value)}
+          onBlur={() => {
+            setFocused(false);
+            const parsed = parseFloat(localVal);
+            if (!isNaN(parsed)) {
+              onChange(fromDisplayUnits(parsed, unit));
+            } else {
+              setLocalVal(String(formatted));
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
           className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
         />
         <span className="text-[10px] text-gray-400 shrink-0">{unit}</span>

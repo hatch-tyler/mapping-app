@@ -26,9 +26,12 @@ export function VisualCanvas({
   enableSnap, gridSize, onSelectElement, onUpdateElement,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
+  const [autoScale, setAutoScale] = useState(1);
+  const [userZoom, setUserZoom] = useState<number | null>(null);
 
-  // Compute scale to fit page in container
+  const scale = userZoom ?? autoScale;
+
+  // Compute auto-fit scale
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -41,7 +44,7 @@ export function VisualCanvas({
       const availW = cw - padding;
       const availH = ch - padding;
       const s = Math.min(availW / pageWidth, availH / pageHeight, 3);
-      setScale(Math.max(0.1, s));
+      setAutoScale(Math.max(0.1, s));
     });
 
     observer.observe(container);
@@ -49,19 +52,23 @@ export function VisualCanvas({
   }, [pageWidth, pageHeight]);
 
   const handleCanvasClick = useCallback((e: React.MouseEvent) => {
-    // Deselect if clicking on the page background
     if ((e.target as HTMLElement).dataset.canvas) {
       onSelectElement(null);
     }
   }, [onSelectElement]);
 
+  const zoomIn = () => setUserZoom(Math.min((userZoom ?? autoScale) + 0.15, 4));
+  const zoomOut = () => setUserZoom(Math.max((userZoom ?? autoScale) - 0.15, 0.2));
+  const zoomFit = () => setUserZoom(null);
+
   const paperW = pageWidth * scale;
   const paperH = pageHeight * scale;
+  const zoomPct = Math.round(scale * 100);
 
   return (
     <div
       ref={containerRef}
-      className="flex-1 bg-gray-200 overflow-auto flex items-center justify-center p-5"
+      className="relative flex-1 bg-gray-200 overflow-auto flex items-center justify-center p-5"
       style={{ minHeight: 0 }}
     >
       <div
@@ -118,6 +125,36 @@ export function VisualCanvas({
             onUpdate={(updates) => onUpdateElement(idx, updates)}
           />
         ))}
+      </div>
+
+      {/* Zoom controls */}
+      <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-white rounded-lg shadow border border-gray-200 px-1 py-0.5 z-20">
+        <button
+          onClick={zoomOut}
+          className="p-1 text-gray-600 hover:bg-gray-100 rounded"
+          title="Zoom out"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
+          </svg>
+        </button>
+        <span className="text-xs text-gray-600 w-10 text-center font-mono">{zoomPct}%</span>
+        <button
+          onClick={zoomIn}
+          className="p-1 text-gray-600 hover:bg-gray-100 rounded"
+          title="Zoom in"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+        </button>
+        <button
+          onClick={zoomFit}
+          className="px-1.5 py-0.5 text-[10px] text-gray-600 hover:bg-gray-100 rounded font-medium"
+          title="Fit to window"
+        >
+          Fit
+        </button>
       </div>
     </div>
   );

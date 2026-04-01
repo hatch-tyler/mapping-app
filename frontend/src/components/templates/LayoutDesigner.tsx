@@ -166,7 +166,11 @@ export function LayoutDesigner({ onClose }: Props) {
     try {
       await templatesApi.importLayoutTemplate(file, defaultName);
       useToastStore.getState().addToast('Template imported', 'success');
-      fetchTemplates();
+      // Refresh list and auto-load the imported template
+      const updated = await templatesApi.getLayoutTemplates();
+      setTemplates(updated);
+      const imported = updated.find((t) => t.name === defaultName);
+      if (imported) loadForEdit(imported);
     } catch {
       useToastStore.getState().addToast('Failed to import template', 'error');
     } finally {

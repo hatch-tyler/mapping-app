@@ -294,7 +294,31 @@ def _parse_pagx_json(data: dict) -> tuple[dict, list[dict]]:
         except Exception as e:
             logger.warning("Failed to parse ArcGIS element %s: %s", el.get("type"), e)
 
-    return page_config, elements
+    # Clamp elements to page bounds; skip entirely off-page elements
+    clamped: list[dict] = []
+    for elem in elements:
+        x, y, w, h = elem["x"], elem["y"], elem["w"], elem["h"]
+        # Skip elements entirely outside the page
+        if x >= width_mm or y >= height_mm or x + w <= 0 or y + h <= 0:
+            continue
+        # Clamp to page bounds
+        if x < 0:
+            w += x
+            x = 0
+        if y < 0:
+            h += y
+            y = 0
+        if x + w > width_mm:
+            w = width_mm - x
+        if y + h > height_mm:
+            h = height_mm - y
+        elem["x"] = round(x, 1)
+        elem["y"] = round(y, 1)
+        elem["w"] = round(max(w, 1), 1)
+        elem["h"] = round(max(h, 1), 1)
+        clamped.append(elem)
+
+    return page_config, clamped
 
 
 def _pagx_json_position(el: dict, inch_to_mm: float, page_height_mm: float) -> dict:
@@ -330,9 +354,14 @@ def _pagx_json_position(el: dict, inch_to_mm: float, page_height_mm: float) -> d
     if result:
         return result
 
-    # 2. el.graphic.shape.rings (text and polygon graphic elements)
+    # 2a. el.graphic.shape.rings (text graphic elements)
     graphic = el.get("graphic", {})
     result = _from_rings(graphic.get("shape", {}).get("rings", []))
+    if result:
+        return result
+
+    # 2b. el.graphic.polygon.rings (CIMPolygonGraphic — neatline, title block)
+    result = _from_rings(graphic.get("polygon", {}).get("rings", []))
     if result:
         return result
 
