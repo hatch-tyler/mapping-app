@@ -310,139 +310,251 @@ def generate_qpt(
 def generate_pagx(
     page_config: dict, elements: list[dict], template_name: str = "Map Layout"
 ) -> str:
-    """Generate ArcGIS Pro Layout (.pagx) XML.
+    """Generate ArcGIS Pro Layout (.pagx) as JSON (CIMLayoutDocument).
 
-    .pagx files can be imported via:
-    Insert -> Import Layout
+    ArcGIS Pro 3.x uses JSON format for .pagx files. This produces a valid
+    CIMLayoutDocument that can be imported via Insert -> Import Layout.
     """
-    width = page_config.get("width", 279.4)
-    height = page_config.get("height", 215.9)
-    orientation = page_config.get("orientation", "landscape")
+    import json
 
-    if orientation == "portrait":
-        width_pt, height_pt = min(width, height) * 2.8346, max(width, height) * 2.8346
-    else:
-        width_pt, height_pt = max(width, height) * 2.8346, min(width, height) * 2.8346
+    MM_TO_INCH = 1.0 / 25.4
+    width_mm = page_config.get("width", 279.4)
+    height_mm = page_config.get("height", 215.9)
+    width_in = width_mm * MM_TO_INCH
+    height_in = height_mm * MM_TO_INCH
 
-    layout = Element(
-        "Layout",
-        {
-            "xmlns": "http://schemas.esri.com/CIMDocument",
-            "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
-        },
-    )
+    def _rect_rings(x_mm: float, y_mm: float, w_mm: float, h_mm: float) -> list:
+        """Convert mm position (CSS top-left origin) to ArcGIS rings (bottom-left origin)."""
+        x1 = x_mm * MM_TO_INCH
+        x2 = (x_mm + w_mm) * MM_TO_INCH
+        # Flip Y: CSS y=0 is top, ArcGIS y=0 is bottom
+        y_top = height_in - y_mm * MM_TO_INCH
+        y_bot = height_in - (y_mm + h_mm) * MM_TO_INCH
+        return [[[x1, y_top], [x2, y_top], [x2, y_bot], [x1, y_bot], [x1, y_top]]]
 
-    page = SubElement(layout, "Page")
-    SubElement(page, "Width").text = _mm(width_pt)
-    SubElement(page, "Height").text = _mm(height_pt)
-    SubElement(page, "Units").text = "Points"
+    def _color(hex_str: str, alpha: int = 100) -> dict:
+        rgb = _hex_to_rgb_list(hex_str)
+        return {"type": "CIMRGBColor", "values": [rgb[0], rgb[1], rgb[2], alpha]}
 
-    elem_container = SubElement(layout, "Elements")
+    def _polygon_symbol(
+        fill_hex: str | None = None,
+        fill_alpha: int = 100,
+        stroke_hex: str = "#000000",
+        stroke_width: float = 1,
+    ) -> dict:
+        layers = []
+        # Stroke layer (first in CIM = drawn on top)
+        layers.append(
+            {
+                "type": "CIMSolidStroke",
+                "enable": True,
+                "capStyle": "Round",
+                "joinStyle": "Round",
+                "width": stroke_width,
+                "color": _color(stroke_hex),
+            }
+        )
+        # Fill layer
+        if fill_hex and fill_hex != "transparent":
+            layers.append(
+                {
+                    "type": "CIMSolidFill",
+                    "enable": True,
+                    "color": _color(fill_hex, fill_alpha),
+                }
+            )
+        else:
+            layers.append(
+                {
+                    "type": "CIMSolidFill",
+                    "enable": True,
+                    "color": _color("#000000", 0),  # transparent
+                }
+            )
+        return {"type": "CIMPolygonSymbol", "symbolLayers": layers}
+
+    cim_elements = []
 
     for elem in elements:
-        elem_type = elem.get("type", "")
-        x = elem.get("x", 0) * 2.8346  # mm to points
-        y = elem.get("y", 0) * 2.8346
-        w = elem.get("w", 50) * 2.8346
-        h = elem.get("h", 50) * 2.8346
+        etype = elem.get("type", "")
+        x = elem.get("x", 0)
+        y = elem.get("y", 0)
+        w = elem.get("w", 50)
+        h = elem.get("h", 50)
+        rings = _rect_rings(x, y, w, h)
 
-        if elem_type == "map_frame":
-            mf = SubElement(elem_container, "CIMMapFrame")
-            SubElement(mf, "Name").text = "Map Frame"
-            anchor = SubElement(mf, "Anchor")
-            SubElement(anchor, "X").text = _mm(x)
-            SubElement(anchor, "Y").text = _mm(height_pt - y)
-            SubElement(mf, "Width").text = _mm(w)
-            SubElement(mf, "Height").text = _mm(h)
-
-        elif elem_type == "title":
-            _build_pagx_text(
-                elem_container,
-                elem,
-                height_pt,
-                name="Title",
-                default_font_size=24,
-                default_halign="Center",
-                default_font_weight="Bold",
+        if etype == "map_frame":
+            stroke_hex = elem.get("strokeColor", "#000000")
+            stroke_w = elem.get("strokeWidth", 1)
+            cim_elements.append(
+                {
+                    "type": "CIMMapFrame",
+                    "name": elem.get("text", "Map Frame") or "Map Frame",
+                    "visible": True,
+                    "anchor": "BottomLeftCorner",
+                    "frame": {"rings": rings},
+                    "graphicFrame": {
+                        "type": "CIMGraphicFrame",
+                        "borderSymbol": {
+                            "type": "CIMSymbolReference",
+                            "symbol": {
+                                "type": "CIMLineSymbol",
+                                "symbolLayers": [
+                                    {
+                                        "type": "CIMSolidStroke",
+                                        "enable": True,
+                                        "width": stroke_w,
+                                        "color": _color(stroke_hex),
+                                    }
+                                ],
+                            },
+                        },
+                    },
+                }
             )
 
-        elif elem_type == "subtitle":
-            _build_pagx_text(
-                elem_container,
-                elem,
-                height_pt,
-                name="Subtitle",
-                default_font_size=16,
-                default_halign="Center",
-                default_font_weight="Regular",
+        elif etype in ("title", "subtitle", "text"):
+            text = elem.get("text", "")
+            font_size = elem.get("fontSize", 12 if etype == "text" else 24)
+            font_family = elem.get("fontFamily", "Arial")
+            font_weight = elem.get(
+                "fontWeight", "bold" if etype == "title" else "normal"
+            )
+            font_style = "Bold" if font_weight == "bold" else "Regular"
+            halign_map = {"left": "Left", "center": "Center", "right": "Right"}
+            default_align = "center" if etype in ("title", "subtitle") else "left"
+            halign = halign_map.get(elem.get("textAlign", default_align), "Left")
+            text_color = elem.get("textColor", "#000000")
+
+            cim_elements.append(
+                {
+                    "type": "CIMGraphicElement",
+                    "name": elem.get("text", etype.title())[:50] or etype.title(),
+                    "visible": True,
+                    "anchor": "TopLeftCorner",
+                    "graphic": {
+                        "type": "CIMParagraphTextGraphic",
+                        "shape": {"rings": rings},
+                        "symbol": {
+                            "type": "CIMSymbolReference",
+                            "symbol": {
+                                "type": "CIMTextSymbol",
+                                "height": font_size,
+                                "fontFamilyName": font_family,
+                                "fontStyleName": font_style,
+                                "horizontalAlignment": halign,
+                                "symbol": {
+                                    "type": "CIMPolygonSymbol",
+                                    "symbolLayers": [
+                                        {
+                                            "type": "CIMSolidFill",
+                                            "enable": True,
+                                            "color": _color(text_color),
+                                        }
+                                    ],
+                                },
+                            },
+                        },
+                        "text": text,
+                    },
+                }
             )
 
-        elif elem_type == "text":
-            _build_pagx_text(
-                elem_container,
-                elem,
-                height_pt,
-                name="Text",
-                default_font_size=12,
-                default_halign="Left",
-                default_font_weight="Regular",
+        elif etype == "legend":
+            cim_elements.append(
+                {
+                    "type": "CIMLegend",
+                    "name": "Legend",
+                    "visible": True,
+                    "anchor": "TopLeftCorner",
+                    "frame": {"rings": rings},
+                }
             )
 
-        elif elem_type == "legend":
-            le = SubElement(elem_container, "CIMLegend")
-            SubElement(le, "Name").text = "Legend"
-            anchor = SubElement(le, "Anchor")
-            SubElement(anchor, "X").text = _mm(x)
-            SubElement(anchor, "Y").text = _mm(height_pt - y)
-            SubElement(le, "Width").text = _mm(w)
-            SubElement(le, "Height").text = _mm(h)
+        elif etype == "scale_bar":
+            cim_elements.append(
+                {
+                    "type": "CIMScaleLine",
+                    "name": "Scale Bar",
+                    "visible": True,
+                    "anchor": "BottomMidPoint",
+                    "frame": {"rings": rings},
+                }
+            )
 
-        elif elem_type == "scale_bar":
-            sb = SubElement(elem_container, "CIMScaleBar")
-            SubElement(sb, "Name").text = "Scale Bar"
-            anchor = SubElement(sb, "Anchor")
-            SubElement(anchor, "X").text = _mm(x)
-            SubElement(anchor, "Y").text = _mm(height_pt - y)
+        elif etype == "north_arrow":
+            cim_elements.append(
+                {
+                    "type": "CIMMarkerNorthArrow",
+                    "name": "North Arrow",
+                    "visible": True,
+                    "anchor": "CenterPoint",
+                    "frame": {"rings": rings},
+                }
+            )
 
-        elif elem_type == "north_arrow":
-            na = SubElement(elem_container, "CIMNorthArrow")
-            SubElement(na, "Name").text = "North Arrow"
-            anchor = SubElement(na, "Anchor")
-            SubElement(anchor, "X").text = _mm(x)
-            SubElement(anchor, "Y").text = _mm(height_pt - y)
-            SubElement(na, "Width").text = _mm(w)
-            SubElement(na, "Height").text = _mm(h)
+        elif etype == "shape":
+            fill_hex = elem.get("fillColor", "transparent")
+            stroke_hex = elem.get("strokeColor", "#000000")
+            stroke_w = elem.get("strokeWidth", 1)
+            cim_elements.append(
+                {
+                    "type": "CIMGraphicElement",
+                    "name": elem.get("text", "Shape") or "Shape",
+                    "visible": True,
+                    "anchor": "BottomLeftCorner",
+                    "graphic": {
+                        "type": "CIMPolygonGraphic",
+                        "polygon": {"rings": rings},
+                        "symbol": {
+                            "type": "CIMSymbolReference",
+                            "symbol": _polygon_symbol(
+                                fill_hex, 100, stroke_hex, stroke_w
+                            ),
+                        },
+                    },
+                }
+            )
 
-        elif elem_type in ("horizontal_rule", "header_decorator", "footer_decorator"):
+        elif etype in ("horizontal_rule", "header_decorator", "footer_decorator"):
             color_hex = elem.get(
-                "color", "#000000" if elem_type == "horizontal_rule" else "#1e40af"
+                "color", "#000000" if etype == "horizontal_rule" else "#1e40af"
             )
-            rgb = _hex_to_rgb_list(color_hex)
-            label = elem_type.replace("_", " ").title()
-            # Use actual thickness for horizontal rules
-            actual_h = h
-            if elem_type == "horizontal_rule":
+            if etype == "horizontal_rule":
                 thickness = elem.get("thickness", 0.5)
-                actual_h = thickness * 2.8346
+                h = thickness
+            cim_elements.append(
+                {
+                    "type": "CIMGraphicElement",
+                    "name": etype.replace("_", " ").title(),
+                    "visible": True,
+                    "anchor": "BottomLeftCorner",
+                    "graphic": {
+                        "type": "CIMPolygonGraphic",
+                        "polygon": {"rings": _rect_rings(x, y, w, h)},
+                        "symbol": {
+                            "type": "CIMSymbolReference",
+                            "symbol": _polygon_symbol(color_hex, 100, color_hex, 0.5),
+                        },
+                    },
+                }
+            )
 
-            ge = SubElement(elem_container, "CIMGraphicElement")
-            SubElement(ge, "Name").text = label
-            graphic = SubElement(ge, "Graphic")
-            SubElement(graphic, "xsi:type").text = "typens:CIMPolygonGraphic"
-            polygon = SubElement(graphic, "Polygon")
-            SubElement(polygon, "XMin").text = _mm(x)
-            SubElement(polygon, "YMin").text = _mm(height_pt - y - actual_h)
-            SubElement(polygon, "XMax").text = _mm(x + w)
-            SubElement(polygon, "YMax").text = _mm(height_pt - y)
-            symbol = SubElement(graphic, "Symbol")
-            SubElement(symbol, "xsi:type").text = "typens:CIMPolygonSymbol"
-            sym_layer = SubElement(symbol, "SymbolLayer")
-            SubElement(sym_layer, "xsi:type").text = "typens:CIMSolidFill"
-            color_elem = SubElement(sym_layer, "Color")
-            SubElement(color_elem, "R").text = str(rgb[0])
-            SubElement(color_elem, "G").text = str(rgb[1])
-            SubElement(color_elem, "B").text = str(rgb[2])
-            SubElement(color_elem, "A").text = "255"
+    doc = {
+        "type": "CIMLayoutDocument",
+        "version": "3.2.0",
+        "build": 49743,
+        "layoutDefinition": {
+            "type": "CIMLayout",
+            "name": template_name,
+            "elements": cim_elements,
+            "page": {
+                "type": "CIMPage",
+                "height": height_in,
+                "width": width_in,
+                "units": "Inches",
+            },
+        },
+    }
 
-    xml_str = tostring(layout, encoding="unicode")
-    return parseString(xml_str).toprettyxml(indent="  ")
+    return json.dumps(doc, indent=2)

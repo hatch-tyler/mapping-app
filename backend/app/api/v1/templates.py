@@ -347,12 +347,12 @@ async def export_layout_pagx(
     if not template:
         raise HTTPException(status_code=404, detail="Layout template not found")
 
-    pagx_xml = generate_pagx(template.page_config, template.elements, template.name)
+    pagx_json = generate_pagx(template.page_config, template.elements, template.name)
     safe_name = re.sub(r"[^\w\-.]", "_", template.name)
 
     return StreamingResponse(
-        io.BytesIO(pagx_xml.encode("utf-8")),
-        media_type="application/xml",
+        io.BytesIO(pagx_json.encode("utf-8")),
+        media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{safe_name}.pagx"'},
     )
 

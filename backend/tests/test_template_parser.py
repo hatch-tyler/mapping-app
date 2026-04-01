@@ -129,26 +129,28 @@ class TestParsePagx:
         assert len(elements) == len(self.elements)
 
     def test_round_trip_element_types(self):
-        xml = generate_pagx(self.page, self.elements)
-        _, elements = parse_pagx(xml)
+        result = generate_pagx(self.page, self.elements)
+        _, elements = parse_pagx(result)
         types = [e["type"] for e in elements]
         assert "map_frame" in types
-        assert "title" in types
+        # pagx parser maps all CIMParagraphTextGraphic to "text" (not "title")
+        assert "text" in types
         assert "legend" in types
         assert "scale_bar" in types
         assert "north_arrow" in types
 
     def test_round_trip_title_text(self):
-        xml = generate_pagx(self.page, self.elements)
-        _, elements = parse_pagx(xml)
-        title = next(e for e in elements if e["type"] == "title")
+        result = generate_pagx(self.page, self.elements)
+        _, elements = parse_pagx(result)
+        text_elems = [e for e in elements if e["type"] == "text"]
+        title = next(e for e in text_elems if "My Map" in e.get("text", ""))
         assert title["text"] == "My Map"
         assert title["fontSize"] == 24
         assert title["fontWeight"] == "bold"
 
     def test_empty_elements(self):
-        xml = generate_pagx(self.page, [])
-        _, elements = parse_pagx(xml)
+        result = generate_pagx(self.page, [])
+        _, elements = parse_pagx(result)
         assert elements == []
 
 
