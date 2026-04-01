@@ -540,19 +540,57 @@ def generate_pagx(
                 }
             )
 
+    # Build a minimal but valid CIMLayoutDocument.
+    # ArcGIS Pro requires mapDefinitions and proper uRI references
+    # for elements like CIMMapFrame and CIMLegend to avoid crashes.
+    map_uri = "CIMPATH=map/map.json"
+
+    # Link map frame to map definition
+    for el in cim_elements:
+        if el.get("type") == "CIMMapFrame":
+            el["uRI"] = map_uri
+            el["view"] = {
+                "type": "CIMMapView",
+                "viewType": "Map",
+                "viewableObjectPath": map_uri,
+            }
+        elif el.get("type") == "CIMLegend":
+            el["mapFrame"] = "Map Frame"
+
     doc = {
         "type": "CIMLayoutDocument",
         "version": "3.2.0",
         "build": 49743,
+        "mapDefinitions": [
+            {
+                "type": "CIMMap",
+                "name": "Map",
+                "uRI": map_uri,
+                "mapType": "Map",
+                "defaultViewingMode": "MapView",
+                "defaultExtent": {
+                    "xmin": -180,
+                    "ymin": -90,
+                    "xmax": 180,
+                    "ymax": 90,
+                    "spatialReference": {"wkid": 4326},
+                },
+                "spatialReference": {"wkid": 4326},
+            }
+        ],
         "layoutDefinition": {
             "type": "CIMLayout",
             "name": template_name,
+            "uRI": "CIMPATH=layout/layout.json",
             "elements": cim_elements,
             "page": {
                 "type": "CIMPage",
                 "height": height_in,
                 "width": width_in,
-                "units": "Inches",
+                "units": {"uwkid": 109008},
+                "showRulers": True,
+                "showGuides": True,
+                "smallestRulerDivision": 0.01,
             },
         },
     }

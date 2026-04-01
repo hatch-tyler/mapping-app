@@ -337,9 +337,11 @@ async def export_layout_pagx(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Export layout template as ArcGIS Pro Layout (.pagx)."""
-    from app.services.layout_generator import generate_pagx
+    """Export layout template as ArcGIS Pro Layout (.pagx).
 
+    If the template was imported from a .pagx file, returns the original file
+    (which ArcGIS Pro can reliably open). Otherwise generates a new one.
+    """
     result = await db.execute(
         select(LayoutTemplate).where(LayoutTemplate.id == template_id)
     )
@@ -347,8 +349,27 @@ async def export_layout_pagx(
     if not template:
         raise HTTPException(status_code=404, detail="Layout template not found")
 
-    pagx_json = generate_pagx(template.page_config, template.elements, template.name)
     safe_name = re.sub(r"[^\w\-.]", "_", template.name)
+
+    # Prefer original file if it exists (ArcGIS Pro requires complex internal
+    # references like mapDefinitions, uRI links, etc. that we can't regenerate)
+    if template.source_format == "pagx" and template.source_file_path:
+        from app.config import settings
+
+        abs_path = os.path.join(settings.UPLOAD_DIR, template.source_file_path)
+        if os.path.exists(abs_path):
+            return StreamingResponse(
+                open(abs_path, "rb"),
+                media_type="application/json",
+                headers={
+                    "Content-Disposition": f'attachment; filename="{safe_name}.pagx"'
+                },
+            )
+
+    # Generate new .pagx for templates created in the designer
+    from app.services.layout_generator import generate_pagx
+
+    pagx_json = generate_pagx(template.page_config, template.elements, template.name)
 
     return StreamingResponse(
         io.BytesIO(pagx_json.encode("utf-8")),
