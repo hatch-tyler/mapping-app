@@ -32,6 +32,8 @@ export interface LayoutElement {
     | 'scale_bar'
     | 'north_arrow'
     | 'logo'
+    | 'image'
+    | 'shape'
     | 'text'
     | 'horizontal_rule'
     | 'header_decorator'
@@ -47,6 +49,7 @@ export interface LayoutElement {
   units?: string;
   color?: string;
   thickness?: number;
+  imageData?: string;
 }
 
 export interface MapView {

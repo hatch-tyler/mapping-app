@@ -192,6 +192,14 @@ def _parse_pagx_json(data: dict) -> tuple[dict, list[dict]]:
     """Parse JSON-format .pagx (ArcGIS Pro 3.x+)."""
     INCH_TO_MM = 25.4
 
+    # Build lookup for embedded binary data (images, etc.)
+    binary_lookup: dict[str, str] = {}
+    for ref in data.get("binaryReferences", []):
+        uri = ref.get("uRI", "")
+        ref_data = ref.get("data", "")
+        if uri and ref_data:
+            binary_lookup[uri] = ref_data
+
     layout = data.get("layoutDefinition", {})
     page = layout.get("page", {})
 
@@ -216,7 +224,7 @@ def _parse_pagx_json(data: dict) -> tuple[dict, list[dict]]:
             name = el.get("name", "")
 
             # Extract position from frame.rings polygon (in inches)
-            pos = _pagx_json_position(el, INCH_TO_MM)
+            pos = _pagx_json_position(el, INCH_TO_MM, height_mm)
 
             if el_type == "CIMMapFrame":
                 elem = {**pos, "type": "map_frame"}
@@ -258,6 +266,19 @@ def _parse_pagx_json(data: dict) -> tuple[dict, list[dict]]:
 
                 elif gtype == "CIMPictureGraphic":
                     elem = {**pos, "type": "image", "text": name}
+                    # Extract embedded image from binaryReferences
+                    ref_uri = graphic.get("referenceURI", "")
+                    if ref_uri and ref_uri in binary_lookup:
+                        # Detect image type from URI
+                        ext = ref_uri.rsplit(".", 1)[-1].lower()
+                        mime = {
+                            "png": "image/png",
+                            "jpg": "image/jpeg",
+                            "jpeg": "image/jpeg",
+                        }.get(ext, "image/png")
+                        elem["imageData"] = (
+                            f"data:{mime};base64,{binary_lookup[ref_uri]}"
+                        )
                     elements.append(elem)
 
                 elif gtype == "CIMPolygonGraphic":
@@ -276,8 +297,12 @@ def _parse_pagx_json(data: dict) -> tuple[dict, list[dict]]:
     return page_config, elements
 
 
-def _pagx_json_position(el: dict, inch_to_mm: float) -> dict:
-    """Extract x, y, w, h from a JSON .pagx element's frame.rings."""
+def _pagx_json_position(el: dict, inch_to_mm: float, page_height_mm: float) -> dict:
+    """Extract x, y, w, h from a JSON .pagx element's frame.rings.
+
+    ArcGIS uses bottom-left origin (Y up); CSS uses top-left origin (Y down).
+    We flip Y by computing: css_y = page_height - arcgis_top_edge.
+    """
     frame = el.get("frame", {})
     rings = frame.get("rings", [])
     if not rings or not rings[0]:
@@ -291,7 +316,7 @@ def _pagx_json_position(el: dict, inch_to_mm: float) -> dict:
 
     return {
         "x": round(min_x * inch_to_mm, 1),
-        "y": round(min_y * inch_to_mm, 1),
+        "y": round(page_height_mm - max_y * inch_to_mm, 1),  # Flip Y-axis
         "w": round((max_x - min_x) * inch_to_mm, 1),
         "h": round((max_y - min_y) * inch_to_mm, 1),
     }

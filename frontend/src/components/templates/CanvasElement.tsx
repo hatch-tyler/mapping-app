@@ -168,14 +168,42 @@ export function CanvasElement({ element, index, scale, isSelected, pageW, pageH,
       );
     }
 
-    if (type === 'logo') {
+    if (type === 'logo' || type === 'image') {
+      if (element.imageData) {
+        return (
+          <img
+            src={element.imageData}
+            alt={element.text || 'Logo'}
+            className="w-full h-full object-contain"
+            draggable={false}
+          />
+        );
+      }
       return (
-        <div className="w-full h-full border-2 border-dashed border-gray-300 flex items-center justify-center bg-gray-50">
+        <div
+          className="w-full h-full border-2 border-dashed border-gray-300 flex items-center justify-center bg-gray-50 cursor-pointer"
+          onClick={(e) => {
+            e.stopPropagation();
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = 'image/png,image/jpeg,image/svg+xml';
+            input.onchange = (ev) => {
+              const file = (ev.target as HTMLInputElement).files?.[0];
+              if (!file) return;
+              const reader = new FileReader();
+              reader.onload = () => {
+                onUpdate({ imageData: reader.result as string });
+              };
+              reader.readAsDataURL(file);
+            };
+            input.click();
+          }}
+        >
           <div className="text-center">
             <svg className="w-5 h-5 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-            <span className="text-[7px] text-gray-400">Logo</span>
+            <span className="text-[7px] text-gray-400">Click to add image</span>
           </div>
         </div>
       );
@@ -220,7 +248,7 @@ export function CanvasElement({ element, index, scale, isSelected, pageW, pageH,
   return (
     <div
       data-element-index={index}
-      className={`absolute select-none ${isSelected ? 'ring-2 ring-blue-500 z-20' : 'z-10 hover:ring-1 hover:ring-blue-300'}`}
+      className={`absolute select-none ${isSelected ? 'ring-2 ring-blue-500 z-20' : element.type === 'map_frame' ? 'z-0 hover:ring-1 hover:ring-blue-300' : 'z-10 hover:ring-1 hover:ring-blue-300'}`}
       style={{
         left: element.x * scale,
         top: element.y * scale,

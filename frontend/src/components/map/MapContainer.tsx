@@ -9,6 +9,7 @@ import { createClusteredLayer, shouldUseClustering, clearClusterCache } from '..
 import { FeatureDetailPanel } from './FeatureDetailPanel';
 import { MeasureTool } from './MeasureTool';
 import { MapControls, MapWarnings } from './MapControls';
+import { FigureExportModal } from './FigureExportModal';
 import { Dataset } from '../../api/types';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
@@ -47,6 +48,7 @@ export function MapContainer() {
   const { datasets } = useDatasetStore();
   const [clusteredLayers, setClusteredLayers] = useState<Record<string, unknown>>({});
   const [showMeasure, setShowMeasure] = useState(false);
+  const [showFigureExport, setShowFigureExport] = useState(false);
   const measureClickHandler = useRef<((info: { coordinate?: [number, number] }) => void) | null>(null);
   const deckRef = useRef<HTMLDivElement>(null);
 
@@ -244,6 +246,7 @@ export function MapContainer() {
       <MapControls
         showMeasure={showMeasure}
         onToggleMeasure={() => setShowMeasure(!showMeasure)}
+        onExportFigure={() => setShowFigureExport(true)}
         deckRef={deckRef}
       />
 
@@ -251,6 +254,12 @@ export function MapContainer() {
         <MeasureTool
           onClose={() => { setShowMeasure(false); measureClickHandler.current = null; }}
           onMapClick={(handler) => { measureClickHandler.current = handler; }}
+        />
+      )}
+      {showFigureExport && (
+        <FigureExportModal
+          deckRef={deckRef}
+          onClose={() => setShowFigureExport(false)}
         />
       )}
       <MapWarnings

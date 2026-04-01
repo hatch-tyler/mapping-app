@@ -4,10 +4,11 @@ import { Dataset } from '../../api/types';
 interface MapControlsProps {
   showMeasure: boolean;
   onToggleMeasure: () => void;
+  onExportFigure: () => void;
   deckRef: RefObject<HTMLDivElement | null>;
 }
 
-export function MapControls({ showMeasure, onToggleMeasure, deckRef }: MapControlsProps) {
+export function MapControls({ showMeasure, onToggleMeasure, onExportFigure, deckRef }: MapControlsProps) {
   return (
     <div className="absolute top-14 right-6 flex flex-col gap-1 z-10">
       <button
@@ -54,6 +55,16 @@ export function MapControls({ showMeasure, onToggleMeasure, deckRef }: MapContro
       >
         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+        </svg>
+      </button>
+      <button
+        onClick={onExportFigure}
+        className="p-2 rounded-lg shadow border bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+        title="Export as figure with template"
+        aria-label="Export as figure with template"
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
         </svg>
       </button>
     </div>
