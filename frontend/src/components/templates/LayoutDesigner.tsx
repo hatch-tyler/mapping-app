@@ -17,7 +17,8 @@ interface Props {
 
 const ADDABLE_TYPES: LayoutElement['type'][] = [
   'map_frame', 'title', 'subtitle', 'legend', 'scale_bar', 'north_arrow',
-  'text', 'logo', 'shape', 'horizontal_rule', 'header_decorator', 'footer_decorator',
+  'text', 'logo', 'shape', 'graticule', 'inset_map', 'table',
+  'horizontal_rule', 'header_decorator', 'footer_decorator',
 ];
 
 export function LayoutDesigner({ onClose }: Props) {
@@ -69,6 +70,16 @@ export function LayoutDesigner({ onClose }: Props) {
     setElements((prev) => [...prev, el]);
     setSelectedIndex(elements.length);
   }, [preset.width, preset.height, elements.length]);
+
+  const duplicateElement = useCallback((index: number) => {
+    setElements((prev) => {
+      const el = { ...prev[index], x: prev[index].x + 5, y: prev[index].y + 5 };
+      const next = [...prev];
+      next.splice(index + 1, 0, el);
+      return next;
+    });
+    setSelectedIndex(index + 1);
+  }, []);
 
   const reorderElements = useCallback((from: number, to: number) => {
     setElements((prev) => {
@@ -393,6 +404,7 @@ export function LayoutDesigner({ onClose }: Props) {
               onSelect={setSelectedIndex}
               onReorder={reorderElements}
               onDelete={removeElement}
+              onDuplicate={duplicateElement}
             />
           </div>
         </div>

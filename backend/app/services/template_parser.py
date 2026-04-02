@@ -25,15 +25,21 @@ _QGS_SCALE_BAR = "65646"
 
 
 def _parse_position_size(item: Element) -> dict:
-    """Extract x, y, w, h from QGIS LayoutItem position/size attrs."""
+    """Extract x, y, w, h, rotation, locked from QGIS LayoutItem."""
     pos = item.get("position", "0,0,mm").replace(",mm", "").split(",")
     size = item.get("size", "50,50,mm").replace(",mm", "").split(",")
-    return {
+    result: dict = {
         "x": float(pos[0]) if len(pos) >= 1 else 0,
         "y": float(pos[1]) if len(pos) >= 2 else 0,
         "w": float(size[0]) if len(size) >= 1 else 50,
         "h": float(size[1]) if len(size) >= 2 else 50,
     }
+    rotation = item.get("itemRotation")
+    if rotation and float(rotation) != 0:
+        result["rotation"] = round(float(rotation), 1)
+    if item.get("locked") == "1":
+        result["locked"] = True
+    return result
 
 
 def _parse_qpt_label(item: Element) -> dict:
@@ -225,6 +231,13 @@ def _parse_pagx_json(data: dict) -> tuple[dict, list[dict]]:
             name = el.get("name", "")
 
             pos = _pagx_json_position(el, INCH_TO_MM, height_mm)
+
+            # Common properties for all element types
+            if el.get("locked"):
+                pos["locked"] = True
+            rotation = el.get("rotation")
+            if rotation:
+                pos["rotation"] = round(float(rotation), 1)
 
             if el_type == "CIMMapFrame":
                 elem = {**pos, "type": "map_frame"}

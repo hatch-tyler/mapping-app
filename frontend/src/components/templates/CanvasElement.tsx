@@ -28,7 +28,10 @@ export function CanvasElement({ element, index, scale, isSelected, pageW, pageH,
 
   const applySnap = useCallback((v: number) => enableSnap ? snapToGrid(v, gridSize) : v, [enableSnap, gridSize]);
 
+  const isLocked = element.locked ?? false;
+
   const handlePointerDown = useCallback((e: React.PointerEvent) => {
+    if (isLocked) return;
     if ((e.target as HTMLElement).dataset.handle) return;
     e.preventDefault();
     e.stopPropagation();
@@ -70,6 +73,7 @@ export function CanvasElement({ element, index, scale, isSelected, pageW, pageH,
   }, []);
 
   const handleResizePointerDown = useCallback((e: React.PointerEvent, handle: HandleDir) => {
+    if (isLocked) return;
     e.preventDefault();
     e.stopPropagation();
     onSelect();
@@ -119,12 +123,12 @@ export function CanvasElement({ element, index, scale, isSelected, pageW, pageH,
 
       return (
         <div
-          className="w-full h-full flex items-center px-1 overflow-hidden"
-          style={{ justifyContent: justifyMap[textAlign] }}
+          className="w-full h-full flex items-start px-1 overflow-hidden"
+          style={{ justifyContent: justifyMap[textAlign], textAlign }}
         >
           <span
-            className="truncate"
-            style={{ fontSize: `${fontSize}px`, fontWeight, fontFamily, color: textColor }}
+            className="w-full"
+            style={{ fontSize: `${fontSize}px`, fontWeight, fontFamily, color: textColor, whiteSpace: 'pre-wrap', lineHeight: 1.3 }}
           >
             {element.text || defaultText}
           </span>
@@ -253,6 +257,63 @@ export function CanvasElement({ element, index, scale, isSelected, pageW, pageH,
       );
     }
 
+    if (type === 'graticule') {
+      const gridColor = element.gridColor || '#666666';
+      return (
+        <div className="w-full h-full relative overflow-hidden" style={{ border: `1px solid ${gridColor}` }}>
+          <svg className="absolute inset-0 w-full h-full">
+            {[0.25, 0.5, 0.75].map((f) => (
+              <g key={f}>
+                <line x1={`${f * 100}%`} y1="0" x2={`${f * 100}%`} y2="100%" stroke={gridColor} strokeWidth="0.5" strokeDasharray="4 2" />
+                <line x1="0" y1={`${f * 100}%`} x2="100%" y2={`${f * 100}%`} stroke={gridColor} strokeWidth="0.5" strokeDasharray="4 2" />
+              </g>
+            ))}
+          </svg>
+          <div className="absolute inset-0 flex items-center justify-center">
+            <span className="text-[8px] text-gray-500 bg-white/80 px-1 rounded">Grid</span>
+          </div>
+        </div>
+      );
+    }
+
+    if (type === 'inset_map') {
+      return (
+        <div className="w-full h-full bg-gray-50 flex items-center justify-center"
+          style={{ border: `${Math.max(1, (element.strokeWidth || 1) * scale)}px solid ${element.strokeColor || '#000'}` }}>
+          <div className="text-center">
+            <svg className="w-5 h-5 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
+            </svg>
+            <span className="text-[8px] text-gray-400 font-medium">Inset Map</span>
+          </div>
+        </div>
+      );
+    }
+
+    if (type === 'table') {
+      const rows = element.tableRows || 3;
+      const cols = element.tableCols || 3;
+      const tableColor = element.strokeColor || '#000000';
+      const fs = Math.max(6, (element.fontSize || 9) * scale * 0.5);
+      return (
+        <div className="w-full h-full overflow-hidden" style={{ border: `1px solid ${tableColor}` }}>
+          <table className="w-full h-full border-collapse" style={{ fontSize: `${fs}px` }}>
+            <tbody>
+              {Array.from({ length: Math.min(rows, 8) }).map((_, r) => (
+                <tr key={r}>
+                  {Array.from({ length: Math.min(cols, 6) }).map((_, c) => (
+                    <td key={c} className="border px-0.5" style={{ borderColor: tableColor, color: '#374151', fontWeight: r === 0 ? 'bold' : 'normal', backgroundColor: r === 0 ? '#f3f4f6' : 'white' }}>
+                      {element.tableData?.[r]?.[c] || (r === 0 ? `Col ${c + 1}` : '')}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
     return <div className="w-full h-full bg-gray-100 flex items-center justify-center text-[8px] text-gray-400">{ELEMENT_LABELS[type]}</div>;
   };
 
@@ -278,7 +339,10 @@ export function CanvasElement({ element, index, scale, isSelected, pageW, pageH,
         top: element.y * scale,
         width: element.w * scale,
         height: element.h * scale,
-        cursor: 'move',
+        cursor: isLocked ? 'default' : 'move',
+        opacity: (element.opacity ?? 100) / 100,
+        transform: element.rotation ? `rotate(${element.rotation}deg)` : undefined,
+        transformOrigin: 'center center',
       }}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
@@ -286,7 +350,12 @@ export function CanvasElement({ element, index, scale, isSelected, pageW, pageH,
     >
       {renderContent()}
 
-      {isSelected && handles.map((dir) => (
+      {isLocked && isSelected && (
+        <div className="absolute top-0 right-0 bg-gray-800 text-white rounded-bl px-1 py-0.5 text-[7px] font-medium">
+          Locked
+        </div>
+      )}
+      {isSelected && !isLocked && handles.map((dir) => (
         <div
           key={dir}
           data-handle={dir}

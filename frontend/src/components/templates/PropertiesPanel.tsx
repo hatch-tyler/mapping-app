@@ -95,6 +95,47 @@ export function PropertiesPanel({
           </button>
         </div>
 
+        {/* Common controls: Lock, Opacity, Rotation */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onUpdateElement(selectedIndex, { locked: !selectedElement.locked })}
+            className={`flex items-center gap-1 px-2 py-1 text-[10px] rounded border ${selectedElement.locked ? 'bg-amber-50 border-amber-300 text-amber-700' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}
+            title={selectedElement.locked ? 'Unlock element' : 'Lock element'}
+          >
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {selectedElement.locked
+                ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
+              }
+            </svg>
+            {selectedElement.locked ? 'Locked' : 'Lock'}
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-1.5">
+          <div>
+            <label className="block text-[10px] font-medium text-gray-500">Opacity</label>
+            <div className="flex items-center gap-1">
+              <input
+                type="range" min="0" max="100" step="5"
+                value={selectedElement.opacity ?? 100}
+                onChange={(e) => onUpdateElement(selectedIndex, { opacity: parseInt(e.target.value) })}
+                className="flex-1 h-1 accent-blue-600"
+              />
+              <span className="text-[10px] text-gray-400 w-7 text-right">{selectedElement.opacity ?? 100}%</span>
+            </div>
+          </div>
+          <div>
+            <label className="block text-[10px] font-medium text-gray-500">Rotation</label>
+            <input
+              type="number" min="-360" max="360" step="1"
+              value={selectedElement.rotation || 0}
+              onChange={(e) => onUpdateElement(selectedIndex, { rotation: parseFloat(e.target.value) || 0 })}
+              className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+
         {/* Position */}
         <div>
           <p className="text-[10px] font-semibold text-gray-500 mb-1">Position</p>
@@ -135,6 +176,18 @@ export function PropertiesPanel({
                 onChange={(e) => onUpdateElement(selectedIndex, { fontSize: parseInt(e.target.value) || 12 })}
                 className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
+            </div>
+            <div className="mt-1">
+              <label className="block text-[10px] font-medium text-gray-500">Font Family</label>
+              <select
+                value={selectedElement.fontFamily || 'Arial'}
+                onChange={(e) => onUpdateElement(selectedIndex, { fontFamily: e.target.value })}
+                className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+              >
+                {['Arial', 'Helvetica', 'Times New Roman', 'Georgia', 'Trebuchet MS', 'Verdana', 'Courier New', 'Calibri', 'Cambria', 'Tahoma'].map((f) => (
+                  <option key={f} value={f} style={{ fontFamily: f }}>{f}</option>
+                ))}
+              </select>
             </div>
             <div className="mt-1">
               <label className="block text-[10px] font-medium text-gray-500">Alignment</label>
@@ -290,6 +343,54 @@ export function PropertiesPanel({
               <span className="text-[10px] text-gray-400">{selectedElement.textColor || '#1f2937'}</span>
             </div>
           </div>
+        )}
+
+        {selectedElement.type === 'table' && (
+          <>
+            <div className="grid grid-cols-2 gap-1.5">
+              <div>
+                <label className="block text-[10px] font-semibold text-gray-500 mb-1">Rows</label>
+                <input type="number" min="1" max="20" value={selectedElement.tableRows || 3}
+                  onChange={(e) => onUpdateElement(selectedIndex, { tableRows: parseInt(e.target.value) || 3 })}
+                  className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-gray-500 mb-1">Columns</label>
+                <input type="number" min="1" max="10" value={selectedElement.tableCols || 3}
+                  onChange={(e) => onUpdateElement(selectedIndex, { tableCols: parseInt(e.target.value) || 3 })}
+                  className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" />
+              </div>
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-gray-500 mb-1">Font Size</label>
+              <input type="number" min="6" max="24" value={selectedElement.fontSize || 9}
+                onChange={(e) => onUpdateElement(selectedIndex, { fontSize: parseInt(e.target.value) || 9 })}
+                className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            </div>
+          </>
+        )}
+
+        {selectedElement.type === 'graticule' && (
+          <>
+            <div>
+              <label className="block text-[10px] font-semibold text-gray-500 mb-1">Grid Interval</label>
+              <input type="number" step="0.5" min="0.1" value={selectedElement.gridInterval || 1}
+                onChange={(e) => onUpdateElement(selectedIndex, { gridInterval: parseFloat(e.target.value) || 1 })}
+                className="w-full px-1.5 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-[10px] font-semibold text-gray-500 mb-1">Grid Color</label>
+              <input type="color" value={selectedElement.gridColor || '#666666'}
+                onChange={(e) => onUpdateElement(selectedIndex, { gridColor: e.target.value })}
+                className="w-8 h-6 border border-gray-300 rounded cursor-pointer" />
+            </div>
+            <label className="flex items-center gap-1.5 text-xs text-gray-600">
+              <input type="checkbox" checked={selectedElement.showLabels ?? true}
+                onChange={(e) => onUpdateElement(selectedIndex, { showLabels: e.target.checked })}
+                className="w-3.5 h-3.5 rounded" />
+              Show Labels
+            </label>
+          </>
         )}
       </div>
     );

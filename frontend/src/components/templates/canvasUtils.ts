@@ -53,6 +53,9 @@ export const ELEMENT_LABELS: Record<LayoutElement['type'], string> = {
   horizontal_rule: 'Horizontal Rule',
   header_decorator: 'Header',
   footer_decorator: 'Footer',
+  graticule: 'Coordinate Grid',
+  inset_map: 'Inset Map',
+  table: 'Table',
 };
 
 export const ELEMENT_ICONS: Record<LayoutElement['type'], string> = {
@@ -69,6 +72,9 @@ export const ELEMENT_ICONS: Record<LayoutElement['type'], string> = {
   horizontal_rule: 'M4 12h16',
   header_decorator: 'M4 5h16v4H4V5z',
   footer_decorator: 'M4 15h16v4H4v-4z',
+  graticule: 'M3 3v18h18V3H3zm4 0v18M11 3v18M15 3v18M3 7h18M3 11h18M3 15h18',
+  inset_map: 'M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4',
+  table: 'M3 10h18M3 14h18M10 3v18M3 3h18v18H3V3z',
 };
 
 export function isTextElement(type: LayoutElement['type']): boolean {
@@ -110,6 +116,9 @@ export function getDefaultElement(type: LayoutElement['type'], pageW: number, pa
     horizontal_rule: { x: 25.4, y: pageH / 2, w: pageW - 50.8, h: 1, thickness: 0.5, color: '#000000' },
     header_decorator: { x: 0, y: 0, w: pageW, h: 12.7, color: '#1e40af' },
     footer_decorator: { x: 0, y: pageH - 12.7, w: pageW, h: 12.7, color: '#1e40af' },
+    graticule: { x: 25.4, y: 38, w: pageW - 101.6, h: pageH - 63.5, gridInterval: 1, gridColor: '#666666', showLabels: true, fontSize: 8 },
+    inset_map: { x: pageW - 76.2, y: pageH - 76.2, w: 50.8, h: 50.8, strokeColor: '#000000', strokeWidth: 1 },
+    table: { x: 25.4, y: pageH - 76.2, w: 100, h: 50, tableRows: 3, tableCols: 3, fontSize: 9, strokeColor: '#000000' },
   };
 
   return { type, ...defaults[type] } as LayoutElement;

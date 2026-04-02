@@ -36,8 +36,12 @@ export interface LayoutElement {
     | 'shape'
     | 'text'
     | 'horizontal_rule'
+    | 'horizontal_rule'
     | 'header_decorator'
-    | 'footer_decorator';
+    | 'footer_decorator'
+    | 'graticule'
+    | 'inset_map'
+    | 'table';
   x: number;
   y: number;
   w: number;
@@ -55,6 +59,17 @@ export interface LayoutElement {
   strokeWidth?: number;
   thickness?: number;
   imageData?: string;
+  opacity?: number;       // 0-100, default 100
+  rotation?: number;      // degrees, default 0
+  locked?: boolean;       // prevent move/resize when true
+  // Table properties
+  tableRows?: number;
+  tableCols?: number;
+  tableData?: string[][]; // row-major cell content
+  // Graticule properties
+  gridInterval?: number;  // interval in degrees or meters
+  gridColor?: string;
+  showLabels?: boolean;
 }
 
 export interface MapView {
