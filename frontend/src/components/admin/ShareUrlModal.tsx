@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Dataset } from '../../api/types';
-import { getGeoJSONUrl, getExportUrl, getArcGISFeatureServerUrl, getExternalProxyUrl, getExternalExportUrl, EXPORT_FORMATS } from '../../api/datasets';
+import { getGeoJSONUrl, getExportUrl, getArcGISFeatureServerUrl, getExternalProxyUrl, getExternalExportUrl, getRasterExportUrl, EXPORT_FORMATS } from '../../api/datasets';
+import { getAccessToken } from '../../api/tokenService';
 
 interface Props {
   dataset: Dataset;
@@ -41,6 +42,8 @@ export function ShareUrlModal({ dataset, onClose }: Props) {
 
   const isExternal = dataset.source_type === 'external';
   const isExternalVector = isExternal && ['arcgis_feature', 'wfs'].includes(dataset.service_type || '');
+  const isRaster = dataset.data_type === 'raster' && !isExternal;
+  const isLocalVector = !isExternal && !isRaster;
 
   const geojsonUrl = getGeoJSONUrl(dataset.id);
   const arcgisUrl = getArcGISFeatureServerUrl(dataset.name);
@@ -96,6 +99,36 @@ export function ShareUrlModal({ dataset, onClose }: Props) {
     const url = getExternalExportUrl(dataset.id, format as 'geojson' | 'gpkg' | 'shp' | 'kml');
     window.open(url, '_blank');
     setTimeout(() => setDownloading(null), 2000);
+  };
+
+  const RASTER_FORMATS = [
+    { id: 'tif' as const, name: 'GeoTIFF', ext: '.tif', description: 'Full quality with CRS' },
+    { id: 'png' as const, name: 'PNG', ext: '.png', description: 'Lossless image' },
+    { id: 'jpg' as const, name: 'JPEG', ext: '.jpg', description: 'Compressed image' },
+  ];
+
+  const handleRasterDownload = async (format: 'tif' | 'png' | 'jpg') => {
+    setDownloading(format);
+    try {
+      const url = getRasterExportUrl(dataset.id, format);
+      const token = getAccessToken();
+      const response = await fetch(url, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) throw new Error('Download failed');
+      const blob = await response.blob();
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `${dataset.name}.${format === 'jpg' ? 'jpg' : format}`;
+      document.body.appendChild(link);
+      link.click();
+      URL.revokeObjectURL(link.href);
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error('Raster export failed:', err);
+    } finally {
+      setDownloading(null);
+    }
   };
 
   return (
@@ -263,8 +296,44 @@ data = resp.json()`}
             </>
           )}
 
-          {/* === LOCAL: Download Section === */}
-          {!isExternal && (
+          {/* === RASTER: Download Section === */}
+          {isRaster && (
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                Download Raster
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Download this raster dataset in different formats.
+              </p>
+              <div className="grid grid-cols-3 gap-3">
+                {RASTER_FORMATS.map((format) => (
+                  <button
+                    key={format.id}
+                    onClick={() => handleRasterDownload(format.id)}
+                    disabled={downloading !== null}
+                    className="flex flex-col items-start p-3 border border-gray-200 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors text-left disabled:opacity-50"
+                  >
+                    <div className="flex items-center gap-2 w-full">
+                      <span className="font-medium text-gray-900">{format.name}</span>
+                      {downloading === format.id && (
+                        <svg className="w-4 h-4 animate-spin text-blue-600 ml-auto" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        </svg>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-500">{format.description}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* === LOCAL VECTOR: Download Section === */}
+          {isLocalVector && (
             <div>
               <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
                 <svg className="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -299,8 +368,8 @@ data = resp.json()`}
             </div>
           )}
 
-          {/* === LOCAL: ArcGIS Pro Section === */}
-          {!isExternal && (
+          {/* === LOCAL VECTOR: ArcGIS Pro Section === */}
+          {isLocalVector && (
             <>
               <div className="border-t border-gray-200"></div>
               <div>
@@ -339,8 +408,8 @@ data = resp.json()`}
             </>
           )}
 
-          {/* === LOCAL: Web API Access === */}
-          {!isExternal && (
+          {/* === LOCAL VECTOR: Web API Access === */}
+          {isLocalVector && (
             <>
               <div className="border-t border-gray-200"></div>
               <div>
@@ -420,6 +489,17 @@ gdf = gpd.read_file('${geojsonUrl}')`}
                       <span>Use the proxy GeoJSON endpoint (requires auth token)</span>
                     </li>
                   )}
+                </>
+              ) : isRaster ? (
+                <>
+                  <li className="flex items-start gap-2">
+                    <span className="font-bold text-blue-600">ArcGIS Pro / QGIS:</span>
+                    <span>Download as GeoTIFF for full CRS and data quality</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="font-bold text-blue-600">Image Editing:</span>
+                    <span>Download as PNG (lossless) or JPEG (smaller file)</span>
+                  </li>
                 </>
               ) : (
                 <>

@@ -8,7 +8,6 @@ import { StyleEditor } from '../styling/StyleEditor';
 import { apiClient } from '@/api/client';
 import { useToastStore } from '@/stores/toastStore';
 import { useImportStore } from '@/stores/importStore';
-import { RasterExportButton } from '../data/RasterExportButton';
 import * as projectsApi from '../../api/projects';
 
 interface Props {
@@ -273,7 +272,7 @@ export function DatasetTable({
                       </svg>
                     </button>
                   )}
-                  {dataset.is_public && (dataset.data_type === 'vector' || dataset.source_type === 'external') && (
+                  {dataset.is_public && (
                     <button
                       onClick={() => setShareModalDataset(dataset)}
                       className="p-1.5 rounded text-green-600 hover:bg-green-50"
@@ -283,9 +282,6 @@ export function DatasetTable({
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
                       </svg>
                     </button>
-                  )}
-                  {dataset.data_type === 'raster' && dataset.source_type === 'local' && (
-                    <RasterExportButton datasetId={dataset.id} datasetName={dataset.name} />
                   )}
                   {deleteConfirm === dataset.id ? (
                     <div className="flex items-center gap-1">
