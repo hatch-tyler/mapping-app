@@ -5,6 +5,7 @@ Pytest configuration and fixtures for backend tests.
 import asyncio
 import os
 import sys
+import tempfile
 import uuid
 from typing import AsyncGenerator, Generator
 from unittest.mock import MagicMock
@@ -20,6 +21,8 @@ from sqlalchemy.pool import StaticPool
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 os.environ["SECRET_KEY"] = "test-secret-key-for-testing-only"
 os.environ["CORS_ORIGINS"] = "http://localhost:3000"
+os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="test_uploads_")
+os.environ["RASTER_DIR"] = tempfile.mkdtemp(prefix="test_rasters_")
 
 # Mock heavy geospatial dependencies before importing app modules
 mock_rasterio = MagicMock()

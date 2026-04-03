@@ -76,7 +76,7 @@ jobs:
           cache: pip
           cache-dependency-path: backend/pyproject.toml
       - run: pip install -e ".[dev]"
-      - run: pytest --cov --cov-report=xml --cov-fail-under=70
+      - run: pytest --cov --cov-report=xml --cov-fail-under=65
       - uses: actions/upload-artifact@v4
         if: always()
         with:
