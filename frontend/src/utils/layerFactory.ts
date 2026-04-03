@@ -321,9 +321,13 @@ function createRasterLayer(dataset: Dataset): TileLayer {
   // Get auth token for fetching tiles
   const token = getAccessToken();
 
+  // Cache-busting: when style_config changes, generate a new URL so deck.gl refetches tiles
+  const styleJson = JSON.stringify(dataset.style_config || {});
+  const cacheKey = btoa(styleJson).slice(0, 12);
+
   return new TileLayer({
     id: `raster-${dataset.id}`,
-    data: getRasterTileUrl(dataset.id),
+    data: getRasterTileUrl(dataset.id, cacheKey),
     minZoom: dataset.min_zoom,
     maxZoom: dataset.max_zoom,
     tileSize: 256,

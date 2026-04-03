@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMapStore } from '@/stores/mapStore';
 import { useDatasetStore } from '@/stores/datasetStore';
 import { getColorRamp, interpolateRamp } from '@/utils/colorRamps';
-import type { Dataset, StyleConfig, RGBAColor } from '@/api/types';
+import type { Dataset, StyleConfig, RasterStyleConfig, RGBAColor } from '@/api/types';
 
 function rgbaStr(c: RGBAColor): string {
   return `rgba(${c[0]},${c[1]},${c[2]},${(c[3] ?? 255) / 255})`;
@@ -37,6 +37,66 @@ function GradientBar({ rampName, minVal, maxVal }: { rampName: string; minVal: n
         <span>{minVal.toLocaleString()}</span>
         <span>{maxVal.toLocaleString()}</span>
       </div>
+    </div>
+  );
+}
+
+function RasterLegend({ dataset }: { dataset: Dataset }) {
+  const [expanded, setExpanded] = useState(true);
+  const config = (dataset.style_config || {}) as Partial<RasterStyleConfig>;
+
+  return (
+    <div className="mb-1.5">
+      <button
+        onClick={() => setExpanded(!expanded)}
+        className="flex items-center gap-1 w-full text-left text-xs font-medium text-gray-700 hover:text-gray-900 py-0.5"
+      >
+        <svg
+          className={`w-3 h-3 transition-transform shrink-0 ${expanded ? 'rotate-90' : ''}`}
+          fill="currentColor"
+          viewBox="0 0 20 20"
+        >
+          <path fillRule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clipRule="evenodd" />
+        </svg>
+        <span className="truncate">{dataset.name}</span>
+      </button>
+
+      {expanded && (
+        <div className="pl-4 pr-1 space-y-0.5">
+          {config.raster_mode === 'continuous' && config.color_ramp && (
+            <GradientBar
+              rampName={config.color_ramp}
+              minVal={config.min_value ?? 0}
+              maxVal={config.max_value ?? 255}
+            />
+          )}
+
+          {config.raster_mode === 'classified' && config.value_map && (
+            <>
+              {Object.entries(config.value_map)
+                .sort(([a], [b]) => Number(a) - Number(b))
+                .slice(0, 20)
+                .map(([value, entry]) => (
+                  <div key={value} className="flex items-center gap-1.5">
+                    <ColorSwatch color={entry.color} />
+                    <span className="text-[10px] text-gray-600 truncate" title={`${value}: ${entry.label}`}>
+                      {entry.label}
+                    </span>
+                  </div>
+                ))}
+              {Object.keys(config.value_map).length > 20 && (
+                <p className="text-[9px] text-gray-400">
+                  +{Object.keys(config.value_map).length - 20} more
+                </p>
+              )}
+            </>
+          )}
+
+          {!config.raster_mode && (
+            <span className="text-[10px] text-gray-400">Raster layer</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -117,16 +177,18 @@ export function Legend() {
   const { datasets } = useDatasetStore();
 
   const visibleStyled = datasets.filter(
-    (d) => visibleDatasets.has(d.id) && d.is_visible && d.data_type === 'vector'
+    (d) => visibleDatasets.has(d.id) && d.is_visible && (d.data_type === 'vector' || d.data_type === 'raster')
   );
 
   if (visibleStyled.length === 0) return null;
 
   return (
     <div>
-      {visibleStyled.map((ds) => (
-        <DatasetLegend key={ds.id} dataset={ds} />
-      ))}
+      {visibleStyled.map((ds) =>
+        ds.data_type === 'raster'
+          ? <RasterLegend key={ds.id} dataset={ds} />
+          : <DatasetLegend key={ds.id} dataset={ds} />
+      )}
     </div>
   );
 }

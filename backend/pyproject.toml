@@ -40,6 +40,9 @@ dependencies = [
     "lxml>=5.0.0",
     "defusedxml>=0.7.0",
 
+    # Raster attribute tables
+    "dbfread>=2.0.7",
+
     # Production
     "gunicorn>=21.0.0",
     "boto3>=1.34.0",

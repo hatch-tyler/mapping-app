@@ -13,6 +13,7 @@ import {
   UploadJob,
   UniqueValuesResponse,
   FieldStatisticsResponse,
+  RasterBandStatistics,
 } from './types';
 
 // Create a client without auth interceptors for public endpoints
@@ -172,8 +173,9 @@ export function getGeoJSONUrl(datasetId: string, bbox?: string): string {
   return bbox ? `${url}?bbox=${bbox}` : url;
 }
 
-export function getRasterTileUrl(datasetId: string): string {
-  return `${API_URL}/api/v1/raster/${datasetId}/tiles/{z}/{x}/{y}.png`;
+export function getRasterTileUrl(datasetId: string, cacheKey?: string): string {
+  const base = `${API_URL}/api/v1/raster/${datasetId}/tiles/{z}/{x}/{y}.png`;
+  return cacheKey ? `${base}?s=${cacheKey}` : base;
 }
 
 export function getRasterExportUrl(datasetId: string, format: 'tif' | 'png' | 'jpg'): string {
@@ -313,6 +315,19 @@ export async function getFieldStatistics(
 ): Promise<FieldStatisticsResponse> {
   const response = await publicClient.get<FieldStatisticsResponse>(
     `/datasets/${datasetId}/fields/${encodeURIComponent(fieldName)}/statistics`
+  );
+  return response.data;
+}
+
+// ===== Raster Stats API =====
+
+export async function getRasterStats(
+  datasetId: string,
+  band: number = 1
+): Promise<RasterBandStatistics> {
+  const response = await publicClient.get<RasterBandStatistics>(
+    `/raster/${datasetId}/stats`,
+    { params: { band } }
   );
   return response.data;
 }

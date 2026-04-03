@@ -537,7 +537,8 @@ class FileProcessor:
                 dataset = await dataset_crud.get_dataset(db, dataset_id)
                 if dataset:
                     dataset.file_path = result["file_path"]
-                    dataset.service_metadata = result.get("metadata", {})
+                    meta = result.get("metadata", {})
+                    dataset.service_metadata = meta
                     # Store WGS84 bounds for map display
                     bounds = result.get("bounds_wgs84")
                     if bounds and len(bounds) == 4:
@@ -548,6 +549,10 @@ class FileProcessor:
                             box(bounds[0], bounds[1], bounds[2], bounds[3]),
                             srid=4326,
                         )
+
+                    # Auto-set default raster style_config
+                    dataset.style_config = self._compute_default_raster_style(meta)
+
                     await db.commit()
 
                 # Build job completion message
@@ -626,6 +631,141 @@ class FileProcessor:
             f"Supported: {', '.join(sorted(raster_extensions))}"
         )
 
+    @staticmethod
+    def _compute_default_raster_style(metadata: dict) -> dict:
+        """Compute sensible default style_config for a raster dataset."""
+        band_count = metadata.get("band_count", 1)
+
+        # Multi-band RGB: no colormap needed
+        if band_count >= 3:
+            return {}
+
+        # Classified: use embedded colormap
+        colormap = metadata.get("colormap")
+        if colormap:
+            value_map: dict[str, dict] = {}
+            for val_str, rgba in colormap.items():
+                value_map[val_str] = {
+                    "color": list(rgba[:4]) if len(rgba) >= 4 else list(rgba) + [255],
+                    "label": f"Class {val_str}",
+                }
+            return {
+                "raster_mode": "classified",
+                "band": 1,
+                "value_map": value_map,
+                "nodata_transparent": True,
+            }
+
+        # Classified: use RAT labels with auto-assigned colors
+        rat = metadata.get("rat")
+        if rat:
+            from app.services.raster_colormap import get_category_color
+
+            value_map = {}
+            for i, (val_str, entry) in enumerate(rat.items()):
+                color = get_category_color(i)
+                value_map[val_str] = {
+                    "color": list(color),
+                    "label": entry.get("label", f"Class {val_str}"),
+                }
+            return {
+                "raster_mode": "classified",
+                "band": 1,
+                "value_map": value_map,
+                "nodata_transparent": True,
+            }
+
+        # Default: continuous viridis (min/max unset = auto-stretch per tile)
+        return {
+            "raster_mode": "continuous",
+            "band": 1,
+            "color_ramp": "viridis",
+            "nodata_transparent": True,
+        }
+
+    @staticmethod
+    def _extract_rat(raster_path: Path) -> dict | None:
+        """Extract Raster Attribute Table from .vat.dbf sidecar or GDAL metadata."""
+        # Source 1: sidecar .vat.dbf (Esri format)
+        for pattern in [
+            raster_path.with_suffix(".vat.dbf"),
+            raster_path.parent / (raster_path.stem + ".vat.dbf"),
+            raster_path.parent / (raster_path.name + ".vat.dbf"),
+        ]:
+            if pattern.exists():
+                try:
+                    from dbfread import DBF
+
+                    table = DBF(str(pattern))
+                    rat: dict[str, dict] = {}
+                    for record in table:
+                        val = str(
+                            record.get("Value", record.get("VALUE", ""))
+                        )
+                        if not val:
+                            continue
+                        # Look for label in common field names
+                        label = None
+                        for key in (
+                            "Class_Name", "CLASS_NAME", "ClassName",
+                            "Description", "Label", "LABEL", "Name", "NAME",
+                        ):
+                            if record.get(key):
+                                label = str(record[key])
+                                break
+                        if not label:
+                            label = f"Class {val}"
+                        rat[val] = {
+                            "label": label,
+                            "fields": {
+                                k: (str(v) if v is not None else None)
+                                for k, v in record.items()
+                            },
+                        }
+                    if rat:
+                        return rat
+                except Exception:
+                    logger.debug(
+                        "Failed to parse .vat.dbf for %s", raster_path, exc_info=True
+                    )
+
+        # Source 2: embedded RAT via GDAL
+        try:
+            from osgeo import gdal
+
+            ds = gdal.Open(str(raster_path))
+            if ds:
+                band = ds.GetRasterBand(1)
+                gdal_rat = band.GetDefaultRAT()
+                if gdal_rat and gdal_rat.GetRowCount() > 0:
+                    cols = {
+                        gdal_rat.GetNameOfCol(i): i
+                        for i in range(gdal_rat.GetColumnCount())
+                    }
+                    val_col = cols.get("Value", cols.get("VALUE", 0))
+                    label_col = None
+                    for name in ("Class_Name", "ClassName", "Label", "Description"):
+                        if name in cols:
+                            label_col = cols[name]
+                            break
+                    rat = {}
+                    for row in range(gdal_rat.GetRowCount()):
+                        val = str(gdal_rat.GetValueAsInt(row, val_col))
+                        label = (
+                            gdal_rat.GetValueAsString(row, label_col)
+                            if label_col is not None
+                            else f"Class {val}"
+                        )
+                        rat[val] = {"label": label}
+                    ds = None
+                    if rat:
+                        return rat
+                ds = None
+        except Exception:
+            pass  # GDAL not available or no RAT
+
+        return None
+
     def _process_raster_sync(
         self,
         file_path: Path,
@@ -665,6 +805,11 @@ class FileProcessor:
                     metadata["colormap"] = {str(k): list(v) for k, v in cmap.items()}
             except ValueError:
                 pass
+
+            # Extract Raster Attribute Table (RAT) from sidecar .vat.dbf or GDAL
+            rat = self._extract_rat(file_path)
+            if rat:
+                metadata["rat"] = rat
 
             if original_crs is None:
                 crs_warning = (

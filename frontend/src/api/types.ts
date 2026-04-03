@@ -285,3 +285,35 @@ export interface FieldStatisticsResponse {
   mean: number | null;
   count: number;
 }
+
+// ===== Raster Style Types =====
+
+export type RasterMode = 'continuous' | 'classified';
+
+export interface RasterValueEntry {
+  color: RGBAColor;
+  label: string;
+}
+
+export interface RasterStyleConfig {
+  raster_mode: RasterMode;
+  band: number;
+  color_ramp?: string;
+  min_value?: number;
+  max_value?: number;
+  value_map?: Record<string, RasterValueEntry>;
+  nodata_transparent: boolean;
+}
+
+export interface RasterBandStatistics {
+  band: number;
+  min: number | null;
+  max: number | null;
+  mean: number | null;
+  std: number | null;
+  nodata_value: number | null;
+  dtype: string;
+  unique_values: number[] | null;
+  has_embedded_colormap: boolean;
+  rat: Record<string, { label: string; fields?: Record<string, string | null> }> | null;
+}

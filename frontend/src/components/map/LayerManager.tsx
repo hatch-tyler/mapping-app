@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Dataset, StyleConfig } from '../../api/types';
+import { Dataset, StyleConfig, RasterStyleConfig } from '../../api/types';
 import { useDatasetStore } from '../../stores/datasetStore';
 import { useMapStore } from '../../stores/mapStore';
 import { useAuthStore } from '../../stores/authStore';
 import { StyleEditor } from '../styling/StyleEditor';
+import { RasterStyleEditor } from '../styling/RasterStyleEditor';
 import { MetadataModal } from '../catalog/MetadataModal';
 import { rgbaToString, DEFAULT_STYLE } from '../../utils/styleInterpreter';
 import * as datasetsApi from '../../api/datasets';
@@ -41,7 +42,7 @@ export function LayerManager() {
     }
   }
 
-  const handleStyleSave = async (styleConfig: StyleConfig) => {
+  const handleStyleSave = async (styleConfig: StyleConfig | RasterStyleConfig) => {
     if (!styleDataset) return;
     try {
       const updated = await datasetsApi.updateDataset(
@@ -182,8 +183,8 @@ export function LayerManager() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </button>
-        {/* Style button for admin users on vector layers */}
-        {user?.is_admin && dataset.data_type === 'vector' && (
+        {/* Style button for admin users on vector and raster layers */}
+        {user?.is_admin && (dataset.data_type === 'vector' || dataset.data_type === 'raster') && (
           <button
             onClick={() => setStyleDataset(dataset)}
             className="p-0.5 rounded text-gray-400 hover:text-purple-600 shrink-0"
@@ -269,7 +270,14 @@ export function LayerManager() {
         </div>
       </div>
 
-      {styleDataset && (
+      {styleDataset && styleDataset.data_type === 'raster' && (
+        <RasterStyleEditor
+          dataset={styleDataset}
+          onSave={handleStyleSave}
+          onClose={() => setStyleDataset(null)}
+        />
+      )}
+      {styleDataset && styleDataset.data_type !== 'raster' && (
         <StyleEditor
           dataset={styleDataset}
           onSave={handleStyleSave}
