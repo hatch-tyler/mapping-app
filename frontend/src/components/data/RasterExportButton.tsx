@@ -50,6 +50,8 @@ export function RasterExportButton({ datasetId, datasetName }: Props) {
       setIsOpen(false);
     } catch (err) {
       console.error('Raster export failed:', err);
+      const { useToastStore } = await import('../../stores/toastStore');
+      useToastStore.getState().addToast('Export failed. Please try again.', 'error');
     } finally {
       setDownloading(null);
     }

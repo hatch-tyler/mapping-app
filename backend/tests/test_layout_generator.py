@@ -155,8 +155,8 @@ class TestGeneratePagx:
         assert el["graphic"]["type"] == "CIMPolygonGraphic"
         sym = el["graphic"]["symbol"]["symbol"]
         # Should have stroke and fill layers
-        stroke = [l for l in sym["symbolLayers"] if l["type"] == "CIMSolidStroke"]
-        fill = [l for l in sym["symbolLayers"] if l["type"] == "CIMSolidFill"]
+        stroke = [ly for ly in sym["symbolLayers"] if ly["type"] == "CIMSolidStroke"]
+        fill = [ly for ly in sym["symbolLayers"] if ly["type"] == "CIMSolidFill"]
         assert len(stroke) == 1
         assert len(fill) == 1
         assert stroke[0]["width"] == 2

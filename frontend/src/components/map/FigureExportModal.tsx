@@ -118,6 +118,8 @@ export function FigureExportModal({ deckRef, onClose }: Props) {
       document.body.removeChild(a);
     } catch (err) {
       console.error('Figure export failed:', err);
+      const { useToastStore } = await import('@/stores/toastStore');
+      useToastStore.getState().addToast('Figure export failed. Please try again.', 'error');
     } finally {
       setExporting(null);
     }
