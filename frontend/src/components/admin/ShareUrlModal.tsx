@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Dataset } from '../../api/types';
-import { getGeoJSONUrl, getExportUrl, getArcGISFeatureServerUrl, getExternalProxyUrl, getExternalExportUrl, getRasterExportUrl, EXPORT_FORMATS } from '../../api/datasets';
+import { getGeoJSONUrl, getExportUrl, getArcGISFeatureServerUrl, getExternalProxyUrl, getExternalExportUrl, getRasterExportUrl, getArcGISImageServerUrl, getWMSCapabilitiesUrl, getRasterXYZTileUrl, EXPORT_FORMATS } from '../../api/datasets';
 import { getAccessToken } from '../../api/tokenService';
 
 interface Props {
@@ -332,6 +332,96 @@ data = resp.json()`}
             </div>
           )}
 
+          {/* === RASTER: Service URLs for Desktop GIS === */}
+          {isRaster && (
+            <>
+              <div className="border-t border-gray-200"></div>
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                  </svg>
+                  ArcGIS Pro / QGIS
+                </h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  Connect to this raster layer directly from desktop GIS applications.
+                </p>
+
+                {/* ImageServer URL */}
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    ArcGIS ImageServer URL
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={getArcGISImageServerUrl(dataset.name)}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono text-gray-700"
+                    />
+                    <button
+                      onClick={() => copyToClipboard(getArcGISImageServerUrl(dataset.name), 'imageserver')}
+                      className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium whitespace-nowrap"
+                    >
+                      {copiedField === 'imageserver' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    In ArcGIS Pro: Map tab &gt; Add Data &gt; Data From Path &gt; paste URL
+                  </p>
+                </div>
+
+                {/* WMS URL */}
+                <div className="mb-3">
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    WMS Service URL
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={getWMSCapabilitiesUrl()}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono text-gray-700"
+                    />
+                    <button
+                      onClick={() => copyToClipboard(getWMSCapabilitiesUrl(), 'wms')}
+                      className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium whitespace-nowrap"
+                    >
+                      {copiedField === 'wms' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    In QGIS: Layer &gt; Add Layer &gt; Add WMS/WMTS Layer &gt; New &gt; paste URL
+                  </p>
+                </div>
+
+                {/* XYZ Tile URL */}
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">
+                    XYZ Tile URL
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      readOnly
+                      value={getRasterXYZTileUrl(dataset.id)}
+                      className="flex-1 px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-sm font-mono text-gray-700"
+                    />
+                    <button
+                      onClick={() => copyToClipboard(getRasterXYZTileUrl(dataset.id), 'xyz')}
+                      className="px-3 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm font-medium whitespace-nowrap"
+                    >
+                      {copiedField === 'xyz' ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-1">
+                    In QGIS: Browser &gt; XYZ Tiles &gt; New Connection &gt; paste URL
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
+
           {/* === LOCAL VECTOR: Download Section === */}
           {isLocalVector && (
             <div>
@@ -493,12 +583,16 @@ gdf = gpd.read_file('${geojsonUrl}')`}
               ) : isRaster ? (
                 <>
                   <li className="flex items-start gap-2">
-                    <span className="font-bold text-blue-600">ArcGIS Pro / QGIS:</span>
-                    <span>Download as GeoTIFF for full CRS and data quality</span>
+                    <span className="font-bold text-blue-600">ArcGIS Pro:</span>
+                    <span>Use ImageServer URL for live rendering, or download GeoTIFF</span>
                   </li>
                   <li className="flex items-start gap-2">
-                    <span className="font-bold text-blue-600">Image Editing:</span>
-                    <span>Download as PNG (lossless) or JPEG (smaller file)</span>
+                    <span className="font-bold text-blue-600">QGIS:</span>
+                    <span>Use WMS URL for live rendering, or XYZ Tiles for cached tiles</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="font-bold text-blue-600">Offline Use:</span>
+                    <span>Download as GeoTIFF for full quality with CRS metadata</span>
                   </li>
                 </>
               ) : (

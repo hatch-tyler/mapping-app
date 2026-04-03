@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import { Dataset, DatasetCategory, GeographicScope, StyleConfig, Project } from '../../api/types';
+import { Dataset, DatasetCategory, GeographicScope, StyleConfig, RasterStyleConfig, Project } from '../../api/types';
 import { VisibilityToggle } from './VisibilityToggle';
 import { PublicToggle } from './PublicToggle';
 import { ShareUrlModal } from './ShareUrlModal';
 import { StyleEditor } from '../styling/StyleEditor';
+import { RasterStyleEditor } from '../styling/RasterStyleEditor';
 import { apiClient } from '@/api/client';
 import { useToastStore } from '@/stores/toastStore';
 import { useImportStore } from '@/stores/importStore';
@@ -96,7 +97,7 @@ export function DatasetTable({
     setEditState(null);
   };
 
-  const handleStyleSave = (styleConfig: StyleConfig) => {
+  const handleStyleSave = (styleConfig: StyleConfig | RasterStyleConfig) => {
     if (styleModalDataset && onUpdate) {
       onUpdate(styleModalDataset.id, { style_config: styleConfig as unknown as Record<string, unknown> });
       setStyleModalDataset(null);
@@ -250,7 +251,7 @@ export function DatasetTable({
                       </button>
                     )
                   )}
-                  {onUpdate && dataset.data_type === 'vector' && (
+                  {onUpdate && (dataset.data_type === 'vector' || dataset.data_type === 'raster') && (
                     <button
                       onClick={() => setStyleModalDataset(dataset)}
                       className="p-1.5 rounded text-purple-600 hover:bg-purple-50"
@@ -327,13 +328,19 @@ export function DatasetTable({
         />
       )}
 
-      {styleModalDataset && (
+      {styleModalDataset && styleModalDataset.data_type === 'raster' ? (
+        <RasterStyleEditor
+          dataset={styleModalDataset}
+          onSave={handleStyleSave}
+          onClose={() => setStyleModalDataset(null)}
+        />
+      ) : styleModalDataset ? (
         <StyleEditor
           dataset={styleModalDataset}
           onSave={handleStyleSave}
           onClose={() => setStyleModalDataset(null)}
         />
-      )}
+      ) : null}
 
       {/* Edit Modal */}
       {editState && (

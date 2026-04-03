@@ -232,6 +232,22 @@ export function getArcGISFeatureServerUrl(datasetName: string): string {
   return `${baseUrl}/arcgis/rest/services/${encodeURIComponent(slug)}/FeatureServer/0`;
 }
 
+export function getArcGISImageServerUrl(datasetName: string): string {
+  const slug = slugify(datasetName);
+  const baseUrl = API_URL || window.location.origin;
+  return `${baseUrl}/arcgis/rest/services/${encodeURIComponent(slug)}/ImageServer`;
+}
+
+export function getWMSCapabilitiesUrl(): string {
+  const baseUrl = API_URL || window.location.origin;
+  return `${baseUrl}/api/v1/wms?service=WMS&request=GetCapabilities`;
+}
+
+export function getRasterXYZTileUrl(datasetId: string): string {
+  const baseUrl = API_URL || window.location.origin;
+  return `${baseUrl}/api/v1/raster/${datasetId}/tiles/{z}/{x}/{y}.png`;
+}
+
 // ===== Browsable Datasets API =====
 
 export async function getBrowsableDatasets(

@@ -13,6 +13,7 @@ from app.config import settings
 from app.database import engine, AsyncSessionLocal
 from app.api.v1.router import api_router
 from app.api.arcgis.feature_server import router as arcgis_router
+from app.api.arcgis.image_server import router as image_server_router
 from app.models.user import User
 from app.core.security import get_password_hash
 from app.crud import dataset as dataset_crud
@@ -165,6 +166,7 @@ app.include_router(api_router, prefix="/api/v1")
 
 # Include ArcGIS REST API routes (separate from versioned API)
 app.include_router(arcgis_router)
+app.include_router(image_server_router)
 
 
 @app.exception_handler(Exception)

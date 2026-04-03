@@ -40,7 +40,10 @@ async def list_services(
     f: str = Query("json", description="Response format"),
     db: AsyncSession = Depends(get_db),
 ):
-    """List all available feature services."""
+    """List all available feature and image services."""
+    from sqlalchemy import select
+    from app.models.dataset import Dataset
+
     handler = ESRIQueryHandler(db)
     datasets = await handler.get_public_datasets()
 
@@ -50,6 +53,25 @@ async def list_services(
             {
                 "name": slugify(ds.name),
                 "type": "FeatureServer",
+            }
+        )
+
+    # Also include raster datasets as ImageServer entries
+    result = await db.execute(
+        select(Dataset)
+        .where(
+            Dataset.is_public == True,
+            Dataset.data_type == "raster",
+            Dataset.file_path.isnot(None),
+        )
+        .order_by(Dataset.name)
+    )
+    raster_datasets = result.scalars().all()
+    for ds in raster_datasets:
+        services.append(
+            {
+                "name": slugify(ds.name),
+                "type": "ImageServer",
             }
         )
 

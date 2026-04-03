@@ -6,6 +6,7 @@ from app.api.v1 import (
     datasets,
     upload,
     wfs,
+    wms_endpoint,
     export,
     registration,
     tiles,
@@ -23,6 +24,7 @@ api_router.include_router(users.router)
 api_router.include_router(datasets.router)
 api_router.include_router(upload.router)
 api_router.include_router(wfs.router)
+api_router.include_router(wms_endpoint.router)
 api_router.include_router(export.router)
 api_router.include_router(registration.router)
 api_router.include_router(tiles.router)
