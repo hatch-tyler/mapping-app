@@ -199,15 +199,21 @@ export function LayerManager() {
     );
   }
 
-  function renderSection(sectionId: string, title: string, sectionDatasets: Dataset[], onZoom?: () => void) {
+  function renderSection(sectionId: string, title: string, sectionDatasets: Dataset[], onZoom?: () => void, isProject = false) {
     const isOpen = !collapsedSections.has(sectionId);
     return (
       <div key={sectionId}>
         <div
-          className="px-3 py-1.5 bg-gray-50 text-xs font-semibold text-gray-500 uppercase flex items-center gap-1 cursor-pointer select-none border-b border-gray-100"
+          className={`px-3 py-1.5 text-xs font-semibold uppercase flex items-center gap-1 cursor-pointer select-none border-b ${
+            isProject
+              ? 'bg-emerald-50 text-emerald-800 border-emerald-100'
+              : 'bg-gray-50 text-gray-500 border-gray-100'
+          }`}
           onClick={() => toggleSection(sectionId)}
+          title={isProject ? 'Project data — only visible to project members' : 'Reference data — shared across all users'}
         >
           <ChevronIcon open={isOpen} />
+          {isProject && <span aria-hidden>📁</span>}
           <span className="flex-1 truncate">{title} ({sectionDatasets.length})</span>
           {onZoom && (
             <button
@@ -259,7 +265,8 @@ export function LayerManager() {
                   pid,
                   projectDatasets[pid].name,
                   projectDatasets[pid].datasets,
-                  () => handleZoomToProject(pid)
+                  () => handleZoomToProject(pid),
+                  true
                 )
               )}
               {referenceDatasets.length > 0 &&

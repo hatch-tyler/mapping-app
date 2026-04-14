@@ -6,7 +6,7 @@ from sqlalchemy import text
 
 from app.database import get_db
 from app.crud import dataset as dataset_crud
-from app.api.deps import get_optional_current_user
+from app.api.deps import get_optional_current_user, check_dataset_access
 from app.models.user import User
 from app.utils.sql_validation import validate_table_name as _validate_table_name
 
@@ -61,12 +61,15 @@ async def get_vector_tile(
             detail="Dataset not found",
         )
 
-    # Access control: public datasets open to all, others require auth
-    if not dataset.is_public and not current_user:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Authentication required for non-public datasets",
-        )
+    # Access control: public datasets open to all; non-public require auth,
+    # and project-scoped datasets additionally require project membership.
+    if not dataset.is_public:
+        if not current_user:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Authentication required for non-public datasets",
+            )
+        await check_dataset_access(dataset, current_user, db)
 
     if dataset.data_type != "vector":
         raise HTTPException(

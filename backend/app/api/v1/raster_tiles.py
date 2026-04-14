@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.crud import dataset as dataset_crud
-from app.api.deps import get_optional_current_user
+from app.api.deps import get_optional_current_user, check_dataset_access
 from app.models.user import User
 from app.services.raster_colormap import (
     build_classified_colormap,
@@ -219,11 +219,15 @@ async def get_raster_tile(
             detail="Dataset not found",
         )
 
-    if not dataset.is_public and not current_user:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Authentication required for non-public datasets",
-        )
+    # Public datasets open to all; non-public require auth, and project-scoped
+    # datasets additionally require project membership.
+    if not dataset.is_public:
+        if not current_user:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Authentication required for non-public datasets",
+            )
+        await check_dataset_access(dataset, current_user, db)
 
     if dataset.data_type != "raster":
         raise HTTPException(
@@ -275,11 +279,15 @@ async def get_raster_stats(
             detail="Dataset not found",
         )
 
-    if not dataset.is_public and not current_user:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Authentication required for non-public datasets",
-        )
+    # Public datasets open to all; non-public require auth, and project-scoped
+    # datasets additionally require project membership.
+    if not dataset.is_public:
+        if not current_user:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Authentication required for non-public datasets",
+            )
+        await check_dataset_access(dataset, current_user, db)
 
     if dataset.data_type != "raster":
         raise HTTPException(

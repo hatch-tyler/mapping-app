@@ -148,11 +148,23 @@ export function DatasetTable({
             <th className="w-24 px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider hidden lg:table-cell">
               Created
             </th>
-            <th className="w-16 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Visible
+            <th
+              className="w-16 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider"
+              title="Visible: shows in the map and data browser for authenticated users. Turn off to hide without deleting."
+            >
+              <span className="inline-flex items-center gap-0.5 cursor-help">
+                Visible
+                <span className="text-gray-400 normal-case" aria-hidden>ⓘ</span>
+              </span>
             </th>
-            <th className="w-16 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
-              Public
+            <th
+              className="w-16 px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider"
+              title="Public: allows anonymous access via shareable URL. Turn on to enable external downloads and unauthenticated tile access."
+            >
+              <span className="inline-flex items-center gap-0.5 cursor-help">
+                Public
+                <span className="text-gray-400 normal-case" aria-hidden>ⓘ</span>
+              </span>
             </th>
             <th className="w-32 px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
               Actions
@@ -179,6 +191,29 @@ export function DatasetTable({
                     </span>
                   )}
                   <div className="flex flex-wrap gap-1 mt-0.5">
+                    {dataset.category === 'project' && dataset.project_name ? (
+                      <span
+                        className="inline-flex px-1.5 py-0 text-[10px] font-medium rounded bg-emerald-100 text-emerald-700"
+                        title={`Project: ${dataset.project_name}`}
+                      >
+                        📁 {dataset.project_name}
+                      </span>
+                    ) : dataset.category === 'reference' ? (
+                      <span
+                        className="inline-flex px-1.5 py-0 text-[10px] font-medium rounded bg-gray-100 text-gray-600"
+                        title="Available to all authenticated users"
+                      >
+                        Reference
+                      </span>
+                    ) : null}
+                    {dataset.linked_project_names && dataset.linked_project_names.length > 0 && (
+                      <span
+                        className="inline-flex px-1.5 py-0 text-[10px] font-medium rounded bg-indigo-100 text-indigo-700"
+                        title={`Also linked to: ${dataset.linked_project_names.join(', ')}`}
+                      >
+                        +{dataset.linked_project_names.length} linked
+                      </span>
+                    )}
                     {dataset.source_type === 'external' && (
                       <span className="inline-flex px-1.5 py-0 text-[10px] font-medium rounded bg-green-100 text-green-700">
                         External

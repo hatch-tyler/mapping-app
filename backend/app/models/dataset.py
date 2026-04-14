@@ -43,6 +43,27 @@ dataset_projects = Table(
 
 
 class Dataset(Base):
+    """Geospatial dataset (vector or raster), local or external.
+
+    Access control is governed by four orthogonal fields:
+
+    - ``is_public``: allows **anonymous** (unauthenticated) access to tiles,
+      GeoJSON, and exports. Enables the shareable download URL.
+    - ``is_visible``: soft-hide flag. Authenticated users in the main
+      catalog/map/data browser will not see datasets with ``is_visible=False``
+      (they can still be fetched by ID if access is otherwise granted).
+      Useful for staging or decommissioning without deleting.
+    - ``project_id``: if set, restricts **authenticated** access to project
+      members and admins. Orthogonal to ``is_public`` — setting ``is_public``
+      bypasses the member check for anonymous users, which is the intended
+      semantic of "public".
+    - ``category``: ``'reference'`` or ``'project'``. Project datasets imply
+      ``project_id`` is set; reference datasets have no project gate.
+
+    Access checks are centralized in ``app.api.deps.check_dataset_access`` —
+    all read endpoints that don't short-circuit on ``is_public`` must call it.
+    """
+
     __tablename__ = "datasets"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)

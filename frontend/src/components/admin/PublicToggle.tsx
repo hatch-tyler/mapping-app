@@ -12,8 +12,13 @@ export function PublicToggle({ isPublic, onChange, disabled }: Props) {
       aria-checked={isPublic}
       disabled={disabled}
       onClick={() => onChange(!isPublic)}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 ${
-        isPublic ? 'bg-green-600' : 'bg-gray-200'
+      title={
+        isPublic
+          ? 'Public — accessible to anyone with the URL (no login required). Click to make private.'
+          : 'Private — only authenticated users with access can view. Click to make public.'
+      }
+      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 ${
+        isPublic ? 'bg-amber-500' : 'bg-gray-200'
       } ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
     >
       <span
