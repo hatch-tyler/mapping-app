@@ -230,11 +230,37 @@ export interface ExportSelectedRequest {
 export interface UploadJob {
   id: string;
   dataset_id: string;
+  bundle_id?: string | null;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   progress: number;
   error_message: string | null;
   created_at: string;
   completed_at: string | null;
+}
+
+export interface DetectedDatasetApi {
+  suggested_name: string;
+  data_type: 'vector' | 'raster';
+  format: string;
+  primary_file: string;
+  member_files: string[];
+  warnings: string[];
+}
+
+export interface BundleInspectResponse {
+  datasets: DetectedDatasetApi[];
+}
+
+export interface BundleDatasetInput {
+  primary_file: string;
+  name: string;
+  description?: string | null;
+  include: boolean;
+}
+
+export interface BundleUploadResponse {
+  bundle_id: string;
+  jobs: UploadJob[];
 }
 
 // ===== Style Configuration Types =====

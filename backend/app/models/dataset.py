@@ -133,6 +133,8 @@ class UploadJob(Base):
     dataset_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(), ForeignKey("datasets.id", ondelete="CASCADE")
     )
+    # Groups multiple UploadJobs that originated from the same multi-dataset ZIP
+    bundle_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(), index=True)
     status: Mapped[str] = mapped_column(
         String(50), default="pending"
     )  # pending, processing, completed, failed

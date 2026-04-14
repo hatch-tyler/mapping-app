@@ -14,6 +14,9 @@ import {
   UniqueValuesResponse,
   FieldStatisticsResponse,
   RasterBandStatistics,
+  BundleInspectResponse,
+  BundleDatasetInput,
+  BundleUploadResponse,
 } from './types';
 
 // Create a client without auth interceptors for public endpoints
@@ -163,6 +166,41 @@ export async function uploadRaster(
 
 export async function getUploadJobStatus(jobId: string): Promise<UploadJob> {
   const response = await apiClient.get<UploadJob>(`/upload/status/${jobId}`);
+  return response.data;
+}
+
+/** Server-side inspect: returns the datasets detected within a ZIP. */
+export async function inspectBundle(file: File): Promise<BundleInspectResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const response = await uploadClient.post<BundleInspectResponse>(
+    '/upload/inspect',
+    formData,
+  );
+  return response.data;
+}
+
+/** Upload a ZIP containing multiple datasets; each becomes its own UploadJob. */
+export async function uploadBundle(
+  file: File,
+  datasets: BundleDatasetInput[],
+  options?: UploadOptions,
+  onUploadProgress?: (event: AxiosProgressEvent) => void,
+): Promise<BundleUploadResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('datasets', JSON.stringify(datasets));
+  if (options?.category) formData.append('category', options.category);
+  if (options?.geographic_scope)
+    formData.append('geographic_scope', options.geographic_scope);
+  if (options?.project_id) formData.append('project_id', options.project_id);
+  if (options?.tags) formData.append('tags', options.tags);
+
+  const response = await uploadClient.post<BundleUploadResponse>(
+    '/upload/bundle',
+    formData,
+    { onUploadProgress },
+  );
   return response.data;
 }
 

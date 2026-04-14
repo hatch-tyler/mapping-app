@@ -2,7 +2,9 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
 import * as datasetsApi from '../../api/datasets';
 import * as projectsApi from '../../api/projects';
-import { UploadJob, DatasetCategory, GeographicScope, Project } from '../../api/types';
+import { UploadJob, DatasetCategory, GeographicScope, Project, BundleDatasetInput } from '../../api/types';
+import { inspectZip, isZipFile, DetectedDataset } from '../../utils/zipInspector';
+import { BundleDatasetList, BundleDatasetRow, rowsFromDetected } from './BundleDatasetList';
 
 interface Props {
   onSuccess: () => void;
@@ -21,9 +23,10 @@ const ACCEPTED_RASTER = {
   'application/zip': ['.zip'],
 };
 
-type Phase = 'idle' | 'uploading' | 'processing' | 'completed' | 'failed';
+type Phase = 'idle' | 'inspecting' | 'uploading' | 'processing' | 'completed' | 'failed';
 
 const POLL_INTERVAL = 2000;
+const MAX_POLL_FAILURES = 30;
 
 export function UploadForm({ onSuccess }: Props) {
   const [name, setName] = useState('');
@@ -34,86 +37,193 @@ export function UploadForm({ onSuccess }: Props) {
   const [projectId, setProjectId] = useState('');
   const [projects, setProjects] = useState<Project[]>([]);
   const [file, setFile] = useState<File | null>(null);
+  const [bundleRows, setBundleRows] = useState<BundleDatasetRow[] | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [uploadProgress, setUploadProgress] = useState(0);
   const [processingProgress, setProcessingProgress] = useState(0);
+  const [bundleSummary, setBundleSummary] = useState<{ total: number; completed: number; failed: number } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollRefs = useRef<ReturnType<typeof setInterval>[]>([]);
 
-  // Load projects for the dropdown
   useEffect(() => {
     projectsApi.getProjects().then((r) => setProjects(r.projects)).catch((e) => console.warn('Failed to load projects:', e));
   }, []);
 
-  // Clean up polling on unmount
   useEffect(() => {
-    return () => {
-      if (pollRef.current) {
-        clearInterval(pollRef.current);
-      }
-    };
+    return () => stopAllPolling();
   }, []);
 
-  const stopPolling = () => {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
+  const stopAllPolling = () => {
+    pollRefs.current.forEach((id) => clearInterval(id));
+    pollRefs.current = [];
   };
 
-  const startPolling = (jobId: string) => {
-    stopPolling();
-    let pollFailures = 0;
-    const MAX_POLL_FAILURES = 30; // 30 attempts * 2s = 60 seconds
-    pollRef.current = setInterval(async () => {
+  const resetForm = useCallback(() => {
+    setName('');
+    setDescription('');
+    setCategory('reference');
+    setGeographicScope('');
+    setTagsInput('');
+    setProjectId('');
+    setFile(null);
+    setBundleRows(null);
+    setPhase('idle');
+    setUploadProgress(0);
+    setProcessingProgress(0);
+    setBundleSummary(null);
+    setError(null);
+  }, []);
+
+  // Poll a single job until it completes or fails
+  const pollJob = (jobId: string): Promise<UploadJob> =>
+    new Promise((resolve, reject) => {
+      let failures = 0;
+      const id = setInterval(async () => {
+        try {
+          const job = await datasetsApi.getUploadJobStatus(jobId);
+          failures = 0;
+          if (job.status === 'completed' || job.status === 'failed') {
+            clearInterval(id);
+            pollRefs.current = pollRefs.current.filter((x) => x !== id);
+            resolve(job);
+          }
+        } catch {
+          failures++;
+          if (failures >= MAX_POLL_FAILURES) {
+            clearInterval(id);
+            pollRefs.current = pollRefs.current.filter((x) => x !== id);
+            reject(new Error('Lost connection to server'));
+          }
+        }
+      }, POLL_INTERVAL);
+      pollRefs.current.push(id);
+    });
+
+  // Single-dataset processing poll — updates progress and resolves phase
+  const pollSingleJob = (jobId: string) => {
+    let failures = 0;
+    const id = setInterval(async () => {
       try {
         const job = await datasetsApi.getUploadJobStatus(jobId);
-        pollFailures = 0; // Reset on success
+        failures = 0;
         setProcessingProgress(job.progress);
-
         if (job.status === 'completed') {
-          stopPolling();
+          clearInterval(id);
+          pollRefs.current = pollRefs.current.filter((x) => x !== id);
           setPhase('completed');
-          // Reset form after brief delay so user sees success
           setTimeout(() => {
-            setName('');
-            setDescription('');
-            setCategory('reference');
-            setGeographicScope('');
-            setTagsInput('');
-            setProjectId('');
-            setFile(null);
-            setPhase('idle');
-            setUploadProgress(0);
-            setProcessingProgress(0);
+            resetForm();
             onSuccess();
           }, 1500);
         } else if (job.status === 'failed') {
-          stopPolling();
+          clearInterval(id);
+          pollRefs.current = pollRefs.current.filter((x) => x !== id);
           setPhase('failed');
           setError(job.error_message || 'Processing failed');
         }
       } catch {
-        pollFailures++;
-        if (pollFailures >= MAX_POLL_FAILURES) {
-          stopPolling();
+        failures++;
+        if (failures >= MAX_POLL_FAILURES) {
+          clearInterval(id);
+          pollRefs.current = pollRefs.current.filter((x) => x !== id);
           setPhase('failed');
           setError('Lost connection to server. Processing may still be running — check the dataset list.');
         }
       }
     }, POLL_INTERVAL);
+    pollRefs.current.push(id);
   };
+
+  // Bundle-level processing poll — watches all jobs in parallel
+  const pollBundleJobs = (jobs: UploadJob[]) => {
+    const total = jobs.length;
+    let completed = 0;
+    let failed = 0;
+    setBundleSummary({ total, completed: 0, failed: 0 });
+
+    Promise.all(
+      jobs.map((j) =>
+        pollJob(j.id).then((result) => {
+          if (result.status === 'completed') completed++;
+          else failed++;
+          setBundleSummary({ total, completed, failed });
+          return result;
+        }).catch(() => {
+          failed++;
+          setBundleSummary({ total, completed, failed });
+        }),
+      ),
+    ).then(() => {
+      if (failed === 0) {
+        setPhase('completed');
+        setTimeout(() => {
+          resetForm();
+          onSuccess();
+        }, 2000);
+      } else {
+        setPhase(completed > 0 ? 'completed' : 'failed');
+        if (completed === 0) {
+          setError(`All ${total} datasets failed to process.`);
+        }
+      }
+    });
+  };
+
+  const handleFileSelected = useCallback(async (selectedFile: File) => {
+    setFile(selectedFile);
+    setBundleRows(null);
+    setError(null);
+    if (!name) {
+      setName(selectedFile.name.replace(/\.[^/.]+$/, ''));
+    }
+
+    // If ZIP, inspect for multiple datasets
+    if (isZipFile(selectedFile.name)) {
+      setPhase('inspecting');
+      try {
+        const detected = await inspectZip(selectedFile);
+        if (detected.length > 1) {
+          setBundleRows(rowsFromDetected(detected));
+        } else if (detected.length === 1) {
+          // Single dataset: prefill name from detected, stay in single-file flow
+          setName(detected[0].suggestedName);
+          setBundleRows(null);
+        } else {
+          setError('No recognized datasets found in the ZIP.');
+        }
+      } catch (err) {
+        console.warn('Client-side ZIP inspection failed, falling back to server:', err);
+        try {
+          const resp = await datasetsApi.inspectBundle(selectedFile);
+          const detected: DetectedDataset[] = resp.datasets.map((d) => ({
+            suggestedName: d.suggested_name,
+            dataType: d.data_type,
+            format: d.format,
+            primaryFile: d.primary_file,
+            memberFiles: d.member_files,
+            warnings: d.warnings,
+          }));
+          if (detected.length > 1) {
+            setBundleRows(rowsFromDetected(detected));
+          } else if (detected.length === 1) {
+            setName(detected[0].suggestedName);
+          } else {
+            setError('No recognized datasets found in the ZIP.');
+          }
+        } catch (e) {
+          setError(e instanceof Error ? e.message : 'Failed to inspect ZIP.');
+        }
+      } finally {
+        setPhase('idle');
+      }
+    }
+  }, [name]);
 
   const onDrop = useCallback((acceptedFiles: File[]) => {
     if (acceptedFiles.length > 0) {
-      const selectedFile = acceptedFiles[0];
-      setFile(selectedFile);
-      if (!name) {
-        setName(selectedFile.name.replace(/\.[^/.]+$/, ''));
-      }
-      setError(null);
+      handleFileSelected(acceptedFiles[0]);
     }
-  }, [name]);
+  }, [handleFileSelected]);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     onDrop,
@@ -134,6 +244,53 @@ export function UploadForm({ onSuccess }: Props) {
       return;
     }
 
+    // Bundle path
+    if (bundleRows) {
+      const included = bundleRows.filter((r) => r.include);
+      if (included.length === 0) {
+        setError('Select at least one dataset to upload.');
+        return;
+      }
+      if (included.some((r) => !r.name.trim())) {
+        setError('All included datasets must have a name.');
+        return;
+      }
+
+      setPhase('uploading');
+      setUploadProgress(0);
+      setError(null);
+
+      const datasets: BundleDatasetInput[] = bundleRows.map((r) => ({
+        primary_file: r.primaryFile,
+        name: r.name.trim(),
+        description: r.description || undefined,
+        include: r.include,
+      }));
+
+      const uploadOpts: datasetsApi.UploadOptions = {
+        category,
+        geographic_scope: geographicScope || undefined,
+        project_id: projectId || undefined,
+        tags: tagsInput || undefined,
+      };
+
+      try {
+        const onUploadProgress = (event: { loaded?: number; total?: number }) => {
+          if (event.total) {
+            setUploadProgress(Math.round(((event.loaded ?? 0) / event.total) * 100));
+          }
+        };
+        const resp = await datasetsApi.uploadBundle(file, datasets, uploadOpts, onUploadProgress);
+        setPhase('processing');
+        pollBundleJobs(resp.jobs);
+      } catch (err) {
+        setPhase('failed');
+        setError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
+      }
+      return;
+    }
+
+    // Single-file path
     if (!name.trim()) {
       setError('Please enter a name');
       return;
@@ -147,7 +304,7 @@ export function UploadForm({ onSuccess }: Props) {
     try {
       const onUploadProgress = (event: { loaded?: number; total?: number }) => {
         if (event.total) {
-          setUploadProgress(Math.round((event.loaded ?? 0) / event.total * 100));
+          setUploadProgress(Math.round(((event.loaded ?? 0) / event.total) * 100));
         }
       };
 
@@ -165,27 +322,22 @@ export function UploadForm({ onSuccess }: Props) {
         job = await datasetsApi.uploadVector(file, name, description, onUploadProgress, uploadOpts);
       }
 
-      // Phase 2: processing
       setPhase('processing');
       setProcessingProgress(job.progress);
-      startPolling(job.id);
+      pollSingleJob(job.id);
     } catch (err) {
       setPhase('failed');
-      const message =
-        err instanceof Error ? err.message : 'Upload failed. Please try again.';
-      setError(message);
+      setError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
     }
   };
 
   const handleReset = () => {
-    stopPolling();
-    setPhase('idle');
-    setUploadProgress(0);
-    setProcessingProgress(0);
-    setError(null);
+    stopAllPolling();
+    resetForm();
   };
 
-  const busy = phase === 'uploading' || phase === 'processing';
+  const busy = phase === 'uploading' || phase === 'processing' || phase === 'inspecting';
+  const isBundle = !!bundleRows;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -215,51 +367,57 @@ export function UploadForm({ onSuccess }: Props) {
               Drag & drop a file here, or click to select
             </p>
             <p className="text-gray-400 text-sm mt-2">
-              Supported: GeoJSON, Shapefile (ZIP), GeoPackage, GeoTIFF
+              Supported: GeoJSON, Shapefile (ZIP), GeoPackage, GeoTIFF. ZIPs can contain multiple datasets.
             </p>
           </div>
         )}
       </div>
 
-      <div>
-        <label
-          htmlFor="name"
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
-          Dataset Name
-        </label>
-        <input
-          type="text"
-          id="name"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          disabled={busy}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-          placeholder="Enter dataset name"
-        />
-      </div>
+      {phase === 'inspecting' && (
+        <div className="text-sm text-gray-600">Inspecting archive...</div>
+      )}
 
-      <div>
-        <label
-          htmlFor="description"
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
-          Description (optional)
-        </label>
-        <textarea
-          id="description"
-          value={description}
-          onChange={(e) => setDescription(e.target.value)}
-          disabled={busy}
-          rows={2}
-          className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
-          placeholder="Enter description"
-        />
-      </div>
+      {isBundle ? (
+        <BundleDatasetList rows={bundleRows!} onChange={setBundleRows} disabled={busy} />
+      ) : (
+        <>
+          <div>
+            <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-1">
+              Dataset Name
+            </label>
+            <input
+              type="text"
+              id="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={busy}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+              placeholder="Enter dataset name"
+            />
+          </div>
 
-      {/* Category */}
+          <div>
+            <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-1">
+              Description (optional)
+            </label>
+            <textarea
+              id="description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              disabled={busy}
+              rows={2}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-60"
+              placeholder="Enter description"
+            />
+          </div>
+        </>
+      )}
+
+      {/* Category — shared across all datasets in a bundle */}
       <div>
-        <label className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+        <label className="block text-sm font-medium text-gray-700 mb-1">
+          Category {isBundle && <span className="text-xs text-gray-500">(applied to all datasets)</span>}
+        </label>
         <div className="flex gap-4">
           <label className="flex items-center gap-1.5 text-sm">
             <input
@@ -288,13 +446,9 @@ export function UploadForm({ onSuccess }: Props) {
         </div>
       </div>
 
-      {/* Geographic Scope (only for reference data) */}
       {category === 'reference' && (
         <div>
-          <label
-            htmlFor="geographic-scope"
-            className="block text-sm font-medium text-gray-700 mb-1"
-          >
+          <label htmlFor="geographic-scope" className="block text-sm font-medium text-gray-700 mb-1">
             Geographic Scope
           </label>
           <select
@@ -313,13 +467,9 @@ export function UploadForm({ onSuccess }: Props) {
         </div>
       )}
 
-      {/* Project (only for project data) */}
       {category === 'project' && projects.length > 0 && (
         <div>
-          <label
-            htmlFor="project-id"
-            className="block text-sm font-medium text-gray-700 mb-1"
-          >
+          <label htmlFor="project-id" className="block text-sm font-medium text-gray-700 mb-1">
             Project
           </label>
           <select
@@ -337,13 +487,9 @@ export function UploadForm({ onSuccess }: Props) {
         </div>
       )}
 
-      {/* Tags */}
       <div>
-        <label
-          htmlFor="tags"
-          className="block text-sm font-medium text-gray-700 mb-1"
-        >
-          Tags
+        <label htmlFor="tags" className="block text-sm font-medium text-gray-700 mb-1">
+          Tags {isBundle && <span className="text-xs text-gray-500">(applied to all datasets)</span>}
         </label>
         <input
           type="text"
@@ -357,7 +503,7 @@ export function UploadForm({ onSuccess }: Props) {
         <p className="text-xs text-gray-400 mt-0.5">Comma-separated</p>
       </div>
 
-      {/* Upload progress bar */}
+      {/* Upload progress */}
       {phase === 'uploading' && (
         <div>
           <div className="flex justify-between text-sm text-blue-700 mb-1">
@@ -365,25 +511,42 @@ export function UploadForm({ onSuccess }: Props) {
             <span>{uploadProgress}%</span>
           </div>
           <div className="w-full bg-blue-100 rounded-full h-3">
-            <div
-              className="bg-blue-600 h-3 rounded-full transition-all duration-300"
-              style={{ width: `${uploadProgress}%` }}
-            />
+            <div className="bg-blue-600 h-3 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
           </div>
         </div>
       )}
 
-      {/* Processing progress bar */}
-      {phase === 'processing' && (
+      {/* Processing progress — single or bundle */}
+      {phase === 'processing' && !isBundle && (
         <div>
           <div className="flex justify-between text-sm text-green-700 mb-1">
             <span>Processing dataset...</span>
             <span>{processingProgress}%</span>
           </div>
           <div className="w-full bg-green-100 rounded-full h-3">
+            <div className="bg-green-600 h-3 rounded-full transition-all duration-300" style={{ width: `${processingProgress}%` }} />
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            You can close this page. Processing will continue on the server.
+          </p>
+        </div>
+      )}
+
+      {phase === 'processing' && isBundle && bundleSummary && (
+        <div>
+          <div className="flex justify-between text-sm text-green-700 mb-1">
+            <span>Processing datasets...</span>
+            <span>
+              {bundleSummary.completed + bundleSummary.failed} of {bundleSummary.total}
+              {bundleSummary.failed > 0 && ` (${bundleSummary.failed} failed)`}
+            </span>
+          </div>
+          <div className="w-full bg-green-100 rounded-full h-3">
             <div
               className="bg-green-600 h-3 rounded-full transition-all duration-300"
-              style={{ width: `${processingProgress}%` }}
+              style={{
+                width: `${bundleSummary.total === 0 ? 0 : Math.round(((bundleSummary.completed + bundleSummary.failed) / bundleSummary.total) * 100)}%`,
+              }}
             />
           </div>
           <p className="text-xs text-gray-500 mt-1">
@@ -392,18 +555,28 @@ export function UploadForm({ onSuccess }: Props) {
         </div>
       )}
 
-      {/* Completed message */}
-      {phase === 'completed' && (
+      {phase === 'completed' && !isBundle && (
         <div className="text-green-700 text-sm bg-green-50 p-3 rounded-md">
           Dataset uploaded and processed successfully.
         </div>
       )}
 
-      {/* Error / failed */}
-      {error && (
-        <div className="text-red-600 text-sm bg-red-50 p-3 rounded-md">
-          {error}
+      {phase === 'completed' && isBundle && bundleSummary && (
+        <div
+          className={`text-sm p-3 rounded-md ${
+            bundleSummary.failed > 0
+              ? 'text-amber-700 bg-amber-50'
+              : 'text-green-700 bg-green-50'
+          }`}
+        >
+          {bundleSummary.failed === 0
+            ? `All ${bundleSummary.total} datasets uploaded and processed successfully.`
+            : `${bundleSummary.completed} of ${bundleSummary.total} datasets processed successfully, ${bundleSummary.failed} failed.`}
         </div>
+      )}
+
+      {error && (
+        <div className="text-red-600 text-sm bg-red-50 p-3 rounded-md">{error}</div>
       )}
 
       <div className="flex gap-2">
@@ -416,10 +589,14 @@ export function UploadForm({ onSuccess }: Props) {
               : 'bg-blue-600 hover:bg-blue-700'
           }`}
         >
-          {phase === 'uploading'
+          {phase === 'inspecting'
+            ? 'Inspecting...'
+            : phase === 'uploading'
             ? 'Uploading...'
             : phase === 'processing'
             ? 'Processing...'
+            : isBundle
+            ? `Upload ${bundleRows!.filter((r) => r.include).length} Dataset${bundleRows!.filter((r) => r.include).length === 1 ? '' : 's'}`
             : 'Upload Dataset'}
         </button>
         {phase === 'failed' && (

@@ -610,6 +610,34 @@ class FileProcessor:
         # Run blocking I/O in a thread pool to avoid blocking the event loop
         return await asyncio.to_thread(self._process_raster_sync, file_path, dataset_id)
 
+    @staticmethod
+    def extract_members_to_dir(
+        zip_path: Path,
+        members: list[str],
+        dest_dir: Path,
+    ) -> Path:
+        """Extract specific ZIP members into ``dest_dir`` as flat filenames.
+
+        Returns the path to the first extracted member (the primary file).
+        All members are extracted to the same directory, using only their
+        basename, so shapefile sidecars land next to the .shp.
+        """
+        import zipfile
+
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        primary_out: Path | None = None
+        with zipfile.ZipFile(str(zip_path), "r") as zf:
+            for member in members:
+                source = zf.open(member)
+                target = dest_dir / Path(member).name
+                with open(target, "wb") as out:
+                    shutil.copyfileobj(source, out)
+                if primary_out is None:
+                    primary_out = target
+        if primary_out is None:
+            raise ValueError("No members extracted from ZIP")
+        return primary_out
+
     def _extract_raster_from_zip(self, zip_path: Path) -> Path:
         """Extract a ZIP archive and return the path to the primary raster file."""
         import zipfile
@@ -766,6 +794,25 @@ class FileProcessor:
 
         return None
 
+    @staticmethod
+    def _build_overviews(raster_path: Path) -> None:
+        """Build pyramid overviews for efficient tile serving at low zoom levels."""
+        try:
+            with rasterio.open(str(raster_path), "r+") as dst:
+                from rasterio.enums import Resampling as RasterResampling
+
+                overview_levels = [2, 4, 8, 16, 32]
+                dst.build_overviews(overview_levels, RasterResampling.nearest)
+                dst.update_tags(ns="rio_overview", resampling="nearest")
+                logger.info("Built overviews for %s", raster_path)
+        except Exception:
+            logger.warning(
+                "Could not build overviews for %s — tile serving may use "
+                "excessive memory for large rasters",
+                raster_path,
+                exc_info=True,
+            )
+
     def _process_raster_sync(
         self,
         file_path: Path,
@@ -822,6 +869,9 @@ class FileProcessor:
                 # Copy as-is, assume 4326
                 shutil.copy(str(file_path), str(output_path))
                 bounds_wgs84 = list(src.bounds)
+
+                # Build overviews even for CRS-missing rasters
+                self._build_overviews(output_path)
             else:
                 # Reproject bounds to WGS84 for storage
                 if original_crs.to_epsg() != 4326:
@@ -862,15 +912,7 @@ class FileProcessor:
                         pass
 
                 # Build overviews for faster tile serving at low zoom levels
-                try:
-                    with rasterio.open(str(output_path), "r+") as dst:
-                        from rasterio.enums import Resampling as RasterResampling
-
-                        overview_levels = [2, 4, 8, 16]
-                        dst.build_overviews(overview_levels, RasterResampling.nearest)
-                        dst.update_tags(ns="rio_overview", resampling="nearest")
-                except Exception:
-                    logger.debug("Could not build overviews for %s", output_path)
+                self._build_overviews(output_path)
 
         result = {
             "file_path": str(output_path),

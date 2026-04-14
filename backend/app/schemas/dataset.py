@@ -86,6 +86,7 @@ class PublicStatusUpdate(BaseModel):
 class UploadJobResponse(BaseModel):
     id: UUID
     dataset_id: UUID
+    bundle_id: UUID | None = None
     status: str
     progress: int
     error_message: str | None
@@ -94,6 +95,42 @@ class UploadJobResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ===== Multi-Dataset Bundle Upload Schemas =====
+
+
+class DetectedDatasetSchema(BaseModel):
+    """A dataset detected within an uploaded ZIP archive."""
+
+    suggested_name: str
+    data_type: str  # "vector" or "raster"
+    format: str  # "shapefile", "geotiff", "geopackage", "geojson", "grid"
+    primary_file: str
+    member_files: list[str]
+    warnings: list[str] = Field(default_factory=list)
+
+
+class BundleInspectResponse(BaseModel):
+    """Response for /upload/inspect — lists datasets found in a ZIP."""
+
+    datasets: list[DetectedDatasetSchema]
+
+
+class BundleDatasetMetadata(BaseModel):
+    """Per-dataset metadata supplied by the client for a bundle upload."""
+
+    primary_file: str  # identifies which detected dataset this is
+    name: str
+    description: str | None = None
+    include: bool = True
+
+
+class BundleUploadResponse(BaseModel):
+    """Response for /upload/bundle — one job per included dataset."""
+
+    bundle_id: UUID
+    jobs: list[UploadJobResponse]
 
 
 # ===== Feature Query Schemas =====
