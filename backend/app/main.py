@@ -128,6 +128,9 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    from app.services.external_source import close_proxy_client
+
+    await close_proxy_client()
     await engine.dispose()
 
 

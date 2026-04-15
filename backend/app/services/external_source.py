@@ -677,14 +677,63 @@ async def fetch_all_features(
     }
 
 
+_PROXY_CLIENT: httpx.AsyncClient | None = None
+
+
+def _get_proxy_client() -> httpx.AsyncClient:
+    """Lazily construct the shared AsyncClient used for upstream proxy fetches.
+
+    Reusing a single client enables connection pooling (DNS + TCP + TLS reuse),
+    which is critical under bursty tile traffic — one tile per panned viewport
+    would otherwise cost a full handshake each.
+    """
+    global _PROXY_CLIENT
+    if _PROXY_CLIENT is None:
+        _PROXY_CLIENT = httpx.AsyncClient(
+            timeout=TIMEOUT,
+            follow_redirects=True,
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
+        )
+    return _PROXY_CLIENT
+
+
+async def close_proxy_client() -> None:
+    """Close the shared proxy client on app shutdown."""
+    global _PROXY_CLIENT
+    if _PROXY_CLIENT is not None:
+        await _PROXY_CLIENT.aclose()
+        _PROXY_CLIENT = None
+
+
 async def proxy_request(
     service_url: str,
     service_type: str,
     params: dict,
 ) -> httpx.Response:
-    """Proxy a request to an external service."""
+    """Proxy a request to an external service.
+
+    Validates the target URL against SSRF rules, then opportunistically
+    attempts an https:// upgrade if the registered URL is plain http. Falls
+    back to the original scheme only if the https attempt fails.
+    """
     _validate_url_not_internal(service_url)
-    async with httpx.AsyncClient(timeout=TIMEOUT, follow_redirects=True) as client:
-        resp = await client.get(service_url, params=params)
-        resp.raise_for_status()
-        return resp
+    client = _get_proxy_client()
+
+    target = service_url
+    upgraded: str | None = None
+    if target.startswith("http://"):
+        upgraded = "https://" + target[len("http://") :]
+
+    if upgraded is not None:
+        try:
+            resp = await client.get(upgraded, params=params)
+            resp.raise_for_status()
+            return resp
+        except (httpx.HTTPError, httpx.InvalidURL):
+            logger.info(
+                "https upgrade of upstream failed, falling back to http: %s", service_url
+            )
+
+    resp = await client.get(target, params=params)
+    resp.raise_for_status()
+    return resp

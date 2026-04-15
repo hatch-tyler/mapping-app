@@ -27,10 +27,21 @@ from app.services.external_source import probe_service, browse_directory, proxy_
 router = APIRouter(prefix="/external-sources", tags=["external-sources"])
 
 import ipaddress
+import time
 from urllib.parse import urlparse
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Short-TTL cache of the handful of columns the proxy endpoint needs from the
+# Dataset row. Avoids a DB round-trip per tile when panning with multiple
+# external layers active. Invalidated implicitly by the 60-second TTL.
+_PROXY_DATASET_TTL_SECONDS = 60
+_proxy_dataset_cache: dict[UUID, tuple[float, tuple[str, str | None, str | None, str]]] = {}
+
+
+def _invalidate_proxy_dataset_cache(dataset_id: UUID) -> None:
+    _proxy_dataset_cache.pop(dataset_id, None)
 
 
 def _validate_external_url(url: str) -> None:
@@ -399,25 +410,38 @@ async def proxy_external_service(
     current_user: User = Depends(get_current_user),
 ):
     """Proxy requests to an external service to avoid CORS issues."""
-    dataset = await dataset_crud.get_dataset(db, dataset_id)
-    if not dataset:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
-        )
-    if dataset.source_type != "external" or not dataset.service_url:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Not an external dataset"
+    now = time.monotonic()
+    cached = _proxy_dataset_cache.get(dataset_id)
+    if cached and (now - cached[0] < _PROXY_DATASET_TTL_SECONDS):
+        service_url, service_type, service_layer_id, source_type = cached[1]
+    else:
+        dataset = await dataset_crud.get_dataset(db, dataset_id)
+        if not dataset:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+            )
+        if dataset.source_type != "external" or not dataset.service_url:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail="Not an external dataset"
+            )
+        service_url = dataset.service_url
+        service_type = dataset.service_type
+        service_layer_id = dataset.service_layer_id
+        source_type = dataset.source_type
+        _proxy_dataset_cache[dataset_id] = (
+            now,
+            (service_url, service_type, service_layer_id, source_type),
         )
 
     # Build the correct target URL based on service type
     params = dict(request.query_params)
-    target_url = dataset.service_url
+    target_url = service_url
 
-    if dataset.service_type == "arcgis_feature":
+    if service_type == "arcgis_feature":
         # ArcGIS Feature Service: append layer ID and /query
-        layer_id = dataset.service_layer_id or "0"
-        target_url = f"{dataset.service_url.rstrip('/')}/{layer_id}/query"
-    elif dataset.service_type == "arcgis_map":
+        layer_id = service_layer_id or "0"
+        target_url = f"{service_url.rstrip('/')}/{layer_id}/query"
+    elif service_type == "arcgis_map":
         # Tile-cached MapServer: reconstruct /tile/{z}/{y}/{x} URL
         z = params.pop("z", None)
         y = params.pop("y", None)
@@ -428,23 +452,22 @@ async def proxy_external_service(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Missing required tile parameters: z, y, x",
             )
-        target_url = f"{dataset.service_url.rstrip('/')}/tile/{z}/{y}/{x}"
-    elif dataset.service_type == "arcgis_map_export":
+        target_url = f"{service_url.rstrip('/')}/tile/{z}/{y}/{x}"
+    elif service_type == "arcgis_map_export":
         # Dynamic MapServer: route to /export endpoint
-        layer_id = dataset.service_layer_id or "0"
-        target_url = f"{dataset.service_url.rstrip('/')}/export"
-    elif dataset.service_type == "arcgis_image":
+        target_url = f"{service_url.rstrip('/')}/export"
+    elif service_type == "arcgis_image":
         # ArcGIS ImageServer: route to /exportImage endpoint
-        target_url = f"{dataset.service_url.rstrip('/')}/exportImage"
-    elif dataset.service_type == "wfs":
+        target_url = f"{service_url.rstrip('/')}/exportImage"
+    elif service_type == "wfs":
         # WFS: params already contain service/request/typeName
         pass
-    elif dataset.service_type == "wms":
+    elif service_type == "wms":
         # WMS: params already contain service/request/layers
         pass
 
     try:
-        resp = await proxy_request(target_url, dataset.service_type or "", params)
+        resp = await proxy_request(target_url, service_type or "", params)
     except Exception as e:
         logger.warning("External service proxy error for dataset %s: %s", dataset_id, e)
         # Return empty GeoJSON for feature queries so tiles render as empty instead of erroring

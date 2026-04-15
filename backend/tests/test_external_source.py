@@ -662,3 +662,43 @@ class TestProxyRequest:
 
         with pytest.raises(httpx.HTTPStatusError):
             await proxy_request(url, "wms", {})
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_reuses_shared_client(self):
+        """Successive calls should share a single AsyncClient for connection pooling."""
+        from app.services.external_source import _get_proxy_client
+
+        url = "https://example.com/tile"
+        respx.get(url).mock(return_value=httpx.Response(200, content=b"x"))
+
+        await proxy_request(url, "arcgis_map", {})
+        first_id = id(_get_proxy_client())
+        await proxy_request(url, "arcgis_map", {})
+        second_id = id(_get_proxy_client())
+        assert first_id == second_id
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_http_url_upgraded_to_https(self):
+        """An http:// upstream should be tried as https:// first."""
+        http_url = "http://example.com/service"
+        https_url = "https://example.com/service"
+        respx.get(https_url).mock(return_value=httpx.Response(200, content=b"ok"))
+
+        resp = await proxy_request(http_url, "arcgis_map", {})
+        assert resp.status_code == 200
+        assert resp.content == b"ok"
+
+    @pytest.mark.asyncio
+    @respx.mock
+    async def test_http_url_falls_back_when_https_fails(self):
+        """If the https upgrade fails, the original http URL is retried."""
+        http_url = "http://example.com/legacy"
+        https_url = "https://example.com/legacy"
+        respx.get(https_url).mock(return_value=httpx.Response(500))
+        respx.get(http_url).mock(return_value=httpx.Response(200, content=b"legacy"))
+
+        resp = await proxy_request(http_url, "arcgis_map", {})
+        assert resp.status_code == 200
+        assert resp.content == b"legacy"

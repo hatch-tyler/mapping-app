@@ -74,14 +74,26 @@ function createExternalLayer(dataset: Dataset): LayerType {
       });
 
     case 'arcgis_map':
-      // Tile-cached ArcGIS MapServer — direct access (faster, no proxy)
+      // Tile-cached ArcGIS MapServer — routed through our proxy so the
+      // browser only ever talks to the same origin. Upstreams that lack
+      // CORS headers (DWR, many county / federal GIS servers) would
+      // otherwise be blocked by the browser.
       return new TileLayer({
         id: `ext-arcmap-${dataset.id}`,
-        data: `${dataset.service_url}/tile/{z}/{y}/{x}`,
+        data: proxyBase,
         tileSize: 256,
         minZoom: dataset.min_zoom,
         maxZoom: dataset.max_zoom,
-        onTileError: () => {},  // Silently ignore 404s for tiles outside data extent
+        maxRequests: 6,
+        onTileError: () => {},
+        getTileData: (tile: { index: { z: number; x: number; y: number }; signal?: AbortSignal }) => {
+          const { z, x, y } = tile.index;
+          const url = `${proxyBase}?z=${z}&y=${y}&x=${x}`;
+          return fetch(url, { headers: authHeaders, signal: tile.signal })
+            .then((r) => (r.ok ? r.blob() : null))
+            .then((b) => (b ? URL.createObjectURL(b) : null))
+            .catch(() => null);
+        },
         renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {
           if (!props.data) return null;
           const { boundingBox } = props.tile;
@@ -126,20 +138,23 @@ function createExternalLayer(dataset: Dataset): LayerType {
     }
 
     case 'arcgis_image': {
-      // ArcGIS ImageServer — direct exportImage (no tile cache, so use larger tiles to reduce requests)
+      // ArcGIS ImageServer — routed through our proxy (same CORS/CSP
+      // rationale as arcgis_map). The proxy rewrites the target to
+      // `${service_url}/exportImage` server-side.
       return new TileLayer({
         id: `ext-arcimg-${dataset.id}`,
-        data: `${dataset.service_url}/exportImage`,
+        data: proxyBase,
         tileSize: 512,
         minZoom: dataset.min_zoom,
         maxZoom: dataset.max_zoom,
         maxRequests: 6,
+        onTileError: () => {},
         getTileData: (tile: { bbox: { west: number; south: number; east: number; north: number }; signal?: AbortSignal }) => {
           const { west, south, east, north } = tile.bbox;
-          const url = `${dataset.service_url}/exportImage?bbox=${west},${south},${east},${north}&bboxSR=4326&imageSR=3857&size=512,512&format=jpgpng&f=image`;
-          return fetch(url, { signal: tile.signal })
-            .then(r => r.ok ? r.blob() : null)
-            .then(b => b ? URL.createObjectURL(b) : null)
+          const url = `${proxyBase}?bbox=${west},${south},${east},${north}&bboxSR=4326&imageSR=3857&size=512,512&format=jpgpng&f=image`;
+          return fetch(url, { headers: authHeaders, signal: tile.signal })
+            .then((r) => (r.ok ? r.blob() : null))
+            .then((b) => (b ? URL.createObjectURL(b) : null))
             .catch(() => null);
         },
         renderSubLayers: (props: { id: string; data: unknown; tile: { boundingBox: [[number, number], [number, number]] }; [key: string]: unknown }) => {

@@ -151,6 +151,84 @@ describe('layerFactory', () => {
     });
   });
 
+  describe('external service routing (CORS/CSP fix)', () => {
+    const makeExternal = (service_type: string, extra: Partial<Record<string, unknown>> = {}) =>
+      createMockDataset({
+        id: 'ext-1',
+        name: 'External',
+        source_type: 'external',
+        service_type,
+        service_url: 'https://gis.water.ca.gov/arcgis/rest/services/Example/MapServer',
+        ...extra,
+      } as Parameters<typeof createMockDataset>[0]);
+
+    it('arcgis_map uses proxyBase and never references the upstream host', async () => {
+      const fetchMock = vi.fn(() =>
+        Promise.resolve({ ok: true, blob: () => Promise.resolve(new Blob()) } as Response),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const layer = createLayerFromDataset(makeExternal('arcgis_map'));
+      expect(layer).not.toBeNull();
+      const typed = layer as unknown as {
+        data: string;
+        getTileData: (t: { index: { z: number; x: number; y: number } }) => Promise<unknown>;
+      };
+      expect(typed.data).toContain('/api/v1/external-sources/ext-1/proxy');
+      expect(typed.data).not.toContain('gis.water.ca.gov');
+
+      await typed.getTileData({ index: { z: 5, x: 10, y: 12 } });
+      const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
+      expect(calledUrl).toContain('/api/v1/external-sources/ext-1/proxy');
+      expect(calledUrl).toMatch(/z=5/);
+      expect(calledUrl).toMatch(/x=10/);
+      expect(calledUrl).toMatch(/y=12/);
+      expect(calledUrl).not.toContain('gis.water.ca.gov');
+
+      vi.unstubAllGlobals();
+    });
+
+    it('arcgis_image uses proxyBase and forwards bbox', async () => {
+      const fetchMock = vi.fn(() =>
+        Promise.resolve({ ok: true, blob: () => Promise.resolve(new Blob()) } as Response),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+
+      const layer = createLayerFromDataset(makeExternal('arcgis_image'));
+      expect(layer).not.toBeNull();
+      const typed = layer as unknown as {
+        data: string;
+        getTileData: (t: {
+          bbox: { west: number; south: number; east: number; north: number };
+        }) => Promise<unknown>;
+      };
+      expect(typed.data).toContain('/api/v1/external-sources/ext-1/proxy');
+
+      await typed.getTileData({ bbox: { west: -123, south: 37, east: -121, north: 39 } });
+      const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
+      expect(calledUrl).toContain('/api/v1/external-sources/ext-1/proxy');
+      expect(calledUrl).toContain('bbox=-123,37,-121,39');
+      expect(calledUrl).toContain('f=image');
+      expect(calledUrl).not.toContain('gis.water.ca.gov');
+
+      vi.unstubAllGlobals();
+    });
+
+    it('arcgis_map getTileData swallows fetch failures (returns null, does not reject)', async () => {
+      const fetchMock = vi.fn(() => Promise.reject(new Error('network')));
+      vi.stubGlobal('fetch', fetchMock);
+
+      const layer = createLayerFromDataset(makeExternal('arcgis_map'));
+      const typed = layer as unknown as {
+        getTileData: (t: { index: { z: number; x: number; y: number } }) => Promise<unknown>;
+      };
+      const result = await typed.getTileData({ index: { z: 1, x: 1, y: 1 } });
+      expect(result).toBeNull();
+
+      vi.unstubAllGlobals();
+    });
+  });
+
   describe('getLayerColor', () => {
     it('should return first color for index 0', () => {
       const color = getLayerColor(0);
