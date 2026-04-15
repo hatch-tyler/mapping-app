@@ -133,6 +133,37 @@ class BundleUploadResponse(BaseModel):
     jobs: list[UploadJobResponse]
 
 
+class BundleJobDetail(BaseModel):
+    """A single dataset within a bundle with its human-readable name."""
+
+    id: UUID
+    dataset_id: UUID
+    dataset_name: str
+    status: str
+    progress: int
+    error_message: str | None
+    created_at: datetime
+    completed_at: datetime | None
+
+
+class BundleStatusResponse(BaseModel):
+    """Full per-dataset status for a bundle (used for 502 recovery)."""
+
+    bundle_id: UUID
+    jobs: list[BundleJobDetail]
+
+
+class BundleSummary(BaseModel):
+    """Compact per-bundle summary for "what did I upload recently?" queries."""
+
+    bundle_id: UUID
+    created_at: datetime
+    total: int
+    completed: int
+    failed: int
+    in_progress: int
+
+
 # ===== Feature Query Schemas =====
 
 

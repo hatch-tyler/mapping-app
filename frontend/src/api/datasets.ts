@@ -17,6 +17,8 @@ import {
   BundleInspectResponse,
   BundleDatasetInput,
   BundleUploadResponse,
+  BundleStatusResponse,
+  BundleSummary,
 } from './types';
 
 // Create a client without auth interceptors for public endpoints
@@ -200,6 +202,26 @@ export async function uploadBundle(
     '/upload/bundle',
     formData,
     { onUploadProgress },
+  );
+  return response.data;
+}
+
+/** Fetch the current per-dataset status for a bundle upload. */
+export async function getBundleStatus(bundleId: string): Promise<BundleStatusResponse> {
+  const response = await apiClient.get<BundleStatusResponse>(
+    `/upload/bundles/${bundleId}`,
+  );
+  return response.data;
+}
+
+/** List recent bundles uploaded by the current user; used to recover from
+ * lost POST responses (e.g. the 502-after-partial-success scenario). */
+export async function listRecentBundles(
+  sinceMinutes = 60,
+): Promise<BundleSummary[]> {
+  const response = await apiClient.get<BundleSummary[]>(
+    '/upload/bundles',
+    { params: { since_minutes: sinceMinutes } },
   );
   return response.data;
 }

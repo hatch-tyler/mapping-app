@@ -193,3 +193,95 @@ class TestBundleUploadEndpoint:
             )
         assert resp.status_code == 202
         assert len(resp.json()["jobs"]) == 1
+
+
+class TestBundleRecoveryEndpoints:
+    @pytest.mark.asyncio
+    async def test_bundle_status_returns_per_dataset_detail(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        zip_data = _zip_bytes(
+            {
+                "a.shp": b"s",
+                "a.shx": b"s",
+                "a.dbf": b"s",
+                "a.prj": b"p",
+                "b.tif": b"t",
+            }
+        )
+        meta = [
+            {"primary_file": "a.shp", "name": "A dataset", "include": True},
+            {"primary_file": "b.tif", "name": "B dataset", "include": True},
+        ]
+        with patch(
+            "app.services.file_processor.file_processor.process_vector_background",
+            new=AsyncMock(return_value=None),
+        ), patch(
+            "app.services.file_processor.file_processor.process_raster_background",
+            new=AsyncMock(return_value=None),
+        ):
+            resp = await client.post(
+                "/api/v1/upload/bundle",
+                files={"file": ("b.zip", io.BytesIO(zip_data), "application/zip")},
+                data={"datasets": json.dumps(meta), "category": "reference"},
+                headers=admin_auth_headers,
+            )
+        assert resp.status_code == 202
+        bundle_id = resp.json()["bundle_id"]
+
+        status_resp = await client.get(
+            f"/api/v1/upload/bundles/{bundle_id}",
+            headers=admin_auth_headers,
+        )
+        assert status_resp.status_code == 200, status_resp.text
+        body = status_resp.json()
+        assert body["bundle_id"] == bundle_id
+        assert len(body["jobs"]) == 2
+        names = {j["dataset_name"] for j in body["jobs"]}
+        assert names == {"A dataset", "B dataset"}
+        for j in body["jobs"]:
+            assert "status" in j
+            assert "progress" in j
+            assert "error_message" in j
+
+    @pytest.mark.asyncio
+    async def test_bundle_status_404_unknown_id(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        resp = await client.get(
+            "/api/v1/upload/bundles/00000000-0000-0000-0000-000000000000",
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_list_recent_bundles_includes_just_uploaded(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        zip_data = _zip_bytes(
+            {"a.shp": b"s", "a.shx": b"s", "a.dbf": b"s", "a.prj": b"p"}
+        )
+        meta = [{"primary_file": "a.shp", "name": "A", "include": True}]
+        with patch(
+            "app.services.file_processor.file_processor.process_vector_background",
+            new=AsyncMock(return_value=None),
+        ):
+            resp = await client.post(
+                "/api/v1/upload/bundle",
+                files={"file": ("b.zip", io.BytesIO(zip_data), "application/zip")},
+                data={"datasets": json.dumps(meta), "category": "reference"},
+                headers=admin_auth_headers,
+            )
+        assert resp.status_code == 202
+        bundle_id = resp.json()["bundle_id"]
+
+        recent = await client.get(
+            "/api/v1/upload/bundles?since_minutes=10",
+            headers=admin_auth_headers,
+        )
+        assert recent.status_code == 200
+        summaries = recent.json()
+        ids = {s["bundle_id"] for s in summaries}
+        assert bundle_id in ids
+        match = next(s for s in summaries if s["bundle_id"] == bundle_id)
+        assert match["total"] == 1

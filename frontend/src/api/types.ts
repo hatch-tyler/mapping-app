@@ -263,6 +263,31 @@ export interface BundleUploadResponse {
   jobs: UploadJob[];
 }
 
+export interface BundleJobDetail {
+  id: string;
+  dataset_id: string;
+  dataset_name: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  progress: number;
+  error_message: string | null;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface BundleStatusResponse {
+  bundle_id: string;
+  jobs: BundleJobDetail[];
+}
+
+export interface BundleSummary {
+  bundle_id: string;
+  created_at: string;
+  total: number;
+  completed: number;
+  failed: number;
+  in_progress: number;
+}
+
 // ===== Style Configuration Types =====
 
 export type RGBAColor = [number, number, number, number];

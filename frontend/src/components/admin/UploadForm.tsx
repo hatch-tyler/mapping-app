@@ -28,6 +28,27 @@ type Phase = 'idle' | 'inspecting' | 'uploading' | 'processing' | 'completed' | 
 const POLL_INTERVAL = 2000;
 const MAX_POLL_FAILURES = 30;
 
+/** After a failed bundle upload POST, poke the backend to see if a bundle
+ * was actually created for this user in the expected time window. If exactly
+ * one matches, treat that as the lost response. */
+async function tryRecoverBundle(
+  uploadStartedAt: number,
+  expectedTotal: number,
+): Promise<{ bundle_id: string } | null> {
+  try {
+    const summaries = await datasetsApi.listRecentBundles(10);
+    const lowerBound = uploadStartedAt - 60_000; // allow 60s of clock skew
+    const candidates = summaries.filter((s) => {
+      const createdMs = new Date(s.created_at).getTime();
+      return createdMs >= lowerBound && s.total === expectedTotal;
+    });
+    if (candidates.length === 1) return { bundle_id: candidates[0].bundle_id };
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function UploadForm({ onSuccess }: Props) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -274,6 +295,7 @@ export function UploadForm({ onSuccess }: Props) {
         tags: tagsInput || undefined,
       };
 
+      const uploadStartedAt = Date.now();
       try {
         const onUploadProgress = (event: { loaded?: number; total?: number }) => {
           if (event.total) {
@@ -281,11 +303,49 @@ export function UploadForm({ onSuccess }: Props) {
           }
         };
         const resp = await datasetsApi.uploadBundle(file, datasets, uploadOpts, onUploadProgress);
+        localStorage.setItem('lastBundleId', resp.bundle_id);
         setPhase('processing');
         pollBundleJobs(resp.jobs);
       } catch (err) {
+        // The POST may have failed (502 from an OOM'd worker, dropped
+        // connection, etc.) AFTER the backend committed dataset + job rows
+        // for at least some of the included datasets. Try to recover by
+        // looking up the caller's recent bundles and matching on the
+        // window + expected job count.
+        const recovered = await tryRecoverBundle(uploadStartedAt, included.length);
+        if (recovered) {
+          localStorage.setItem('lastBundleId', recovered.bundle_id);
+          setPhase('processing');
+          try {
+            const detail = await datasetsApi.getBundleStatus(recovered.bundle_id);
+            pollBundleJobs(
+              detail.jobs.map((j) => ({
+                id: j.id,
+                dataset_id: j.dataset_id,
+                bundle_id: recovered.bundle_id,
+                status: j.status,
+                progress: j.progress,
+                error_message: j.error_message,
+                created_at: j.created_at,
+                completed_at: j.completed_at,
+              })),
+            );
+          } catch (pollErr) {
+            setPhase('failed');
+            setError(
+              'Upload completed but tracking failed. Reload the Catalog — some datasets may have been created.',
+            );
+            console.error('Bundle recovery polling error:', pollErr);
+          }
+          return;
+        }
+
         setPhase('failed');
-        setError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
+        setError(
+          err instanceof Error
+            ? `${err.message} — if some datasets show up anyway, the upload partially succeeded.`
+            : 'Upload failed. Please try again.',
+        );
       }
       return;
     }
