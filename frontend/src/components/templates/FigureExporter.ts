@@ -4,16 +4,19 @@
  */
 
 import type { LayoutElement, LayoutTemplate } from '@/api/templates';
-import { Dataset } from '@/api/types';
+import type { Dataset, RasterStyleConfig, StyleConfig, RGBAColor } from '@/api/types';
+import { getColorRamp, interpolateRamp } from '@/utils/colorRamps';
 
 const MM_TO_PX_300DPI = 300 / 25.4; // ~11.811 px per mm at 300 DPI
 
-interface FigureExportOptions {
+export interface FigureExportOptions {
   template: LayoutTemplate;
-  mapImage: HTMLCanvasElement; // composited map canvas (basemap + layers)
+  mapImage: HTMLCanvasElement;
   visibleDatasets: Dataset[];
   mapZoom: number;
   mapCenter: { latitude: number; longitude: number };
+  /** Per-element text overrides keyed by element index in template.elements. */
+  textOverrides?: Record<number, string>;
 }
 
 /** Capture the map by compositing all canvases in a container element. */
@@ -37,7 +40,7 @@ export function captureMapCanvas(container: HTMLElement): HTMLCanvasElement | nu
 
 /** Render the complete figure to a canvas at 300 DPI. */
 export function renderFigure(options: FigureExportOptions): HTMLCanvasElement {
-  const { template, mapImage, visibleDatasets, mapZoom } = options;
+  const { template, mapImage, visibleDatasets, mapZoom, textOverrides } = options;
   const { page_config, elements } = template;
 
   const pageW = page_config.width * MM_TO_PX_300DPI;
@@ -53,14 +56,15 @@ export function renderFigure(options: FigureExportOptions): HTMLCanvasElement {
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  // Sort elements: map_frame first (behind everything)
-  const sorted = [...elements].sort((a, b) => {
-    if (a.type === 'map_frame') return -1;
-    if (b.type === 'map_frame') return 1;
+  // Keep original indices so text overrides still map correctly after sorting.
+  const indexed = elements.map((elem, idx) => ({ elem, idx }));
+  const sorted = [...indexed].sort((a, b) => {
+    if (a.elem.type === 'map_frame') return -1;
+    if (b.elem.type === 'map_frame') return 1;
     return 0;
   });
 
-  for (const elem of sorted) {
+  for (const { elem, idx } of sorted) {
     const x = elem.x * scale;
     const y = elem.y * scale;
     const w = elem.w * scale;
@@ -74,9 +78,12 @@ export function renderFigure(options: FigureExportOptions): HTMLCanvasElement {
         break;
       case 'text':
       case 'title':
-      case 'subtitle':
-        drawText(ctx, x, y, w, h, elem, scale);
+      case 'subtitle': {
+        const override = textOverrides?.[idx];
+        const effective = override !== undefined ? override : elem.text;
+        drawText(ctx, x, y, w, h, { ...elem, text: effective }, scale);
         break;
+      }
       case 'legend':
         drawLegend(ctx, x, y, w, h, visibleDatasets, scale);
         break;
@@ -117,7 +124,6 @@ function drawMapFrame(ctx: CanvasRenderingContext2D, x: number, y: number, w: nu
   ctx.rect(x, y, w, h);
   ctx.clip();
 
-  // Scale map image to fill the frame while maintaining aspect ratio
   const mapAspect = mapImage.width / mapImage.height;
   const frameAspect = w / h;
   let drawW: number, drawH: number, drawX: number, drawY: number;
@@ -136,7 +142,6 @@ function drawMapFrame(ctx: CanvasRenderingContext2D, x: number, y: number, w: nu
 
   ctx.drawImage(mapImage, drawX, drawY, drawW, drawH);
 
-  // Frame border
   ctx.strokeStyle = '#000000';
   ctx.lineWidth = 2;
   ctx.strokeRect(x, y, w, h);
@@ -144,10 +149,10 @@ function drawMapFrame(ctx: CanvasRenderingContext2D, x: number, y: number, w: nu
 }
 
 function drawText(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, elem: LayoutElement, scale: number) {
-  const fontSize = (elem.fontSize || 10) * scale * 0.35; // Convert point size to px at 300 DPI
+  const fontSize = (elem.fontSize || 10) * scale * 0.35;
   const fontWeight = elem.fontWeight === 'bold' ? 'bold' : 'normal';
   ctx.font = `${fontWeight} ${fontSize}px Arial, sans-serif`;
-  ctx.fillStyle = '#000000';
+  ctx.fillStyle = elem.textColor || '#000000';
 
   const align = elem.textAlign || 'left';
   ctx.textAlign = align as CanvasTextAlign;
@@ -158,88 +163,303 @@ function drawText(ctx: CanvasRenderingContext2D, x: number, y: number, w: number
   else if (align === 'right') textX = x + w;
 
   const text = elem.text || '';
-  // Simple word wrap
-  const words = text.split(' ');
-  let line = '';
+  const paragraphs = text.split(/\r?\n/);
   let lineY = y + fontSize * 0.2;
   const lineHeight = fontSize * 1.3;
 
-  for (const word of words) {
-    const testLine = line ? `${line} ${word}` : word;
-    const metrics = ctx.measureText(testLine);
-    if (metrics.width > w && line) {
-      ctx.fillText(line, textX, lineY);
-      line = word;
-      lineY += lineHeight;
-      if (lineY > y + h) break;
-    } else {
-      line = testLine;
+  for (const para of paragraphs) {
+    const words = para.split(' ');
+    let line = '';
+    for (const word of words) {
+      const testLine = line ? `${line} ${word}` : word;
+      const metrics = ctx.measureText(testLine);
+      if (metrics.width > w && line) {
+        ctx.fillText(line, textX, lineY);
+        line = word;
+        lineY += lineHeight;
+        if (lineY > y + h) return;
+      } else {
+        line = testLine;
+      }
     }
-  }
-  if (line && lineY <= y + h) {
-    ctx.fillText(line, textX, lineY);
+    if (line) {
+      if (lineY > y + h) return;
+      ctx.fillText(line, textX, lineY);
+      lineY += lineHeight;
+    }
   }
 }
 
-function drawLegend(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, datasets: Dataset[], scale: number) {
-  // Background
+// ---------------------------------------------------------------------------
+// Legend rendering
+// ---------------------------------------------------------------------------
+
+function rgbaCss(c: RGBAColor): string {
+  const a = (c[3] ?? 255) / 255;
+  return `rgba(${c[0]},${c[1]},${c[2]},${a})`;
+}
+
+function formatNum(n: number): string {
+  if (!Number.isFinite(n)) return '';
+  if (Math.abs(n) >= 1000) return Math.round(n).toLocaleString();
+  if (Math.abs(n) >= 10) return n.toFixed(1);
+  return n.toFixed(2);
+}
+
+function drawGradientBar(
+  ctx: CanvasRenderingContext2D,
+  rampName: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+) {
+  const ramp = getColorRamp(rampName);
+  if (!ramp) {
+    ctx.fillStyle = '#cccccc';
+    ctx.fillRect(x, y, w, h);
+    return;
+  }
+  const steps = 64;
+  const stepW = w / steps;
+  for (let i = 0; i < steps; i++) {
+    const t = i / (steps - 1);
+    ctx.fillStyle = rgbaCss(interpolateRamp(rampName, t));
+    // +1 avoids sub-pixel gaps between segments.
+    ctx.fillRect(x + i * stepW, y, stepW + 1, h);
+  }
+  ctx.strokeStyle = '#666666';
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(x, y, w, h);
+}
+
+interface LegendMetrics {
+  titleFontSize: number;
+  fontSize: number;
+  smallFontSize: number;
+  padding: number;
+  swatchSize: number;
+  rowHeight: number;
+  gradientH: number;
+}
+
+function legendMetrics(scale: number): LegendMetrics {
+  const titleFontSize = 10 * scale * 0.35;
+  const fontSize = 8 * scale * 0.35;
+  const smallFontSize = 7 * scale * 0.35;
+  return {
+    titleFontSize,
+    fontSize,
+    smallFontSize,
+    padding: 4 * scale * 0.35,
+    swatchSize: 10 * scale * 0.35,
+    rowHeight: 12 * scale * 0.35,
+    gradientH: 8 * scale * 0.35,
+  };
+}
+
+/**
+ * Render one dataset's legend entries starting at (x, entryY) within width w.
+ * Returns the new y after rendering. Caller is responsible for clipping if
+ * entries exceed the caller's bottom.
+ */
+function renderDatasetLegendEntries(
+  ctx: CanvasRenderingContext2D,
+  ds: Dataset,
+  x: number,
+  entryY: number,
+  w: number,
+  bottom: number,
+  m: LegendMetrics,
+): number {
+  // Dataset name
+  ctx.font = `bold ${m.fontSize}px Arial, sans-serif`;
+  ctx.fillStyle = '#111111';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(truncateToWidth(ctx, ds.name, w), x, entryY);
+  entryY += m.fontSize * 1.2 + 2;
+
+  if (entryY >= bottom) return entryY;
+
+  ctx.font = `${m.fontSize}px Arial, sans-serif`;
+
+  if (ds.data_type === 'raster') {
+    const cfg = (ds.style_config || {}) as Partial<RasterStyleConfig>;
+    if (cfg.raster_mode === 'continuous' && cfg.color_ramp) {
+      const barW = Math.min(w, m.swatchSize * 12);
+      drawGradientBar(ctx, cfg.color_ramp, x, entryY, barW, m.gradientH);
+      entryY += m.gradientH + 2;
+      if (entryY + m.smallFontSize <= bottom) {
+        ctx.font = `${m.smallFontSize}px Arial, sans-serif`;
+        ctx.fillStyle = '#555555';
+        ctx.textAlign = 'left';
+        ctx.fillText(formatNum(cfg.min_value ?? 0), x, entryY);
+        ctx.textAlign = 'right';
+        ctx.fillText(formatNum(cfg.max_value ?? 255), x + barW, entryY);
+        ctx.textAlign = 'left';
+        entryY += m.smallFontSize * 1.2;
+      }
+    } else if (cfg.raster_mode === 'classified' && cfg.value_map) {
+      const entries = Object.entries(cfg.value_map).sort(
+        ([a], [b]) => Number(a) - Number(b),
+      );
+      const maxRows = Math.max(0, Math.floor((bottom - entryY) / m.rowHeight));
+      const visible = entries.slice(0, maxRows);
+      for (const [, v] of visible) {
+        entryY = drawSwatchRow(ctx, x, entryY, w, v.color, v.label, m);
+      }
+      if (entries.length > visible.length && entryY + m.smallFontSize <= bottom) {
+        ctx.font = `italic ${m.smallFontSize}px Arial, sans-serif`;
+        ctx.fillStyle = '#888888';
+        ctx.fillText(`+${entries.length - visible.length} more`, x, entryY);
+        entryY += m.smallFontSize * 1.2;
+      }
+    } else {
+      ctx.fillStyle = '#888888';
+      ctx.fillText('Raster layer', x, entryY);
+      entryY += m.rowHeight;
+    }
+    return entryY;
+  }
+
+  // Vector
+  const cfg = (ds.style_config || {}) as Partial<StyleConfig>;
+  const mode = cfg.mode || 'uniform';
+
+  if (mode === 'uniform') {
+    const color = (cfg.fillColor as RGBAColor | undefined) || [0, 128, 255, 180];
+    entryY = drawSwatchRow(ctx, x, entryY, w, color, 'All features', m);
+  } else if (mode === 'categorical' && cfg.categoryColors) {
+    if (cfg.attributeField && entryY + m.smallFontSize <= bottom) {
+      ctx.font = `italic ${m.smallFontSize}px Arial, sans-serif`;
+      ctx.fillStyle = '#666666';
+      ctx.fillText(cfg.attributeField, x, entryY);
+      entryY += m.smallFontSize * 1.2;
+    }
+    const entries = Object.entries(cfg.categoryColors);
+    const maxRows = Math.max(0, Math.floor((bottom - entryY) / m.rowHeight));
+    const visible = entries.slice(0, maxRows);
+    ctx.font = `${m.fontSize}px Arial, sans-serif`;
+    for (const [value, color] of visible) {
+      entryY = drawSwatchRow(ctx, x, entryY, w, color as RGBAColor, value, m);
+    }
+    if (cfg.defaultCategoryColor && entryY + m.rowHeight <= bottom) {
+      entryY = drawSwatchRow(ctx, x, entryY, w, cfg.defaultCategoryColor, 'Other', m);
+    }
+    if (entries.length > visible.length && entryY + m.smallFontSize <= bottom) {
+      ctx.font = `italic ${m.smallFontSize}px Arial, sans-serif`;
+      ctx.fillStyle = '#888888';
+      ctx.fillText(`+${entries.length - visible.length} more`, x, entryY);
+      entryY += m.smallFontSize * 1.2;
+    }
+  } else if (mode === 'graduated' && cfg.colorRamp) {
+    if (cfg.attributeField && entryY + m.smallFontSize <= bottom) {
+      ctx.font = `italic ${m.smallFontSize}px Arial, sans-serif`;
+      ctx.fillStyle = '#666666';
+      ctx.fillText(cfg.attributeField, x, entryY);
+      entryY += m.smallFontSize * 1.2;
+    }
+    const barW = Math.min(w, m.swatchSize * 12);
+    drawGradientBar(ctx, cfg.colorRamp.name, x, entryY, barW, m.gradientH);
+    entryY += m.gradientH + 2;
+    if (entryY + m.smallFontSize <= bottom) {
+      ctx.font = `${m.smallFontSize}px Arial, sans-serif`;
+      ctx.fillStyle = '#555555';
+      ctx.textAlign = 'left';
+      ctx.fillText(formatNum(cfg.colorRamp.minValue ?? 0), x, entryY);
+      ctx.textAlign = 'right';
+      ctx.fillText(formatNum(cfg.colorRamp.maxValue ?? 100), x + barW, entryY);
+      ctx.textAlign = 'left';
+      entryY += m.smallFontSize * 1.2;
+    }
+  } else {
+    const color: RGBAColor = [99, 102, 241, 180];
+    entryY = drawSwatchRow(ctx, x, entryY, w, color, ds.name, m);
+  }
+
+  return entryY;
+}
+
+function drawSwatchRow(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  color: RGBAColor,
+  label: string,
+  m: LegendMetrics,
+): number {
+  ctx.fillStyle = rgbaCss(color);
+  ctx.fillRect(x, y, m.swatchSize, m.swatchSize);
+  ctx.strokeStyle = '#999999';
+  ctx.lineWidth = 0.5;
+  ctx.strokeRect(x, y, m.swatchSize, m.swatchSize);
+
+  ctx.fillStyle = '#222222';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  const textX = x + m.swatchSize + m.padding * 0.5;
+  const maxTextW = Math.max(0, w - (textX - x));
+  ctx.fillText(truncateToWidth(ctx, label, maxTextW), textX, y + 1);
+  return y + m.rowHeight;
+}
+
+function truncateToWidth(ctx: CanvasRenderingContext2D, text: string, maxW: number): string {
+  if (maxW <= 0) return '';
+  if (ctx.measureText(text).width <= maxW) return text;
+  const ellipsis = '…';
+  let lo = 0;
+  let hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (ctx.measureText(text.slice(0, mid) + ellipsis).width <= maxW) lo = mid;
+    else hi = mid - 1;
+  }
+  return text.slice(0, lo) + ellipsis;
+}
+
+function drawLegend(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  datasets: Dataset[],
+  scale: number,
+) {
+  // Background only — no border (page frame or a user-added shape provides any outline).
   ctx.fillStyle = '#ffffff';
   ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = '#000000';
-  ctx.lineWidth = 1;
-  ctx.strokeRect(x, y, w, h);
 
-  const fontSize = 8 * scale * 0.35;
-  const titleFontSize = 9 * scale * 0.35;
-  const padding = 4 * scale * 0.35;
-  const swatchSize = 10 * scale * 0.35;
-  const rowHeight = 14 * scale * 0.35;
+  const m = legendMetrics(scale);
+  const innerX = x + m.padding;
+  const innerW = w - m.padding * 2;
+  const bottom = y + h - m.padding;
 
   // Title
-  ctx.font = `bold ${titleFontSize}px Arial, sans-serif`;
+  ctx.font = `bold ${m.titleFontSize}px Arial, sans-serif`;
   ctx.fillStyle = '#000000';
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText('Legend', x + padding, y + padding);
+  ctx.fillText('Legend', innerX, y + m.padding);
+  let entryY = y + m.padding + m.titleFontSize * 1.3;
 
-  // Dataset entries
-  ctx.font = `${fontSize}px Arial, sans-serif`;
-  let entryY = y + padding + titleFontSize + padding;
-
-  for (const ds of datasets.slice(0, Math.floor((h - padding * 3 - titleFontSize) / rowHeight))) {
-    // Color swatch
-    const color = getDatasetColor(ds);
-    ctx.fillStyle = color;
-    ctx.fillRect(x + padding, entryY, swatchSize, swatchSize);
-    ctx.strokeStyle = '#666666';
-    ctx.lineWidth = 0.5;
-    ctx.strokeRect(x + padding, entryY, swatchSize, swatchSize);
-
-    // Name
-    ctx.fillStyle = '#000000';
-    ctx.fillText(ds.name, x + padding + swatchSize + padding, entryY + 1);
-    entryY += rowHeight;
+  for (const ds of datasets) {
+    if (entryY >= bottom) break;
+    entryY = renderDatasetLegendEntries(ctx, ds, innerX, entryY, innerW, bottom, m);
+    entryY += m.padding * 0.5;
   }
 }
 
-function getDatasetColor(ds: Dataset): string {
-  const style = ds.style_config as Record<string, unknown> | undefined;
-  if (style?.mode === 'uniform' && style?.color) {
-    const c = style.color as number[];
-    if (Array.isArray(c) && c.length >= 3) {
-      return `rgb(${c[0]},${c[1]},${c[2]})`;
-    }
-  }
-  // Default colors by data type
-  return ds.data_type === 'raster' ? '#8B5CF6' : '#3B82F6';
-}
+// ---------------------------------------------------------------------------
+// Scale bar, north arrow, image, shape, hr
+// ---------------------------------------------------------------------------
 
 function drawScaleBar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, zoom: number, scale: number) {
-  // Approximate ground resolution at equator for Web Mercator
   const metersPerPixel = 156543.03 / Math.pow(2, zoom);
-  const barWidthMeters = metersPerPixel * 200; // approximate
+  const barWidthMeters = metersPerPixel * 200;
 
-  // Choose nice round number
   const niceDistances = [100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000, 100000];
   let dist = niceDistances[0];
   for (const d of niceDistances) {
@@ -255,7 +475,6 @@ function drawScaleBar(ctx: CanvasRenderingContext2D, x: number, y: number, w: nu
   const barX = x + (w - barW) / 2;
   const barY = y + h - barH - fontSize - 4;
 
-  // Draw alternating black/white segments
   const segments = 4;
   const segW = barW / segments;
   for (let i = 0; i < segments; i++) {
@@ -266,7 +485,6 @@ function drawScaleBar(ctx: CanvasRenderingContext2D, x: number, y: number, w: nu
   ctx.lineWidth = 1;
   ctx.strokeRect(barX, barY, barW, barH);
 
-  // Label
   ctx.font = `${fontSize}px Arial, sans-serif`;
   ctx.fillStyle = '#000000';
   ctx.textAlign = 'center';
@@ -280,7 +498,6 @@ function drawNorthArrow(ctx: CanvasRenderingContext2D, x: number, y: number, w: 
   const arrowBottom = y + h * 0.75;
   const arrowWidth = w * 0.3;
 
-  // Arrow shape
   ctx.beginPath();
   ctx.moveTo(cx, arrowTop);
   ctx.lineTo(cx + arrowWidth, arrowBottom);
@@ -288,11 +505,9 @@ function drawNorthArrow(ctx: CanvasRenderingContext2D, x: number, y: number, w: 
   ctx.lineTo(cx - arrowWidth, arrowBottom);
   ctx.closePath();
 
-  // Left half filled, right half outline
   ctx.fillStyle = '#000000';
   ctx.fill();
 
-  // "N" label
   const fontSize = Math.min(w, h) * 0.25;
   ctx.font = `bold ${fontSize}px Arial, sans-serif`;
   ctx.fillStyle = '#000000';
@@ -303,7 +518,6 @@ function drawNorthArrow(ctx: CanvasRenderingContext2D, x: number, y: number, w: 
 
 function drawImage(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, elem: LayoutElement) {
   if (!elem.imageData) {
-    // Placeholder
     ctx.strokeStyle = '#cccccc';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
@@ -312,11 +526,8 @@ function drawImage(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
     return;
   }
 
-  // Draw base64 image synchronously (image must be pre-loaded)
-  // For the export, images are loaded beforehand via loadImages()
   const img = new Image();
   img.src = elem.imageData;
-  // If image is already cached/loaded, drawImage works synchronously
   try {
     ctx.drawImage(img, x, y, w, h);
   } catch {
@@ -358,7 +569,88 @@ export function preloadImages(elements: LayoutElement[]): Promise<void> {
   });
 }
 
-/** Export figure as PNG blob. */
+// ---------------------------------------------------------------------------
+// Placeholder detection
+// ---------------------------------------------------------------------------
+
+export interface PlaceholderField {
+  /** Index into template.elements. Used as the key in textOverrides. */
+  elementIndex: number;
+  /** Short label for the form input, derived from element type or hinted text. */
+  label: string;
+  /** Default text to preload into the input. Often blank. */
+  defaultValue: string;
+  /** Render as textarea rather than single-line input. */
+  multiline: boolean;
+}
+
+const PLACEHOLDER_PATTERNS: RegExp[] = [
+  /^\s*$/i,
+  /^\s*\{\{.+\}\}\s*$/,
+  /^\s*<[^<>]+>\s*$/,
+  /click to add/i,
+  /^sample\b/i,
+  /^example\b/i,
+  /^lorem ipsum/i,
+  /^untitled/i,
+  /^(my )?(title|subtitle|heading)$/i,
+  /^(enter|insert|add)\s+(your\s+)?(title|text|subtitle|heading)/i,
+];
+
+function looksLikePlaceholder(text: string | undefined): boolean {
+  if (text === undefined || text === null) return true;
+  return PLACEHOLDER_PATTERNS.some((p) => p.test(text));
+}
+
+function placeholderLabel(elem: LayoutElement, fallback: string): string {
+  const raw = (elem.text || '').trim();
+  // A {{token}} or <token> value often names the field nicely.
+  const token = raw.match(/^\s*(?:\{\{\s*(.+?)\s*\}\}|<\s*(.+?)\s*>)\s*$/);
+  if (token) {
+    const name = (token[1] || token[2] || '').trim();
+    if (name) return name.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  if (elem.type === 'title') return 'Title';
+  if (elem.type === 'subtitle') return 'Subtitle';
+  // Use the first few words of placeholder text as a hint label.
+  const short = raw.split(/\s+/).slice(0, 4).join(' ');
+  return short || fallback;
+}
+
+/**
+ * Identify template text elements the user should be able to fill in at
+ * export time. A conservative heuristic: titles/subtitles are always editable
+ * unless `locked`; generic `text` elements are editable only when they look
+ * like placeholders (empty, `{{token}}`, `<Token>`, "Sample Text", etc.).
+ */
+export function getEditablePlaceholders(template: LayoutTemplate): PlaceholderField[] {
+  const fields: PlaceholderField[] = [];
+  template.elements.forEach((elem, idx) => {
+    if (elem.locked) return;
+    if (elem.type !== 'title' && elem.type !== 'subtitle' && elem.type !== 'text') return;
+
+    const isTextualPlaceholder = looksLikePlaceholder(elem.text);
+    const alwaysEditable = elem.type === 'title' || elem.type === 'subtitle';
+    if (!alwaysEditable && !isTextualPlaceholder) return;
+
+    const raw = elem.text || '';
+    const looksTokenish = /^\s*(\{\{.+\}\}|<[^<>]+>)\s*$/.test(raw);
+    const defaultValue = isTextualPlaceholder || looksTokenish ? '' : raw;
+
+    fields.push({
+      elementIndex: idx,
+      label: placeholderLabel(elem, `Text ${idx + 1}`),
+      defaultValue,
+      multiline: elem.type === 'text' && (elem.h ?? 0) > 15,
+    });
+  });
+  return fields;
+}
+
+// ---------------------------------------------------------------------------
+// PNG / PDF export
+// ---------------------------------------------------------------------------
+
 export async function exportFigureAsPNG(options: FigureExportOptions): Promise<Blob> {
   await preloadImages(options.template.elements);
   const canvas = renderFigure(options);
@@ -367,7 +659,6 @@ export async function exportFigureAsPNG(options: FigureExportOptions): Promise<B
   });
 }
 
-/** Export figure as PDF blob. */
 export async function exportFigureAsPDF(options: FigureExportOptions): Promise<Blob> {
   const { jsPDF } = await import('jspdf');
   await preloadImages(options.template.elements);

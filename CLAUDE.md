@@ -176,6 +176,24 @@ Key config: `azure/terraform/terraform.tfvars`
 - Raster: GeoTIFF, JPEG2000 (.jp2), Erdas Imagine (.img), ASCII Grid (.asc), Esri BIL/BIP/BSQ, Esri Float Grid (.flt)
 - External: ArcGIS FeatureServer, ArcGIS MapServer, ArcGIS ImageServer, WMS, WFS, XYZ/TMS
 
+### Layer Rendering Strategy
+Choice of Deck.gl layer depends on dataset size and source:
+
+| Dataset Size/Type | Renderer | Details |
+|-------------------|----------|---------|
+| Local, < 10K features | GeoJsonLayer | Direct GeoJSON, all features in browser |
+| Local, >= 10K features | MVTLayer | Server-side vector tiles via PostGIS `ST_AsMVT` |
+| External FeatureServer | TileLayer | Per-tile queries with adaptive feature limits |
+| External MapServer/ImageServer/XYZ | TileLayer + BitmapLayer | Direct cached tile access (no proxy) |
+| External WMS | TileLayer + BitmapLayer | GetMap via backend proxy |
+| Local raster | TileLayer + BitmapLayer | Served as raster tiles |
+
+MVT auto-enables for datasets with 10,000+ features.
+
+### Background Tasks and Connection Pool
+- External dataset imports run as `asyncio.create_task()` with **short-lived DB sessions** to avoid blocking the pool during long network fetches. Progress is tracked via `UploadJob` rows, polled from the frontend every 2s via `importStore` (survives navigation).
+- DB pool sized for ~100 concurrent users: `pool_size=10, max_overflow=20` per worker (× 4 Gunicorn workers = 120 total connections). Be mindful of long-held sessions in new endpoints.
+
 ### Layer Styling System
 - `style_config` JSONB field stored per dataset in the database
 - Three modes: `uniform` (single color), `categorical` (color by field), `graduated` (color ramp)
