@@ -25,6 +25,8 @@ export function UsersTab() {
   const [roleFilter, setRoleFilter] = useState<UserRole | ''>('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [editingNameId, setEditingNameId] = useState<string | null>(null);
+  const [editingNameValue, setEditingNameValue] = useState('');
 
   const fetchUsers = async () => {
     try {
@@ -96,6 +98,37 @@ export function UsersTab() {
   };
 
   const isSelf = (userId: string) => currentUser?.id === userId;
+
+  const startEditName = (userId: string, currentName: string | null) => {
+    setEditingNameId(userId);
+    setEditingNameValue(currentName || '');
+  };
+
+  const cancelEditName = () => {
+    setEditingNameId(null);
+    setEditingNameValue('');
+  };
+
+  const handleSaveName = async (userId: string) => {
+    const trimmed = editingNameValue.trim();
+    if (!trimmed) {
+      setError('Name cannot be empty');
+      return;
+    }
+    try {
+      setProcessingId(userId);
+      const updated = await usersApi.updateUser(userId, { full_name: trimmed });
+      setUsers(users.map((u) => (u.id === userId ? updated : u)));
+      setEditingNameId(null);
+      setEditingNameValue('');
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Failed to update name';
+      setError(message);
+    } finally {
+      setProcessingId(null);
+    }
+  };
 
   if (loading && users.length === 0) {
     return (
@@ -170,11 +203,62 @@ export function UsersTab() {
               {users.map((u) => (
                 <tr key={u.id} className={`hover:bg-gray-50 ${isSelf(u.id) ? 'bg-blue-50/30' : ''}`}>
                   <td className="px-4 py-3 whitespace-nowrap">
-                    <span className="text-sm text-gray-900">
-                      {u.full_name || '-'}
-                    </span>
-                    {isSelf(u.id) && (
-                      <span className="ml-2 text-xs text-blue-600 font-medium">(you)</span>
+                    {editingNameId === u.id ? (
+                      <div className="flex items-center gap-1">
+                        <input
+                          type="text"
+                          value={editingNameValue}
+                          onChange={(e) => setEditingNameValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleSaveName(u.id);
+                            if (e.key === 'Escape') cancelEditName();
+                          }}
+                          autoFocus
+                          disabled={processingId === u.id}
+                          className="text-sm border border-gray-300 rounded px-2 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-50"
+                          placeholder="Full name"
+                        />
+                        <button
+                          onClick={() => handleSaveName(u.id)}
+                          disabled={processingId === u.id || !editingNameValue.trim()}
+                          className="text-xs text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 px-2 py-0.5 rounded"
+                          title="Save"
+                        >
+                          Save
+                        </button>
+                        <button
+                          onClick={cancelEditName}
+                          disabled={processingId === u.id}
+                          className="text-xs text-gray-600 hover:text-gray-900 disabled:opacity-50 px-1"
+                          title="Cancel"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-1.5 group">
+                        {u.full_name ? (
+                          <span className="text-sm text-gray-900">{u.full_name}</span>
+                        ) : (
+                          <span className="text-sm italic text-amber-600" title="This user has no name set">
+                            (no name)
+                          </span>
+                        )}
+                        {isSelf(u.id) && (
+                          <span className="text-xs text-blue-600 font-medium">(you)</span>
+                        )}
+                        <button
+                          onClick={() => startEditName(u.id, u.full_name)}
+                          disabled={processingId === u.id}
+                          className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-600 transition-opacity disabled:opacity-50"
+                          title="Edit name"
+                          aria-label="Edit name"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                      </div>
                     )}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">

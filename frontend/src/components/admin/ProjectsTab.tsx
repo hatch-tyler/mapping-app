@@ -347,7 +347,9 @@ function ProjectDetailView({
               >
                 <option value="">Select user...</option>
                 {availableUsers.map((u) => (
-                  <option key={u.id} value={u.id}>{u.full_name || u.email}</option>
+                  <option key={u.id} value={u.id}>
+                    {u.full_name || u.email} ({u.role})
+                  </option>
                 ))}
               </select>
             </div>

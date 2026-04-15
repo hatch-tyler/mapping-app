@@ -77,6 +77,9 @@ describe('RegisterPage', () => {
   it('should show error when passwords do not match', async () => {
     renderRegisterPage();
 
+    fireEvent.change(screen.getByLabelText(/Full Name/), {
+      target: { value: 'John Doe' },
+    });
     fireEvent.change(screen.getByLabelText(/^Email/), {
       target: { value: 'test@example.com' },
     });
@@ -96,6 +99,9 @@ describe('RegisterPage', () => {
   it('should show error when password is too short', async () => {
     renderRegisterPage();
 
+    fireEvent.change(screen.getByLabelText(/Full Name/), {
+      target: { value: 'John Doe' },
+    });
     fireEvent.change(screen.getByLabelText(/^Email/), {
       target: { value: 'test@example.com' },
     });
@@ -118,6 +124,9 @@ describe('RegisterPage', () => {
     );
     renderRegisterPage();
 
+    fireEvent.change(screen.getByLabelText(/Full Name/), {
+      target: { value: 'John Doe' },
+    });
     fireEvent.change(screen.getByLabelText(/^Email/), {
       target: { value: 'test@example.com' },
     });
@@ -171,6 +180,9 @@ describe('RegisterPage', () => {
     });
     renderRegisterPage();
 
+    fireEvent.change(screen.getByLabelText(/Full Name/), {
+      target: { value: 'John Doe' },
+    });
     fireEvent.change(screen.getByLabelText(/^Email/), {
       target: { value: 'test@example.com' },
     });
@@ -194,6 +206,9 @@ describe('RegisterPage', () => {
     });
     renderRegisterPage();
 
+    fireEvent.change(screen.getByLabelText(/Full Name/), {
+      target: { value: 'John Doe' },
+    });
     fireEvent.change(screen.getByLabelText(/^Email/), {
       target: { value: 'test@example.com' },
     });
@@ -216,6 +231,9 @@ describe('RegisterPage', () => {
     );
     renderRegisterPage();
 
+    fireEvent.change(screen.getByLabelText(/Full Name/), {
+      target: { value: 'John Doe' },
+    });
     fireEvent.change(screen.getByLabelText(/^Email/), {
       target: { value: 'test@example.com' },
     });
@@ -236,6 +254,9 @@ describe('RegisterPage', () => {
     vi.mocked(registrationApi.submitRegistrationRequest).mockRejectedValue('Unknown error');
     renderRegisterPage();
 
+    fireEvent.change(screen.getByLabelText(/Full Name/), {
+      target: { value: 'John Doe' },
+    });
     fireEvent.change(screen.getByLabelText(/^Email/), {
       target: { value: 'test@example.com' },
     });
@@ -252,7 +273,7 @@ describe('RegisterPage', () => {
     });
   });
 
-  it('should send undefined for empty full name', async () => {
+  it('should block submit when full name is empty', async () => {
     vi.mocked(registrationApi.submitRegistrationRequest).mockResolvedValue({
       message: 'Success',
       email: 'test@example.com',
@@ -268,13 +289,44 @@ describe('RegisterPage', () => {
     fireEvent.change(screen.getByLabelText(/Confirm Password/), {
       target: { value: 'password123' },
     });
+    // Submit the form directly to bypass the HTML `required` attribute so we
+    // can verify the JS-level validation + error message.
+    const form = screen.getByRole('button', { name: 'Request Access' })
+      .closest('form') as HTMLFormElement;
+    fireEvent.submit(form);
+
+    await waitFor(() => {
+      expect(screen.getByText('Full name is required')).toBeInTheDocument();
+    });
+    expect(registrationApi.submitRegistrationRequest).not.toHaveBeenCalled();
+  });
+
+  it('should trim whitespace from full name before submitting', async () => {
+    vi.mocked(registrationApi.submitRegistrationRequest).mockResolvedValue({
+      message: 'Success',
+      email: 'test@example.com',
+    });
+    renderRegisterPage();
+
+    fireEvent.change(screen.getByLabelText(/Full Name/), {
+      target: { value: '  John Doe  ' },
+    });
+    fireEvent.change(screen.getByLabelText(/^Email/), {
+      target: { value: 'test@example.com' },
+    });
+    fireEvent.change(screen.getByLabelText(/^Password/), {
+      target: { value: 'password123' },
+    });
+    fireEvent.change(screen.getByLabelText(/Confirm Password/), {
+      target: { value: 'password123' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Request Access' }));
 
     await waitFor(() => {
       expect(registrationApi.submitRegistrationRequest).toHaveBeenCalledWith({
         email: 'test@example.com',
         password: 'password123',
-        full_name: undefined,
+        full_name: 'John Doe',
       });
     });
   });

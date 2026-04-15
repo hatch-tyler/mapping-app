@@ -1,12 +1,20 @@
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
 class RegistrationRequestCreate(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=8)
-    full_name: str | None = None
+    full_name: str = Field(..., min_length=1, max_length=255)
+
+    @field_validator("full_name")
+    @classmethod
+    def strip_and_reject_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Full name is required")
+        return v
 
 
 class RegistrationRequestResponse(BaseModel):

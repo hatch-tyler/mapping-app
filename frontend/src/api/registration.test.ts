@@ -51,6 +51,7 @@ describe('registration API', () => {
         submitRegistrationRequest({
           email: 'test@example.com',
           password: 'password123',
+          full_name: 'Test User',
         })
       ).rejects.toThrow('Email already exists');
     });
@@ -62,6 +63,7 @@ describe('registration API', () => {
         submitRegistrationRequest({
           email: 'test@example.com',
           password: 'password123',
+          full_name: 'Test User',
         })
       ).rejects.toThrow('Failed to submit registration request');
     });

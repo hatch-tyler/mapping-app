@@ -16,6 +16,11 @@ export function RegisterPage() {
     setError(null);
 
     // Client-side validation
+    if (!fullName.trim()) {
+      setError('Full name is required');
+      return;
+    }
+
     if (password !== confirmPassword) {
       setError('Passwords do not match');
       return;
@@ -32,7 +37,7 @@ export function RegisterPage() {
       await submitRegistrationRequest({
         email,
         password,
-        full_name: fullName || undefined,
+        full_name: fullName.trim(),
       });
       setSuccess(true);
     } catch (err) {
@@ -100,13 +105,14 @@ export function RegisterPage() {
               htmlFor="fullName"
               className="block text-sm font-medium text-gray-700 mb-1"
             >
-              Full Name <span className="text-gray-400">(optional)</span>
+              Full Name
             </label>
             <input
               type="text"
               id="fullName"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
+              required
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
               placeholder="John Doe"
             />
