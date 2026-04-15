@@ -47,6 +47,7 @@ declare module '@deck.gl/layers' {
     pointRadiusMinPixels?: number;
     updateTriggers?: Record<string, unknown>;
     loadOptions?: {
+      worker?: boolean;
       fetch?: {
         headers?: Record<string, string>;
       };
@@ -80,6 +81,7 @@ declare module '@deck.gl/geo-layers' {
     maxZoom?: number;
     tileSize?: number;
     loadOptions?: {
+      worker?: boolean;
       fetch?: {
         headers?: Record<string, string>;
       };
@@ -107,6 +109,7 @@ declare module '@deck.gl/geo-layers' {
     pointRadiusUnits?: string;
     updateTriggers?: Record<string, unknown>;
     loadOptions?: {
+      worker?: boolean;
       fetch?: {
         headers?: Record<string, string>;
       };

@@ -238,6 +238,7 @@ function createExternalLayer(dataset: Dataset): LayerType {
           return new GeoJsonLayer({
             ...props,
             data: props.data as GeoJSONFeatureCollection,
+            loadOptions: { worker: false },
             pickable: true,
             stroked: true,
             filled: true,
@@ -273,8 +274,10 @@ function createVectorLayer(
   return new GeoJsonLayer({
     id: `vector-${dataset.id}`,
     data: data || getGeoJSONUrl(dataset.id),
-    // Include auth header in fetch requests
+    // Include auth header in fetch requests; keep parsing on the main thread
+    // so loaders.gl doesn't try to bootstrap a worker from unpkg (blocked by CSP).
     loadOptions: {
+      worker: false,
       fetch: {
         headers: {
           Authorization: token ? `Bearer ${token}` : '',
@@ -308,6 +311,7 @@ function createMVTLayer(dataset: Dataset): MVTLayer {
     id: `mvt-${dataset.id}`,
     data: getMVTTileUrl(dataset.id),
     loadOptions: {
+      worker: false,
       fetch: {
         headers: {
           Authorization: token ? `Bearer ${token}` : '',
@@ -347,6 +351,7 @@ function createRasterLayer(dataset: Dataset): TileLayer {
     maxZoom: dataset.max_zoom,
     tileSize: 256,
     loadOptions: {
+      worker: false,
       fetch: {
         headers: {
           Authorization: token ? `Bearer ${token}` : '',

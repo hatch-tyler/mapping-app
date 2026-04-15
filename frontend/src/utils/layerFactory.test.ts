@@ -20,11 +20,16 @@ vi.mock('@deck.gl/geo-layers', () => ({
     ...props,
     type: 'TileLayer',
   })),
+  MVTLayer: vi.fn().mockImplementation((props) => ({
+    ...props,
+    type: 'MVTLayer',
+  })),
 }));
 
 vi.mock('../api/datasets', () => ({
   getGeoJSONUrl: vi.fn((id) => `http://localhost:8000/api/v1/datasets/${id}/geojson`),
   getRasterTileUrl: vi.fn((id) => `http://localhost:8000/api/v1/raster/${id}/tiles/{z}/{x}/{y}.png`),
+  getMVTTileUrl: vi.fn((id) => `http://localhost:8000/api/v1/datasets/${id}/tiles/{z}/{x}/{y}.pbf`),
 }));
 
 describe('layerFactory', () => {
@@ -212,6 +217,36 @@ describe('layerFactory', () => {
       expect(calledUrl).not.toContain('gis.water.ca.gov');
 
       vi.unstubAllGlobals();
+    });
+
+    it('arcgis_feature renderSubLayers builds a GeoJsonLayer with worker: false', () => {
+      const layer = createLayerFromDataset(makeExternal('arcgis_feature', { service_layer_id: '0' }));
+      expect(layer).not.toBeNull();
+      const typed = layer as unknown as {
+        renderSubLayers: (props: { id: string; data: unknown }) => { loadOptions?: { worker?: boolean } } | null;
+      };
+      const sub = typed.renderSubLayers({
+        id: 'sub',
+        data: { type: 'FeatureCollection', features: [] },
+      });
+      expect(sub).not.toBeNull();
+      expect(sub?.loadOptions?.worker).toBe(false);
+    });
+
+    it('MVTLayer for large vector datasets is created with worker: false', () => {
+      const big = createMockDataset({
+        id: 'big',
+        name: 'Big',
+        data_type: 'vector',
+        geometry_type: 'Polygon',
+        source_format: 'geojson',
+        feature_count: 50_000,
+      });
+      const layer = createLayerFromDataset(big);
+      expect(layer).not.toBeNull();
+      const typed = layer as unknown as { loadOptions?: { worker?: boolean }; type?: string };
+      expect(typed.type).toBe('MVTLayer');
+      expect(typed.loadOptions?.worker).toBe(false);
     });
 
     it('arcgis_map getTileData swallows fetch failures (returns null, does not reject)', async () => {
