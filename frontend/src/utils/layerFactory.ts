@@ -6,6 +6,7 @@ import { getGeoJSONUrl, getRasterTileUrl, getMVTTileUrl } from '../api/datasets'
 import { API_URL } from '../api/client';
 import { getAccessToken } from '../api/tokenService';
 import { createStyleAccessors, DEFAULT_STYLE } from './styleInterpreter';
+import { mvtWorkerUrl } from './loaders';
 import { useMapStore } from '../stores/mapStore';
 
 const MVT_FEATURE_THRESHOLD = 10000;
@@ -238,7 +239,6 @@ function createExternalLayer(dataset: Dataset): LayerType {
           return new GeoJsonLayer({
             ...props,
             data: props.data as GeoJSONFeatureCollection,
-            loadOptions: { worker: false },
             pickable: true,
             stroked: true,
             filled: true,
@@ -274,10 +274,7 @@ function createVectorLayer(
   return new GeoJsonLayer({
     id: `vector-${dataset.id}`,
     data: data || getGeoJSONUrl(dataset.id),
-    // Include auth header in fetch requests; keep parsing on the main thread
-    // so loaders.gl doesn't try to bootstrap a worker from unpkg (blocked by CSP).
     loadOptions: {
-      worker: false,
       fetch: {
         headers: {
           Authorization: token ? `Bearer ${token}` : '',
@@ -311,7 +308,9 @@ function createMVTLayer(dataset: Dataset): MVTLayer {
     id: `mvt-${dataset.id}`,
     data: getMVTTileUrl(dataset.id),
     loadOptions: {
-      worker: false,
+      // Point the MVT worker bootstrap at our Vite-bundled same-origin URL
+      // instead of the default unpkg CDN (blocked by our CSP).
+      mvt: { workerUrl: mvtWorkerUrl },
       fetch: {
         headers: {
           Authorization: token ? `Bearer ${token}` : '',
@@ -351,7 +350,6 @@ function createRasterLayer(dataset: Dataset): TileLayer {
     maxZoom: dataset.max_zoom,
     tileSize: 256,
     loadOptions: {
-      worker: false,
       fetch: {
         headers: {
           Authorization: token ? `Bearer ${token}` : '',

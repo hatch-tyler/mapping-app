@@ -48,6 +48,7 @@ declare module '@deck.gl/layers' {
     updateTriggers?: Record<string, unknown>;
     loadOptions?: {
       worker?: boolean;
+      mvt?: { workerUrl?: string };
       fetch?: {
         headers?: Record<string, string>;
       };
@@ -82,6 +83,7 @@ declare module '@deck.gl/geo-layers' {
     tileSize?: number;
     loadOptions?: {
       worker?: boolean;
+      mvt?: { workerUrl?: string };
       fetch?: {
         headers?: Record<string, string>;
       };
@@ -110,6 +112,7 @@ declare module '@deck.gl/geo-layers' {
     updateTriggers?: Record<string, unknown>;
     loadOptions?: {
       worker?: boolean;
+      mvt?: { workerUrl?: string };
       fetch?: {
         headers?: Record<string, string>;
       };

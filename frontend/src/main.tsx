@@ -1,13 +1,12 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import { setLoaderOptions } from '@loaders.gl/core';
 import App from './App';
+import { registerLocalLoaders } from './utils/loaders';
 import './styles/globals.css';
 
-// loaders.gl's default worker bootstrap pulls scripts from https://unpkg.com,
-// which our production CSP (`script-src 'self' 'unsafe-inline'`) blocks. Run
-// parsers on the main thread so the browser never tries the external fetch.
-setLoaderOptions({ worker: false });
+// Register loaders.gl parsers with a same-origin worker URL so the MVT
+// decoder doesn't fall back to https://unpkg.com (blocked by our CSP).
+registerLocalLoaders();
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

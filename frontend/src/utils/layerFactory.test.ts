@@ -219,21 +219,7 @@ describe('layerFactory', () => {
       vi.unstubAllGlobals();
     });
 
-    it('arcgis_feature renderSubLayers builds a GeoJsonLayer with worker: false', () => {
-      const layer = createLayerFromDataset(makeExternal('arcgis_feature', { service_layer_id: '0' }));
-      expect(layer).not.toBeNull();
-      const typed = layer as unknown as {
-        renderSubLayers: (props: { id: string; data: unknown }) => { loadOptions?: { worker?: boolean } } | null;
-      };
-      const sub = typed.renderSubLayers({
-        id: 'sub',
-        data: { type: 'FeatureCollection', features: [] },
-      });
-      expect(sub).not.toBeNull();
-      expect(sub?.loadOptions?.worker).toBe(false);
-    });
-
-    it('MVTLayer for large vector datasets is created with worker: false', () => {
+    it('MVTLayer for large vector datasets points MVT worker at our same-origin bundle', () => {
       const big = createMockDataset({
         id: 'big',
         name: 'Big',
@@ -244,9 +230,14 @@ describe('layerFactory', () => {
       });
       const layer = createLayerFromDataset(big);
       expect(layer).not.toBeNull();
-      const typed = layer as unknown as { loadOptions?: { worker?: boolean }; type?: string };
+      const typed = layer as unknown as {
+        loadOptions?: { mvt?: { workerUrl?: string } };
+        type?: string;
+      };
       expect(typed.type).toBe('MVTLayer');
-      expect(typed.loadOptions?.worker).toBe(false);
+      const url = typed.loadOptions?.mvt?.workerUrl;
+      expect(typeof url).toBe('string');
+      expect(url).not.toMatch(/unpkg\.com/);
     });
 
     it('arcgis_map getTileData swallows fetch failures (returns null, does not reject)', async () => {
