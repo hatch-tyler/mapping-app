@@ -22,7 +22,7 @@ function makeTemplate(elements: LayoutElement[]): LayoutTemplate {
 const baseElem: Omit<LayoutElement, 'type'> = { x: 0, y: 0, w: 50, h: 10 };
 
 describe('getEditablePlaceholders', () => {
-  it('returns titles and subtitles as always-editable', () => {
+  it('returns titles and subtitles as editable with pre-filled defaults', () => {
     const tpl = makeTemplate([
       { ...baseElem, type: 'title', text: 'Default Title' },
       { ...baseElem, type: 'subtitle', text: 'Default Subtitle' },
@@ -32,9 +32,27 @@ describe('getEditablePlaceholders', () => {
     expect(fields[0].label).toBe('Title');
     expect(fields[0].defaultValue).toBe('Default Title');
     expect(fields[1].label).toBe('Subtitle');
+    expect(fields[1].defaultValue).toBe('Default Subtitle');
   });
 
-  it('detects empty, token, and sample-text placeholders for generic text', () => {
+  it('makes all generic text editable (not just placeholders)', () => {
+    const tpl = makeTemplate([
+      { ...baseElem, type: 'text', text: 'Figure Title' },
+      { ...baseElem, type: 'text', text: 'Project' },
+      { ...baseElem, type: 'text', text: 'Client' },
+      { ...baseElem, type: 'text', text: 'Date' },
+      { ...baseElem, type: 'text', text: 'Prepared by the GIS team' },
+    ]);
+    const fields = getEditablePlaceholders(tpl);
+    expect(fields).toHaveLength(5);
+    expect(fields[0].defaultValue).toBe('Figure Title');
+    expect(fields[1].defaultValue).toBe('Project');
+    expect(fields[2].defaultValue).toBe('Client');
+    expect(fields[3].defaultValue).toBe('Date');
+    expect(fields[4].defaultValue).toBe('Prepared by the GIS team');
+  });
+
+  it('blanks default value for disposable placeholder text', () => {
     const tpl = makeTemplate([
       { ...baseElem, type: 'text', text: '' },
       { ...baseElem, type: 'text', text: '{{author_name}}' },
@@ -46,16 +64,9 @@ describe('getEditablePlaceholders', () => {
     expect(fields).toHaveLength(5);
     expect(fields[1].label).toBe('Author Name');
     expect(fields[2].label).toBe('Insert Date');
-    // Token placeholders start blank, not with the raw token text.
-    expect(fields[1].defaultValue).toBe('');
-    expect(fields[2].defaultValue).toBe('');
-  });
-
-  it('leaves concrete generic-text unchanged', () => {
-    const tpl = makeTemplate([
-      { ...baseElem, type: 'text', text: 'Prepared by the GIS team' },
-    ]);
-    expect(getEditablePlaceholders(tpl)).toHaveLength(0);
+    for (const f of fields) {
+      expect(f.defaultValue).toBe('');
+    }
   });
 
   it('respects locked elements', () => {
@@ -66,6 +77,29 @@ describe('getEditablePlaceholders', () => {
     const fields = getEditablePlaceholders(tpl);
     expect(fields).toHaveLength(1);
     expect(fields[0].label).toBe('Subtitle');
+  });
+
+  it('respects referenceOnly elements', () => {
+    const tpl = makeTemplate([
+      { ...baseElem, type: 'text', text: 'Visible', referenceOnly: false },
+      { ...baseElem, type: 'text', text: 'Hidden', referenceOnly: true },
+    ]);
+    const fields = getEditablePlaceholders(tpl);
+    expect(fields).toHaveLength(1);
+    expect(fields[0].defaultValue).toBe('Visible');
+  });
+
+  it('auto-detects template-name labels as reference-only', () => {
+    const tpl = makeTemplate([
+      { ...baseElem, type: 'text', text: 'Full Page Landscape' },
+      { ...baseElem, type: 'text', text: 'Figure Title' },
+    ]);
+    // Template name is "Test" which doesn't match "Full Page Landscape".
+    // Rename the template to match.
+    tpl.name = 'FullPage_Landscape_8-5x11_figure';
+    const fields = getEditablePlaceholders(tpl);
+    expect(fields).toHaveLength(1);
+    expect(fields[0].defaultValue).toBe('Figure Title');
   });
 
   it('uses elementIndex that matches position in the original elements array', () => {

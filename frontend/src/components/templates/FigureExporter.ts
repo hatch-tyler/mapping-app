@@ -65,6 +65,8 @@ export function renderFigure(options: FigureExportOptions): HTMLCanvasElement {
   });
 
   for (const { elem, idx } of sorted) {
+    if (isReferenceOnlyHeuristic(elem, template)) continue;
+
     const x = elem.x * scale;
     const y = elem.y * scale;
     const w = elem.w * scale;
@@ -584,7 +586,9 @@ export interface PlaceholderField {
   multiline: boolean;
 }
 
-const PLACEHOLDER_PATTERNS: RegExp[] = [
+/** Patterns that indicate the text is a disposable placeholder whose raw
+ *  value should NOT be pre-filled into the input (show blank instead). */
+const BLANK_DEFAULT_PATTERNS: RegExp[] = [
   /^\s*$/i,
   /^\s*\{\{.+\}\}\s*$/,
   /^\s*<[^<>]+>\s*$/,
@@ -593,18 +597,38 @@ const PLACEHOLDER_PATTERNS: RegExp[] = [
   /^example\b/i,
   /^lorem ipsum/i,
   /^untitled/i,
-  /^(my )?(title|subtitle|heading)$/i,
   /^(enter|insert|add)\s+(your\s+)?(title|text|subtitle|heading)/i,
 ];
 
-function looksLikePlaceholder(text: string | undefined): boolean {
+function shouldBlankDefault(text: string | undefined): boolean {
   if (text === undefined || text === null) return true;
-  return PLACEHOLDER_PATTERNS.some((p) => p.test(text));
+  return BLANK_DEFAULT_PATTERNS.some((p) => p.test(text));
+}
+
+/**
+ * Heuristic: does this element's text look like it exists only to name the
+ * template itself (e.g. "Full Page Landscape" label at the bottom of a
+ * template named "FullPage_Landscape_8-5x11")? If so, skip it from both
+ * the editable list and the final render.
+ */
+function isReferenceOnlyHeuristic(elem: LayoutElement, template: LayoutTemplate): boolean {
+  if (elem.referenceOnly) return true;
+  const raw = (elem.text || '').trim();
+  if (!raw || raw.length < 8 || raw.length > 80) return false;
+
+  // Normalize: lowercase, strip all non-alpha-numeric, collapse to one
+  // continuous string so "FullPage" and "Full Page" both become "fullpage".
+  const normalize = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const normText = normalize(raw);
+  const normName = normalize(template.name);
+  if (normText.length < 6 || !normName) return false;
+
+  return normName.includes(normText) || normText.includes(normName);
 }
 
 function placeholderLabel(elem: LayoutElement, fallback: string): string {
   const raw = (elem.text || '').trim();
-  // A {{token}} or <token> value often names the field nicely.
   const token = raw.match(/^\s*(?:\{\{\s*(.+?)\s*\}\}|<\s*(.+?)\s*>)\s*$/);
   if (token) {
     const name = (token[1] || token[2] || '').trim();
@@ -612,30 +636,27 @@ function placeholderLabel(elem: LayoutElement, fallback: string): string {
   }
   if (elem.type === 'title') return 'Title';
   if (elem.type === 'subtitle') return 'Subtitle';
-  // Use the first few words of placeholder text as a hint label.
   const short = raw.split(/\s+/).slice(0, 4).join(' ');
   return short || fallback;
 }
 
 /**
- * Identify template text elements the user should be able to fill in at
- * export time. A conservative heuristic: titles/subtitles are always editable
- * unless `locked`; generic `text` elements are editable only when they look
- * like placeholders (empty, `{{token}}`, `<Token>`, "Sample Text", etc.).
+ * All text / title / subtitle elements are editable at export time unless
+ * they are `locked`, `referenceOnly`, or match the template-name heuristic.
+ *
+ * Disposable placeholder text (empty, `{{token}}`, etc.) gets a blank
+ * default; real field labels like "Figure Title" are pre-filled so the
+ * user can keep or replace them.
  */
 export function getEditablePlaceholders(template: LayoutTemplate): PlaceholderField[] {
   const fields: PlaceholderField[] = [];
   template.elements.forEach((elem, idx) => {
     if (elem.locked) return;
     if (elem.type !== 'title' && elem.type !== 'subtitle' && elem.type !== 'text') return;
-
-    const isTextualPlaceholder = looksLikePlaceholder(elem.text);
-    const alwaysEditable = elem.type === 'title' || elem.type === 'subtitle';
-    if (!alwaysEditable && !isTextualPlaceholder) return;
+    if (isReferenceOnlyHeuristic(elem, template)) return;
 
     const raw = elem.text || '';
-    const looksTokenish = /^\s*(\{\{.+\}\}|<[^<>]+>)\s*$/.test(raw);
-    const defaultValue = isTextualPlaceholder || looksTokenish ? '' : raw;
+    const defaultValue = shouldBlankDefault(raw) ? '' : raw;
 
     fields.push({
       elementIndex: idx,

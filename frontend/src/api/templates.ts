@@ -62,6 +62,7 @@ export interface LayoutElement {
   opacity?: number;       // 0-100, default 100
   rotation?: number;      // degrees, default 0
   locked?: boolean;       // prevent move/resize when true
+  referenceOnly?: boolean; // exclude from editable fields and final figure render
   // Table properties
   tableRows?: number;
   tableCols?: number;

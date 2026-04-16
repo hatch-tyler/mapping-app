@@ -16,6 +16,9 @@ import { EmbeddedMap, type EmbeddedViewState } from './EmbeddedMap';
 
 const LAST_TEMPLATE_KEY = 'figure-export:last-template-id';
 const PREVIEW_DEBOUNCE_MS = 300;
+const INITIAL_PREVIEW_DELAY_MS = 1500;
+const RETRY_DELAY_MS = 1000;
+const MAX_RETRIES = 3;
 
 interface Props {
   // deckRef kept for API compatibility with the caller, no longer used for capture.
@@ -33,6 +36,8 @@ export function FigureExportModal({ onClose }: Props) {
   const previewContainerRef = useRef<HTMLDivElement>(null);
   const embeddedMapRef = useRef<HTMLDivElement>(null);
   const debounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const initialRenderDone = useRef(false);
+  const retryCount = useRef(0);
 
   const { viewState: globalViewState, visibleDatasets: visibleSet, currentBasemap } = useMapStore();
   const { datasets } = useDatasetStore();
@@ -90,6 +95,8 @@ export function FigureExportModal({ onClose }: Props) {
     const initial: Record<number, string> = {};
     for (const f of placeholderFields) initial[f.elementIndex] = f.defaultValue;
     setOverrides(initial);
+    initialRenderDone.current = false;
+    retryCount.current = 0;
   }, [selectedTemplate, placeholderFields]);
 
   // Map-frame aspect for sizing the live embedded map area.
@@ -103,11 +110,13 @@ export function FigureExportModal({ onClose }: Props) {
     return mf.w / mf.h;
   }, [selectedTemplate]);
 
-  // Scaled preview render.
-  const renderPreview = useCallback(() => {
-    if (!selectedTemplate || !previewContainerRef.current) return;
+  // Scaled preview render. Returns true if it painted, false if the map
+  // canvas wasn't ready yet (the embedded map may still be initializing its
+  // WebGL context).
+  const renderPreview = useCallback((): boolean => {
+    if (!selectedTemplate || !previewContainerRef.current) return false;
     const mapImage = embeddedMapRef.current ? captureMapCanvas(embeddedMapRef.current) : null;
-    if (!mapImage) return;
+    if (!mapImage) return false;
 
     const figure = renderFigure({
       template: selectedTemplate,
@@ -140,12 +149,26 @@ export function FigureExportModal({ onClose }: Props) {
     preview.style.display = 'block';
     preview.style.boxShadow = '0 2px 8px rgba(0,0,0,0.15)';
     container.appendChild(preview);
+    initialRenderDone.current = true;
+    retryCount.current = 0;
+    return true;
   }, [selectedTemplate, visibleDatasets, embeddedViewState, overrides]);
 
-  // Debounced auto-refresh on relevant changes.
+  // Debounced auto-refresh. Uses a longer delay on the very first render
+  // (the embedded map's WebGL context may not be initialized yet) and
+  // retries up to MAX_RETRIES times if captureMapCanvas returns null.
   useEffect(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
-    debounceTimer.current = setTimeout(renderPreview, PREVIEW_DEBOUNCE_MS);
+    const delay = initialRenderDone.current ? PREVIEW_DEBOUNCE_MS : INITIAL_PREVIEW_DELAY_MS;
+    debounceTimer.current = setTimeout(() => {
+      const ok = renderPreview();
+      if (!ok && retryCount.current < MAX_RETRIES) {
+        retryCount.current++;
+        debounceTimer.current = setTimeout(() => {
+          renderPreview();
+        }, RETRY_DELAY_MS);
+      }
+    }, delay);
     return () => {
       if (debounceTimer.current) clearTimeout(debounceTimer.current);
     };
