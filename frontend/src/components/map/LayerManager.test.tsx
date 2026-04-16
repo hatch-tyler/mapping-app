@@ -10,6 +10,8 @@ describe('LayerManager', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    // Pre-expand the Reference section so test datasets (no project_id) are visible.
+    localStorage.setItem('layer-panel:expanded', JSON.stringify(['_reference']));
     useDatasetStore.setState({
       datasets: [],
     });

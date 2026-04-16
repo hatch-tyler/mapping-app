@@ -110,12 +110,24 @@ export function FigureExportModal({ onClose }: Props) {
     return mf.w / mf.h;
   }, [selectedTemplate]);
 
+  // Wait for any pending DeckGL / MapLibre frames to flush to the GPU
+  // before reading the canvas pixels. A double-requestAnimationFrame
+  // ensures both the DeckGL draw call and the compositor have completed.
+  const captureAfterFlush = useCallback((): Promise<HTMLCanvasElement | null> => {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          resolve(embeddedMapRef.current ? captureMapCanvas(embeddedMapRef.current) : null);
+        });
+      });
+    });
+  }, []);
+
   // Scaled preview render. Returns true if it painted, false if the map
-  // canvas wasn't ready yet (the embedded map may still be initializing its
-  // WebGL context).
-  const renderPreview = useCallback((): boolean => {
+  // canvas wasn't ready yet.
+  const renderPreview = useCallback(async (): Promise<boolean> => {
     if (!selectedTemplate || !previewContainerRef.current) return false;
-    const mapImage = embeddedMapRef.current ? captureMapCanvas(embeddedMapRef.current) : null;
+    const mapImage = await captureAfterFlush();
     if (!mapImage) return false;
 
     const figure = renderFigure({
@@ -152,20 +164,20 @@ export function FigureExportModal({ onClose }: Props) {
     initialRenderDone.current = true;
     retryCount.current = 0;
     return true;
-  }, [selectedTemplate, visibleDatasets, embeddedViewState, overrides]);
+  }, [selectedTemplate, visibleDatasets, embeddedViewState, overrides, captureAfterFlush]);
 
   // Debounced auto-refresh. Uses a longer delay on the very first render
   // (the embedded map's WebGL context may not be initialized yet) and
-  // retries up to MAX_RETRIES times if captureMapCanvas returns null.
+  // retries up to MAX_RETRIES times if captureAfterFlush returns null.
   useEffect(() => {
     if (debounceTimer.current) clearTimeout(debounceTimer.current);
     const delay = initialRenderDone.current ? PREVIEW_DEBOUNCE_MS : INITIAL_PREVIEW_DELAY_MS;
-    debounceTimer.current = setTimeout(() => {
-      const ok = renderPreview();
+    debounceTimer.current = setTimeout(async () => {
+      const ok = await renderPreview();
       if (!ok && retryCount.current < MAX_RETRIES) {
         retryCount.current++;
-        debounceTimer.current = setTimeout(() => {
-          renderPreview();
+        debounceTimer.current = setTimeout(async () => {
+          await renderPreview();
         }, RETRY_DELAY_MS);
       }
     }, delay);
@@ -179,7 +191,7 @@ export function FigureExportModal({ onClose }: Props) {
     setExporting(format);
 
     try {
-      const mapImage = captureMapCanvas(embeddedMapRef.current);
+      const mapImage = await captureAfterFlush();
       if (!mapImage) throw new Error('Failed to capture map canvas');
 
       const options = {

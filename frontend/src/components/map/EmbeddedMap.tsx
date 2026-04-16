@@ -86,6 +86,7 @@ export const EmbeddedMap = forwardRef<HTMLDivElement, Props>(function EmbeddedMa
         width={width}
         height={height}
         glOptions={{ preserveDrawingBuffer: true }}
+        _animate={false}
       >
         <Map mapStyle={mapStyle} preserveDrawingBuffer={true} />
       </DeckGL>
