@@ -13,6 +13,7 @@ interface Props {
 export function CategoricalStylePanel({ datasetId, styleConfig, onChange }: Props) {
   const [fields, setFields] = useState<FieldMetadata[]>([]);
   const [uniqueValues, setUniqueValues] = useState<(string | number | boolean | null)[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadingValues, setLoadingValues] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,14 +41,16 @@ export function CategoricalStylePanel({ datasetId, styleConfig, onChange }: Prop
     async function loadUniqueValues() {
       if (!styleConfig.attributeField) {
         setUniqueValues([]);
+        setTotalCount(0);
         return;
       }
 
       setLoadingValues(true);
       setError(null);
       try {
-        const response = await getUniqueValues(datasetId, styleConfig.attributeField);
+        const response = await getUniqueValues(datasetId, styleConfig.attributeField, 250);
         setUniqueValues(response.values);
+        setTotalCount(response.total_count);
 
         // Auto-assign colors if no categoryColors set
         if (!styleConfig.categoryColors || Object.keys(styleConfig.categoryColors).length === 0) {
@@ -140,6 +143,15 @@ export function CategoricalStylePanel({ datasetId, styleConfig, onChange }: Prop
         </select>
       </div>
 
+      {/* Category limit warning */}
+      {styleConfig.attributeField && totalCount > uniqueValues.length && uniqueValues.length > 0 && (
+        <div className="p-3 rounded-md bg-amber-50 border border-amber-300 text-sm text-amber-800">
+          <strong>This field has {totalCount.toLocaleString()} unique values</strong> — only the
+          first {uniqueValues.length} are shown and styled. Features with other values will use the
+          default color. Consider using a graduated color ramp for high-cardinality fields.
+        </div>
+      )}
+
       {/* Color Palette */}
       {styleConfig.attributeField && uniqueValues.length > 0 && (
         <div className="space-y-2">
@@ -226,7 +238,8 @@ export function CategoricalStylePanel({ datasetId, styleConfig, onChange }: Prop
               })}
               {uniqueValues.length > 50 && (
                 <div className="px-3 py-2 text-sm text-gray-500 bg-gray-50">
-                  ...and {uniqueValues.length - 50} more values
+                  Showing 50 of {uniqueValues.length} styled
+                  {totalCount > uniqueValues.length && ` (${totalCount.toLocaleString()} total in dataset)`}
                 </div>
               )}
             </div>

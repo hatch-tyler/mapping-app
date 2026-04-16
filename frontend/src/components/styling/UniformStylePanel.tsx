@@ -8,10 +8,12 @@ interface Props {
 }
 
 const LINE_TYPES = ['linestring', 'multilinestring'];
+const POLYGON_TYPES = ['polygon', 'multipolygon'];
 
 export function UniformStylePanel({ styleConfig, onChange, geometryType }: Props) {
   const geoLower = geometryType?.toLowerCase() || '';
   const isLineOnly = LINE_TYPES.includes(geoLower);
+  const isPointType = !isLineOnly && !POLYGON_TYPES.includes(geoLower);
 
   return (
     <div className="space-y-6">
@@ -54,12 +56,12 @@ export function UniformStylePanel({ styleConfig, onChange, geometryType }: Props
         </div>
       </div>
 
-      {/* Point size - shown unless we know it's a line or polygon */}
-      {!isLineOnly && (
+      {/* Point controls — only visible for point/multipoint geometries */}
+      {isPointType && (
         <>
           <div className="space-y-2">
             <label className="block text-sm font-medium text-gray-700">
-              Point Size (meters)
+              Point Radius
             </label>
             <div className="flex items-center gap-3">
               <input
