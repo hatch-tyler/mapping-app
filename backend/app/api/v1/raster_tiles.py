@@ -16,7 +16,6 @@ from app.models.user import User
 from app.services.raster_colormap import (
     build_classified_colormap,
     build_continuous_colormap,
-    get_category_color,
 )
 
 logger = logging.getLogger(__name__)

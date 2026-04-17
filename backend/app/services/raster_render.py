@@ -5,9 +5,6 @@ applying style_config colormap/rescaling.
 """
 
 import logging
-from pathlib import Path
-
-import numpy as np
 
 from app.services.raster_colormap import build_classified_colormap, build_continuous_colormap
 

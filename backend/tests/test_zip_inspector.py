@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import io
 import zipfile
 from pathlib import Path
-
-import pytest
 
 from app.services.zip_inspector import inspect_zip
 
