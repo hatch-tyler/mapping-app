@@ -24,7 +24,9 @@ class TestInspectEndpoint:
     async def test_rejects_non_zip(self, client: AsyncClient, admin_auth_headers: dict):
         resp = await client.post(
             "/api/v1/upload/inspect",
-            files={"file": ("x.shp", io.BytesIO(b"not a zip"), "application/octet-stream")},
+            files={
+                "file": ("x.shp", io.BytesIO(b"not a zip"), "application/octet-stream")
+            },
             headers=admin_auth_headers,
         )
         assert resp.status_code == 400
@@ -93,9 +95,7 @@ class TestBundleUploadEndpoint:
         self, client: AsyncClient, admin_auth_headers: dict
     ):
         zip_data = _zip_bytes({"a.shp": b"s", "a.shx": b"s", "a.dbf": b"s"})
-        meta = [
-            {"primary_file": "a.shp", "name": "A", "include": False}
-        ]
+        meta = [{"primary_file": "a.shp", "name": "A", "include": False}]
         resp = await client.post(
             "/api/v1/upload/bundle",
             files={"file": ("b.zip", io.BytesIO(zip_data), "application/zip")},
@@ -124,12 +124,15 @@ class TestBundleUploadEndpoint:
         ]
         # Stub out the actual background processing so tests don't need
         # full geopandas/rasterio stacks on this file content.
-        with patch(
-            "app.services.file_processor.file_processor.process_vector_background",
-            new=AsyncMock(return_value=None),
-        ), patch(
-            "app.services.file_processor.file_processor.process_raster_background",
-            new=AsyncMock(return_value=None),
+        with (
+            patch(
+                "app.services.file_processor.file_processor.process_vector_background",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "app.services.file_processor.file_processor.process_raster_background",
+                new=AsyncMock(return_value=None),
+            ),
         ):
             resp = await client.post(
                 "/api/v1/upload/bundle",
@@ -151,8 +154,14 @@ class TestBundleUploadEndpoint:
     ):
         zip_data = _zip_bytes(
             {
-                "a.shp": b"s", "a.shx": b"s", "a.dbf": b"s", "a.prj": b"p",
-                "b.shp": b"s", "b.shx": b"s", "b.dbf": b"s", "b.prj": b"p",
+                "a.shp": b"s",
+                "a.shx": b"s",
+                "a.dbf": b"s",
+                "a.prj": b"p",
+                "b.shp": b"s",
+                "b.shx": b"s",
+                "b.dbf": b"s",
+                "b.prj": b"p",
             }
         )
         meta = [
@@ -176,7 +185,9 @@ class TestBundleUploadEndpoint:
     async def test_skips_client_requested_files_not_in_zip(
         self, client: AsyncClient, admin_auth_headers: dict
     ):
-        zip_data = _zip_bytes({"a.shp": b"s", "a.shx": b"s", "a.dbf": b"s", "a.prj": b"p"})
+        zip_data = _zip_bytes(
+            {"a.shp": b"s", "a.shx": b"s", "a.dbf": b"s", "a.prj": b"p"}
+        )
         meta = [
             {"primary_file": "a.shp", "name": "A", "include": True},
             {"primary_file": "ghost.shp", "name": "Ghost", "include": True},
@@ -213,12 +224,15 @@ class TestBundleRecoveryEndpoints:
             {"primary_file": "a.shp", "name": "A dataset", "include": True},
             {"primary_file": "b.tif", "name": "B dataset", "include": True},
         ]
-        with patch(
-            "app.services.file_processor.file_processor.process_vector_background",
-            new=AsyncMock(return_value=None),
-        ), patch(
-            "app.services.file_processor.file_processor.process_raster_background",
-            new=AsyncMock(return_value=None),
+        with (
+            patch(
+                "app.services.file_processor.file_processor.process_vector_background",
+                new=AsyncMock(return_value=None),
+            ),
+            patch(
+                "app.services.file_processor.file_processor.process_raster_background",
+                new=AsyncMock(return_value=None),
+            ),
         ):
             resp = await client.post(
                 "/api/v1/upload/bundle",

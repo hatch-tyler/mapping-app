@@ -127,9 +127,7 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
             # Required sidecars
             missing = []
             for req in SHAPEFILE_REQUIRED_SIDECARS:
-                match = next(
-                    (s for s in siblings if _ext(s) == req), None
-                )
+                match = next((s for s in siblings if _ext(s) == req), None)
                 if match:
                     members.append(match)
                 else:
@@ -140,9 +138,7 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                 )
             # Optional sidecars
             for opt in SHAPEFILE_OPTIONAL_SIDECARS:
-                match = next(
-                    (s for s in siblings if _ext(s) == opt), None
-                )
+                match = next((s for s in siblings if _ext(s) == opt), None)
                 if match:
                     members.append(match)
             if ".prj" not in sibling_exts:
@@ -207,8 +203,11 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                 DetectedDataset(
                     suggested_name=PurePosixPath(entry).stem,
                     data_type="raster",
-                    format="geotiff" if ext in {".tif", ".tiff", ".geotiff"}
-                    else ext.lstrip("."),
+                    format=(
+                        "geotiff"
+                        if ext in {".tif", ".tiff", ".geotiff"}
+                        else ext.lstrip(".")
+                    ),
                     primary_file=entry,
                     member_files=members,
                 )
@@ -232,9 +231,7 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                     if sib_ext == ".prj":
                         has_prj = True
             if ext != ".asc" and not has_hdr:
-                warnings.append(
-                    f"{ext} requires a .hdr sidecar for spatial reference"
-                )
+                warnings.append(f"{ext} requires a .hdr sidecar for spatial reference")
             if not has_prj:
                 warnings.append(
                     "Missing .prj — upload will fail without a coordinate reference system"

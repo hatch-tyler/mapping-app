@@ -69,7 +69,9 @@ def _render_tile(
                     img.rescale(in_range=((float(min_val), float(max_val)),))
                 else:
                     # Auto-stretch from tile data
-                    data = img.data_as_image()[:, :, 0] if img.data.ndim == 3 else img.data
+                    data = (
+                        img.data_as_image()[:, :, 0] if img.data.ndim == 3 else img.data
+                    )
                     mask = img.mask > 0
                     if mask.any():
                         valid = data[mask]
@@ -301,9 +303,7 @@ async def get_raster_stats(
         )
 
     try:
-        result = await asyncio.to_thread(
-            _compute_raster_stats, dataset.file_path, band
-        )
+        result = await asyncio.to_thread(_compute_raster_stats, dataset.file_path, band)
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

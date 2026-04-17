@@ -7,7 +7,16 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable
 from uuid import UUID
 from pathlib import Path
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    status,
+    UploadFile,
+    File,
+    Form,
+    Query,
+)
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -61,9 +70,7 @@ def _fail_job_on_crash(job_id: UUID) -> Callable[[asyncio.Task], None]:
         exc = task.exception()
         if not exc:
             return
-        logger.error(
-            "Background job %s crashed: %s", job_id, exc, exc_info=exc
-        )
+        logger.error("Background job %s crashed: %s", job_id, exc, exc_info=exc)
         asyncio.create_task(_mark_job_failed(job_id, str(exc)[:1000]))
 
     return _cb
@@ -480,7 +487,9 @@ async def upload_bundle(
     # every dataset's processing concurrently, which was the OOM root cause
     # for large bundles).
     created_jobs: list[UploadJobResponse] = []
-    plan: list[tuple[UUID, UUID, object, str]] = []  # (dataset_id, job_id, det, primary_file)
+    plan: list[tuple[UUID, UUID, object, str]] = (
+        []
+    )  # (dataset_id, job_id, det, primary_file)
 
     for meta in included:
         det = detected_by_primary.get(meta.primary_file)
@@ -533,9 +542,7 @@ async def upload_bundle(
             file_hash=file_hash,
             **extra,
         )
-        job = await dataset_crud.create_upload_job(
-            db, dataset.id, bundle_id=bundle_id
-        )
+        job = await dataset_crud.create_upload_job(db, dataset.id, bundle_id=bundle_id)
         created_jobs.append(UploadJobResponse.model_validate(job))
         plan.append((dataset.id, job.id, det, det.primary_file))
 

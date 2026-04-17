@@ -64,9 +64,12 @@ async def _find_raster_by_name(db: AsyncSession, service_name: str) -> Dataset |
             func.lower(
                 func.regexp_replace(
                     func.regexp_replace(Dataset.name, r"[^\w\s-]", "", "g"),
-                    r"[-\s]+", "_", "g",
+                    r"[-\s]+",
+                    "_",
+                    "g",
                 )
-            ) == service_name.lower(),
+            )
+            == service_name.lower(),
         )
     )
     return result.scalar_one_or_none()
@@ -101,7 +104,9 @@ async def get_image_server(
 
     meta = dataset.service_metadata or {}
     total_bounds = meta.get("total_bounds", [-180, -90, 180, 90])
-    minx, miny, maxx, maxy = total_bounds if len(total_bounds) == 4 else [-180, -90, 180, 90]
+    minx, miny, maxx, maxy = (
+        total_bounds if len(total_bounds) == 4 else [-180, -90, 180, 90]
+    )
 
     response = {
         "currentVersion": 10.81,
@@ -197,6 +202,7 @@ async def export_image(
     if bboxSR and bboxSR != "4326":
         try:
             from pyproj import Transformer
+
             t = Transformer.from_crs(f"EPSG:{bboxSR}", "EPSG:4326", always_xy=True)
             minx, miny = t.transform(minx, miny)
             maxx, maxy = t.transform(maxx, maxy)
@@ -218,21 +224,32 @@ async def export_image(
     band_count = meta.get("band_count", 1)
 
     image_data = await asyncio.to_thread(
-        render_bbox, dataset.file_path, (minx, miny, maxx, maxy),
-        width, height, style_config, band_count, img_format,
+        render_bbox,
+        dataset.file_path,
+        (minx, miny, maxx, maxy),
+        width,
+        height,
+        style_config,
+        band_count,
+        img_format,
     )
 
     if f == "json":
         # Return image info as JSON (some clients request metadata only)
-        return _json({
-            "href": "",
-            "width": width,
-            "height": height,
-            "extent": {
-                "xmin": minx, "ymin": miny, "xmax": maxx, "ymax": maxy,
-                "spatialReference": {"wkid": 4326},
-            },
-        })
+        return _json(
+            {
+                "href": "",
+                "width": width,
+                "height": height,
+                "extent": {
+                    "xmin": minx,
+                    "ymin": miny,
+                    "xmax": maxx,
+                    "ymax": maxy,
+                    "spatialReference": {"wkid": 4326},
+                },
+            }
+        )
 
     if not image_data:
         return Response(status_code=204, headers=CORS_HEADERS)

@@ -37,7 +37,9 @@ logger = logging.getLogger(__name__)
 # Dataset row. Avoids a DB round-trip per tile when panning with multiple
 # external layers active. Invalidated implicitly by the 60-second TTL.
 _PROXY_DATASET_TTL_SECONDS = 60
-_proxy_dataset_cache: dict[UUID, tuple[float, tuple[str, str | None, str | None, str]]] = {}
+_proxy_dataset_cache: dict[
+    UUID, tuple[float, tuple[str, str | None, str | None, str]]
+] = {}
 
 
 def _invalidate_proxy_dataset_cache(dataset_id: UUID) -> None:
@@ -422,7 +424,8 @@ async def proxy_external_service(
             )
         if dataset.source_type != "external" or not dataset.service_url:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Not an external dataset"
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Not an external dataset",
             )
         service_url = dataset.service_url
         service_type = dataset.service_type

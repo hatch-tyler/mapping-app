@@ -29,9 +29,7 @@ async def get_public_raster_datasets(db: AsyncSession) -> list[Dataset]:
     return list(result.scalars().all())
 
 
-async def get_raster_dataset_by_id(
-    db: AsyncSession, dataset_id: str
-) -> Dataset | None:
+async def get_raster_dataset_by_id(db: AsyncSession, dataset_id: str) -> Dataset | None:
     """Get a public raster dataset by ID."""
     from uuid import UUID
 
@@ -50,13 +48,13 @@ async def get_raster_dataset_by_id(
     return result.scalar_one_or_none()
 
 
-def build_capabilities_xml(
-    datasets: list[Dataset], base_url: str
-) -> str:
+def build_capabilities_xml(datasets: list[Dataset], base_url: str) -> str:
     """Build WMS 1.3.0 GetCapabilities XML."""
     wms_url = f"{base_url}/api/v1/wms"
 
-    root = Element("WMS_Capabilities", version="1.3.0", xmlns="http://www.opengis.net/wms")
+    root = Element(
+        "WMS_Capabilities", version="1.3.0", xmlns="http://www.opengis.net/wms"
+    )
     root.set("xmlns:xlink", "http://www.w3.org/1999/xlink")
 
     # Service

@@ -31,7 +31,9 @@ WMS_CORS = {
 }
 
 
-def _get_param(params: dict[str, str], name: str, default: str | None = None) -> str | None:
+def _get_param(
+    params: dict[str, str], name: str, default: str | None = None
+) -> str | None:
     """Case-insensitive parameter lookup (OGC WMS spec requires this)."""
     if name in params:
         return params[name]
@@ -78,24 +80,32 @@ async def _get_map(params: dict[str, str], db: AsyncSession) -> Response:
     layers = _get_param(params, "layers", "")
     if not layers:
         xml = build_exception_xml("LayerNotDefined", "LAYERS parameter is required")
-        return Response(content=xml, media_type=WMS_XML, status_code=400, headers=WMS_CORS)
+        return Response(
+            content=xml, media_type=WMS_XML, status_code=400, headers=WMS_CORS
+        )
 
     # Use first layer only
     layer_id = layers.split(",")[0].strip()
     dataset = await get_raster_dataset_by_id(db, layer_id)
     if not dataset:
         xml = build_exception_xml("LayerNotDefined", f"Layer '{layer_id}' not found")
-        return Response(content=xml, media_type=WMS_XML, status_code=404, headers=WMS_CORS)
+        return Response(
+            content=xml, media_type=WMS_XML, status_code=404, headers=WMS_CORS
+        )
 
     if not dataset.file_path or not Path(dataset.file_path).exists():
         xml = build_exception_xml("LayerNotDefined", "Raster file not found on disk")
-        return Response(content=xml, media_type=WMS_XML, status_code=404, headers=WMS_CORS)
+        return Response(
+            content=xml, media_type=WMS_XML, status_code=404, headers=WMS_CORS
+        )
 
     # Parse bbox
     bbox_str = _get_param(params, "bbox", "")
     if not bbox_str:
         xml = build_exception_xml("MissingParameterValue", "BBOX parameter is required")
-        return Response(content=xml, media_type=WMS_XML, status_code=400, headers=WMS_CORS)
+        return Response(
+            content=xml, media_type=WMS_XML, status_code=400, headers=WMS_CORS
+        )
 
     try:
         parts = [float(x) for x in bbox_str.split(",")]
@@ -103,11 +113,15 @@ async def _get_map(params: dict[str, str], db: AsyncSession) -> Response:
             raise ValueError("Expected 4 values")
     except ValueError:
         xml = build_exception_xml("InvalidParameterValue", "Invalid BBOX format")
-        return Response(content=xml, media_type=WMS_XML, status_code=400, headers=WMS_CORS)
+        return Response(
+            content=xml, media_type=WMS_XML, status_code=400, headers=WMS_CORS
+        )
 
     # WMS 1.3.0 with EPSG:4326: bbox is (miny, minx, maxy, maxx) — lat/lon order
     # WMS 1.1.1 and EPSG:3857: bbox is (minx, miny, maxx, maxy)
-    crs = (_get_param(params, "crs") or _get_param(params, "srs") or "EPSG:4326").upper()
+    crs = (
+        _get_param(params, "crs") or _get_param(params, "srs") or "EPSG:4326"
+    ).upper()
     if crs == "EPSG:4326":
         # WMS 1.3.0 axis order: lat,lon
         miny, minx, maxy, maxx = parts
@@ -117,6 +131,7 @@ async def _get_map(params: dict[str, str], db: AsyncSession) -> Response:
     # For rendering, we always pass bbox in EPSG:4326 lon/lat order
     if crs == "EPSG:3857":
         from pyproj import Transformer
+
         t = Transformer.from_crs("EPSG:3857", "EPSG:4326", always_xy=True)
         minx, miny = t.transform(minx, miny)
         maxx, maxy = t.transform(maxx, maxy)
@@ -143,8 +158,14 @@ async def _get_map(params: dict[str, str], db: AsyncSession) -> Response:
     band_count = meta.get("band_count", 1)
 
     image_data = await asyncio.to_thread(
-        render_bbox, dataset.file_path, bbox, width, height,
-        style_config, band_count, img_format,
+        render_bbox,
+        dataset.file_path,
+        bbox,
+        width,
+        height,
+        style_config,
+        band_count,
+        img_format,
     )
 
     if not image_data:

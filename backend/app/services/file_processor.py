@@ -718,16 +718,20 @@ class FileProcessor:
                     table = DBF(str(pattern))
                     rat: dict[str, dict] = {}
                     for record in table:
-                        val = str(
-                            record.get("Value", record.get("VALUE", ""))
-                        )
+                        val = str(record.get("Value", record.get("VALUE", "")))
                         if not val:
                             continue
                         # Look for label in common field names
                         label = None
                         for key in (
-                            "Class_Name", "CLASS_NAME", "ClassName",
-                            "Description", "Label", "LABEL", "Name", "NAME",
+                            "Class_Name",
+                            "CLASS_NAME",
+                            "ClassName",
+                            "Description",
+                            "Label",
+                            "LABEL",
+                            "Name",
+                            "NAME",
                         ):
                             if record.get(key):
                                 label = str(record[key])

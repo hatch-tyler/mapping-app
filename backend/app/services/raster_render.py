@@ -6,7 +6,10 @@ applying style_config colormap/rescaling.
 
 import logging
 
-from app.services.raster_colormap import build_classified_colormap, build_continuous_colormap
+from app.services.raster_colormap import (
+    build_classified_colormap,
+    build_continuous_colormap,
+)
 
 logger = logging.getLogger(__name__)
 

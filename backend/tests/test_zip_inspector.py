@@ -36,7 +36,10 @@ class TestShapefileDetection:
         assert d.suggested_name == "counties"
         assert d.primary_file == "counties.shp"
         assert set(d.member_files) == {
-            "counties.shp", "counties.shx", "counties.dbf", "counties.prj",
+            "counties.shp",
+            "counties.shx",
+            "counties.dbf",
+            "counties.prj",
         }
         assert d.warnings == []
 
@@ -116,7 +119,9 @@ class TestRasterDetection:
         assert d.data_type == "raster"
         assert d.format == "geotiff"
         assert set(d.member_files) == {
-            "elevation.tif", "elevation.tfw", "elevation.aux.xml",
+            "elevation.tif",
+            "elevation.tfw",
+            "elevation.aux.xml",
         }
 
     def test_multiple_geotiffs(self, tmp_path: Path):
@@ -158,7 +163,9 @@ class TestGeopackageAndGeojson:
         assert any("multi-layer" in w.lower() for w in datasets[0].warnings)
 
     def test_geojson(self, tmp_path: Path):
-        zip_path = _make_zip(tmp_path, {"cities.geojson": b'{"type":"FeatureCollection"}'})
+        zip_path = _make_zip(
+            tmp_path, {"cities.geojson": b'{"type":"FeatureCollection"}'}
+        )
         datasets = inspect_zip(zip_path)
         assert len(datasets) == 1
         assert datasets[0].format == "geojson"

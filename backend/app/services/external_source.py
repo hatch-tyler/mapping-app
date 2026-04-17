@@ -731,7 +731,8 @@ async def proxy_request(
             return resp
         except (httpx.HTTPError, httpx.InvalidURL):
             logger.info(
-                "https upgrade of upstream failed, falling back to http: %s", service_url
+                "https upgrade of upstream failed, falling back to http: %s",
+                service_url,
             )
 
     resp = await client.get(target, params=params)
