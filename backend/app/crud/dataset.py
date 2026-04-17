@@ -46,7 +46,10 @@ async def get_datasets(
     user_id: UUID | None = None,
     is_admin: bool = True,
 ) -> tuple[list[Dataset], int]:
-    query = select(Dataset)
+    query = select(Dataset).options(
+        selectinload(Dataset.project),
+        selectinload(Dataset.linked_projects),
+    )
     count_query = select(func.count(Dataset.id.distinct()))
 
     if visible_only:
