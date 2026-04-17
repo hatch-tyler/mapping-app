@@ -62,6 +62,34 @@ declare module '@deck.gl/layers' {
     image: string;
     [key: string]: unknown;
   }
+
+  export class TextLayer<D = unknown> {
+    constructor(props: TextLayerProps<D>);
+    id: string;
+  }
+
+  export interface TextLayerProps<D = unknown> {
+    id: string;
+    data: string | D;
+    getText?: (d: unknown) => string;
+    getPosition?: (d: unknown) => [number, number];
+    getSize?: number | ((d: unknown) => number);
+    getColor?: number[] | ((d: unknown) => number[]);
+    getTextAnchor?: string;
+    getAlignmentBaseline?: string;
+    fontFamily?: string;
+    billboard?: boolean;
+    sizeUnits?: string;
+    pickable?: boolean;
+    loadOptions?: {
+      worker?: boolean;
+      mvt?: { workerUrl?: string };
+      fetch?: {
+        headers?: Record<string, string>;
+      };
+    };
+    [key: string]: unknown;
+  }
 }
 
 declare module '@deck.gl/geo-layers' {

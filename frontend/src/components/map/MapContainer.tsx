@@ -127,7 +127,7 @@ export function MapContainer() {
       })
       .filter(Boolean);
 
-    return [...nonClusteredLayers, ...pointLayers];
+    return [...nonClusteredLayers, ...pointLayers].flat();
   }, [nonClusterableDatasets, clusterableDatasets, clusteredLayers]);
 
   const onViewStateChange = useCallback(
@@ -169,12 +169,11 @@ export function MapContainer() {
   );
 
   const getTooltip = useCallback(
-    ({ object }: { object?: { properties?: Record<string, unknown> } }) => {
+    ({ object, layer }: { object?: { properties?: Record<string, unknown> }; layer?: { id?: string } }) => {
       if (!object || !object.properties) return null;
 
       const props = object.properties;
 
-      // Escape HTML to prevent XSS
       const escapeHtml = (str: string): string => {
         const htmlEscapes: Record<string, string> = {
           '&': '&amp;',
@@ -186,7 +185,6 @@ export function MapContainer() {
         return str.replace(/[&<>"']/g, (char) => htmlEscapes[char] || char);
       };
 
-      // Handle cluster tooltip
       if (props.cluster && props.point_count) {
         return {
           html: `<div class="deck-tooltip"><strong>${props.point_count} features</strong><br/><span style="font-size: 11px; color: #666;">Click to zoom in</span></div>`,
@@ -197,9 +195,27 @@ export function MapContainer() {
         };
       }
 
-      const content = Object.entries(props)
-        .filter(([k, v]) => v !== null && v !== undefined && k !== 'cluster' && k !== 'cluster_id')
-        .slice(0, 5)
+      // Look up the dataset's hoverFields from its style_config.
+      // Layer IDs contain the dataset ID (e.g. "vector-{uuid}", "ext-vec-{uuid}").
+      let hoverFields: string[] | undefined;
+      if (layer?.id) {
+        const ds = datasets.find((d) => layer.id!.includes(d.id));
+        if (ds) {
+          const cfg = ds.style_config as Partial<{ hoverFields?: string[] }> | undefined;
+          hoverFields = cfg?.hoverFields;
+        }
+      }
+
+      const entries = Object.entries(props)
+        .filter(([k, v]) => v !== null && v !== undefined && k !== 'cluster' && k !== 'cluster_id');
+
+      const filtered = hoverFields?.length
+        ? entries.filter(([k]) => hoverFields!.includes(k))
+        : entries.slice(0, 5);
+
+      if (filtered.length === 0) return null;
+
+      const content = filtered
         .map(([k, v]) => `<strong>${escapeHtml(String(k))}:</strong> ${escapeHtml(String(v))}`)
         .join('<br/>');
 
@@ -211,7 +227,7 @@ export function MapContainer() {
         },
       };
     },
-    []
+    [datasets]
   );
 
   // Check if any visible external layers have truncated results

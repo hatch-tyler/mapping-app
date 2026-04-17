@@ -93,8 +93,9 @@ export function BundleDatasetList({ rows, onChange, disabled }: Props) {
                         <li
                           key={i}
                           className={`text-xs ${
-                            w.toLowerCase().includes('missing required')
-                              ? 'text-red-600'
+                            w.toLowerCase().includes('missing required') ||
+                            w.toLowerCase().includes('will fail')
+                              ? 'text-red-600 font-medium'
                               : 'text-amber-600'
                           }`}
                         >

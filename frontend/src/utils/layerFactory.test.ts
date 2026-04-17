@@ -53,7 +53,8 @@ describe('layerFactory', () => {
     });
 
     it('should create GeoJsonLayer for vector dataset', () => {
-      const layer = createLayerFromDataset(mockVectorDataset);
+      const result = createLayerFromDataset(mockVectorDataset);
+      const layer = Array.isArray(result) ? result[0] : result;
 
       expect(layer).not.toBeNull();
       expect(layer?.id).toBe('vector-vector-1');
@@ -61,7 +62,8 @@ describe('layerFactory', () => {
     });
 
     it('should create TileLayer for raster dataset', () => {
-      const layer = createLayerFromDataset(mockRasterDataset);
+      const result = createLayerFromDataset(mockRasterDataset);
+      const layer = Array.isArray(result) ? result[0] : result;
 
       expect(layer).not.toBeNull();
       expect(layer?.id).toBe('raster-raster-1');

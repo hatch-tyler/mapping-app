@@ -80,12 +80,15 @@ class FileProcessor:
         if gdf.empty:
             raise ValueError("File contains no features")
 
-        # Reproject to WGS84 if needed
-        if gdf.crs and gdf.crs.to_epsg() != 4326:
+        # Reproject to WGS84 if needed; reject if no CRS defined
+        if gdf.crs is None:
+            raise ValueError(
+                "No coordinate reference system (CRS) found. "
+                "The application requires a CRS to display data correctly. "
+                "Please add a .prj file (shapefiles) or define a CRS before uploading."
+            )
+        if gdf.crs.to_epsg() != 4326:
             gdf = gdf.to_crs(epsg=4326)
-        elif gdf.crs is None:
-            # Assume WGS84 if no CRS
-            gdf = gdf.set_crs(epsg=4326)
 
         # Strip Z coordinates if present (PostGIS column is 2D)
         if gdf.geometry.has_z.any():
@@ -307,7 +310,6 @@ class FileProcessor:
                     )
 
                 # Validate shapefile ZIP contents before reading
-                crs_warning = None
                 if str(file_path).lower().endswith(".zip"):
                     import zipfile
 
@@ -317,7 +319,6 @@ class FileProcessor:
                         if has_shp:
                             has_shx = any(n.endswith(".shx") for n in names_lower)
                             has_dbf = any(n.endswith(".dbf") for n in names_lower)
-                            has_prj = any(n.endswith(".prj") for n in names_lower)
                             missing = []
                             if not has_shx:
                                 missing.append(".shx")
@@ -329,15 +330,6 @@ class FileProcessor:
                                     f"{', '.join(missing)}. A valid shapefile "
                                     f"requires .shp, .shx, and .dbf files."
                                 )
-                            if not has_prj:
-                                crs_warning = (
-                                    "Shapefile is missing .prj file. Data will be "
-                                    "assumed to be in WGS84 (EPSG:4326) which may "
-                                    "cause misalignment if the actual projection differs."
-                                )
-                                logger.warning(
-                                    "Shapefile ZIP %s missing .prj file", file_path
-                                )
 
                 # Read file in thread pool to avoid blocking event loop
                 gdf = await asyncio.to_thread(gpd.read_file, str(file_path))
@@ -345,11 +337,15 @@ class FileProcessor:
                 if gdf.empty:
                     raise ValueError("File contains no features")
 
-                # Reproject to WGS84 if needed
-                if gdf.crs and gdf.crs.to_epsg() != 4326:
+                # Reject if no CRS defined; reproject to WGS84 if needed
+                if gdf.crs is None:
+                    raise ValueError(
+                        "No coordinate reference system (CRS) found. "
+                        "The application requires a CRS to display data correctly. "
+                        "Please add a .prj file (shapefiles) or define a CRS before uploading."
+                    )
+                if gdf.crs.to_epsg() != 4326:
                     gdf = gdf.to_crs(epsg=4326)
-                elif gdf.crs is None:
-                    gdf = gdf.set_crs(epsg=4326)
 
                 # Strip Z coordinates if present (PostGIS column is 2D)
                 if gdf.geometry.has_z.any():
@@ -459,8 +455,6 @@ class FileProcessor:
                     "progress": 100,
                     "completed_at": datetime.now(timezone.utc),
                 }
-                if crs_warning:
-                    job_kwargs["error_message"] = crs_warning
                 job = await dataset_crud.get_upload_job(db, job_id)
                 if job:
                     await dataset_crud.update_upload_job(db, job, **job_kwargs)
@@ -561,9 +555,6 @@ class FileProcessor:
                     "progress": 100,
                     "completed_at": datetime.now(timezone.utc),
                 }
-                if result.get("crs_warning"):
-                    job_kwargs["error_message"] = result["crs_warning"]
-
                 job = await dataset_crud.get_upload_job(db, job_id)
                 if job:
                     await dataset_crud.update_upload_job(db, job, **job_kwargs)
@@ -834,7 +825,6 @@ class FileProcessor:
         output_path = output_dir / f"{dataset_id}.tif"
 
         metadata: dict[str, Any] = {}
-        crs_warning = None
 
         with rasterio.open(str(file_path)) as src:
             original_crs = src.crs
@@ -859,19 +849,11 @@ class FileProcessor:
                 metadata["rat"] = rat
 
             if original_crs is None:
-                crs_warning = (
-                    "No coordinate reference system found in the raster file. "
-                    "Data will be assumed to be in WGS84 (EPSG:4326) which may "
-                    "cause misalignment if the actual projection differs."
+                raise ValueError(
+                    "No coordinate reference system (CRS) found in the raster file. "
+                    "The application requires a CRS to display data correctly. "
+                    "Please define a CRS in the file metadata before uploading."
                 )
-                metadata["crs_missing"] = True
-                logger.warning("Raster %s has no CRS, assuming EPSG:4326", dataset_id)
-                # Copy as-is, assume 4326
-                shutil.copy(str(file_path), str(output_path))
-                bounds_wgs84 = list(src.bounds)
-
-                # Build overviews even for CRS-missing rasters
-                self._build_overviews(output_path)
             else:
                 # Reproject bounds to WGS84 for storage
                 if original_crs.to_epsg() != 4326:
@@ -914,15 +896,11 @@ class FileProcessor:
                 # Build overviews for faster tile serving at low zoom levels
                 self._build_overviews(output_path)
 
-        result = {
+        return {
             "file_path": str(output_path),
             "bounds_wgs84": bounds_wgs84,
             "metadata": metadata,
         }
-        if crs_warning:
-            result["crs_warning"] = crs_warning
-
-        return result
 
 
 file_processor = FileProcessor()

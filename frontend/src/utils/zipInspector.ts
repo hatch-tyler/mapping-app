@@ -133,7 +133,7 @@ export async function inspectZip(file: File): Promise<DetectedDataset[]> {
         if (match) members.push(match);
       }
       if (!siblingExts.has('.prj')) {
-        warnings.push('Missing .prj — projection will be assumed WGS84 (EPSG:4326)');
+        warnings.push('Missing .prj — upload will fail without a coordinate reference system');
       }
       members.forEach((m) => consumed.add(m));
       detected.push({
@@ -216,7 +216,7 @@ export async function inspectZip(file: File): Promise<DetectedDataset[]> {
         warnings.push(`${ext} requires a .hdr sidecar for spatial reference`);
       }
       if (!hasPrj) {
-        warnings.push('Missing .prj — projection will be assumed WGS84 (EPSG:4326)');
+        warnings.push('Missing .prj — upload will fail without a coordinate reference system');
       }
       members.forEach((m) => consumed.add(m));
       detected.push({

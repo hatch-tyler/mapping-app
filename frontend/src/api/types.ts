@@ -321,6 +321,12 @@ export interface StyleConfig {
 
   // Graduated mode
   colorRamp?: ColorRampConfig;
+
+  // Display / tooltip configuration
+  hoverFields?: string[];
+  labelField?: string;
+  labelSize?: number;
+  labelColor?: RGBAColor;
 }
 
 export interface UniqueValuesResponse {

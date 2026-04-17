@@ -1,7 +1,7 @@
-import { GeoJsonLayer } from '@deck.gl/layers';
+import { GeoJsonLayer, TextLayer } from '@deck.gl/layers';
 import { TileLayer, MVTLayer } from '@deck.gl/geo-layers';
 import { BitmapLayer } from '@deck.gl/layers';
-import { Dataset, GeoJSONFeatureCollection } from '../api/types';
+import { Dataset, GeoJSONFeatureCollection, StyleConfig, RGBAColor } from '../api/types';
 import { getGeoJSONUrl, getRasterTileUrl, getMVTTileUrl } from '../api/datasets';
 import { API_URL } from '../api/client';
 import { getAccessToken } from '../api/tokenService';
@@ -11,7 +11,8 @@ import { useMapStore } from '../stores/mapStore';
 
 const MVT_FEATURE_THRESHOLD = 10000;
 
-type LayerType = GeoJsonLayer | TileLayer | MVTLayer | null;
+type SingleLayer = GeoJsonLayer | TileLayer | MVTLayer | TextLayer | null;
+type LayerType = SingleLayer | SingleLayer[];
 
 export function shouldUseMVT(dataset: Dataset): boolean {
   return (
@@ -262,18 +263,73 @@ function createExternalLayer(dataset: Dataset): LayerType {
   }
 }
 
+function createLabelLayer(
+  dataset: Dataset,
+  dataSource: string | GeoJSONFeatureCollection,
+  token: string | null,
+): TextLayer | null {
+  const cfg = dataset.style_config as Partial<StyleConfig> | undefined;
+  if (!cfg?.labelField) return null;
+  const labelField = cfg.labelField;
+  const labelSize = cfg.labelSize || 12;
+  const labelColor = cfg.labelColor || [0, 0, 0, 255];
+
+  return new TextLayer({
+    id: `label-${dataset.id}`,
+    data: dataSource,
+    loadOptions: {
+      fetch: {
+        headers: { Authorization: token ? `Bearer ${token}` : '' },
+      },
+    },
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getText: (d: any) => String(d?.properties?.[labelField] ?? ''),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    getPosition: (d: any) => {
+      const geom = d?.geometry;
+      if (!geom) return [0, 0];
+      if (geom.type === 'Point') return geom.coordinates;
+      // For non-point geometries, use a rough centroid from the bbox or first coord.
+      if (geom.coordinates) {
+        const flat = geom.type === 'Polygon'
+          ? geom.coordinates[0]
+          : geom.type === 'MultiPolygon'
+            ? geom.coordinates[0]?.[0]
+            : geom.type === 'LineString'
+              ? geom.coordinates
+              : geom.type === 'MultiLineString'
+                ? geom.coordinates[0]
+                : [geom.coordinates];
+        if (flat && flat.length > 0) {
+          let sx = 0, sy = 0;
+          for (const c of flat) { sx += c[0]; sy += c[1]; }
+          return [sx / flat.length, sy / flat.length];
+        }
+      }
+      return [0, 0];
+    },
+    getSize: labelSize,
+    getColor: labelColor as RGBAColor,
+    getTextAnchor: 'middle',
+    getAlignmentBaseline: 'center',
+    fontFamily: 'Arial, sans-serif',
+    billboard: false,
+    sizeUnits: 'pixels',
+    pickable: false,
+  });
+}
+
 function createVectorLayer(
   dataset: Dataset,
   data?: GeoJSONFeatureCollection | null
-): GeoJsonLayer {
+): LayerType {
   const styleAccessors = createStyleAccessors(dataset.style_config);
-
-  // Get auth token for fetching GeoJSON
   const token = getAccessToken();
+  const dataSource = data || getGeoJSONUrl(dataset.id);
 
-  return new GeoJsonLayer({
+  const geoLayer = new GeoJsonLayer({
     id: `vector-${dataset.id}`,
-    data: data || getGeoJSONUrl(dataset.id),
+    data: dataSource,
     loadOptions: {
       fetch: {
         headers: {
@@ -297,6 +353,9 @@ function createVectorLayer(
     getLineWidth: styleAccessors.getLineWidth,
     updateTriggers: styleAccessors.updateTriggers,
   });
+
+  const labelLayer = createLabelLayer(dataset, dataSource, token);
+  return labelLayer ? [geoLayer, labelLayer] : geoLayer;
 }
 
 function createMVTLayer(dataset: Dataset): MVTLayer {

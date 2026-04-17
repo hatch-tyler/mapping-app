@@ -147,7 +147,7 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                     members.append(match)
             if ".prj" not in sibling_exts:
                 warnings.append(
-                    "Missing .prj — projection will be assumed WGS84 (EPSG:4326)"
+                    "Missing .prj — upload will fail without a coordinate reference system"
                 )
             consumed.update(members)
             detected.append(
@@ -237,7 +237,7 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                 )
             if not has_prj:
                 warnings.append(
-                    "Missing .prj — projection will be assumed WGS84 (EPSG:4326)"
+                    "Missing .prj — upload will fail without a coordinate reference system"
                 )
             consumed.update(members)
             detected.append(

@@ -5,6 +5,7 @@ import { downloadStyleExport } from '../../api/templates';
 import { UniformStylePanel } from './UniformStylePanel';
 import { CategoricalStylePanel } from './CategoricalStylePanel';
 import { GraduatedStylePanel } from './GraduatedStylePanel';
+import { DisplayStylePanel } from './DisplayStylePanel';
 
 interface Props {
   dataset: Dataset;
@@ -12,15 +13,17 @@ interface Props {
   onClose: () => void;
 }
 
-const TABS: { id: StyleMode; label: string; description: string }[] = [
+type TabId = StyleMode | 'display';
+
+const TABS: { id: TabId; label: string; description: string }[] = [
   { id: 'uniform', label: 'Uniform', description: 'Same color for all features' },
   { id: 'categorical', label: 'Categorical', description: 'Color by field values' },
   { id: 'graduated', label: 'Graduated', description: 'Color ramp by numeric values' },
+  { id: 'display', label: 'Display', description: 'Tooltip fields and map labels' },
 ];
 
 export function StyleEditor({ dataset, onSave, onClose }: Props) {
   const [styleConfig, setStyleConfig] = useState<StyleConfig>(() => {
-    // Initialize from existing style_config or defaults
     const existing = dataset.style_config as Partial<StyleConfig> || {};
     return {
       ...DEFAULT_STYLE,
@@ -29,13 +32,12 @@ export function StyleEditor({ dataset, onSave, onClose }: Props) {
     };
   });
 
-  const [activeTab, setActiveTab] = useState<StyleMode>(styleConfig.mode);
+  const [activeTab, setActiveTab] = useState<TabId>(styleConfig.mode);
   const [saving, setSaving] = useState(false);
 
-  // Sync mode with active tab
   useEffect(() => {
-    if (styleConfig.mode !== activeTab) {
-      setStyleConfig({ ...styleConfig, mode: activeTab });
+    if (activeTab !== 'display' && styleConfig.mode !== activeTab) {
+      setStyleConfig({ ...styleConfig, mode: activeTab as StyleMode });
     }
   }, [activeTab]);
 
@@ -51,7 +53,7 @@ export function StyleEditor({ dataset, onSave, onClose }: Props) {
   const handleReset = () => {
     setStyleConfig({
       ...DEFAULT_STYLE,
-      mode: activeTab,
+      mode: activeTab === 'display' ? styleConfig.mode : (activeTab as StyleMode),
     });
   };
 
@@ -124,6 +126,14 @@ export function StyleEditor({ dataset, onSave, onClose }: Props) {
 
           {activeTab === 'graduated' && (
             <GraduatedStylePanel
+              datasetId={dataset.id}
+              styleConfig={styleConfig}
+              onChange={setStyleConfig}
+            />
+          )}
+
+          {activeTab === 'display' && (
+            <DisplayStylePanel
               datasetId={dataset.id}
               styleConfig={styleConfig}
               onChange={setStyleConfig}
