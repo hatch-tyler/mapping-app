@@ -43,7 +43,7 @@ function isRasterTileUrl(url: string): boolean {
 }
 
 export function MapContainer() {
-  const { viewState, setViewState, visibleDatasets, truncatedLayers, setSelectedFeature, currentBasemap } =
+  const { viewState, setViewState, visibleDatasets, truncatedLayers, setSelectedFeature, currentBasemap, layerOrder } =
     useMapStore();
   const { datasets } = useDatasetStore();
   const [clusteredLayers, setClusteredLayers] = useState<Record<string, unknown>>({});
@@ -127,8 +127,23 @@ export function MapContainer() {
       })
       .filter(Boolean);
 
-    return [...nonClusteredLayers, ...pointLayers].flat();
-  }, [nonClusterableDatasets, clusterableDatasets, clusteredLayers]);
+    const allLayers = [...nonClusteredLayers, ...pointLayers].flat();
+
+    if (layerOrder.length === 0) return allLayers;
+
+    return [...allLayers].sort((a, b) => {
+      const idOf = (layer: unknown) => {
+        const lid = (layer as { id?: string })?.id ?? '';
+        const ds = visibleDatasetsList.find((d) => lid.includes(d.id));
+        return ds?.id ?? '';
+      };
+      const posA = layerOrder.indexOf(idOf(a));
+      const posB = layerOrder.indexOf(idOf(b));
+      const effA = posA === -1 ? layerOrder.length : posA;
+      const effB = posB === -1 ? layerOrder.length : posB;
+      return effA - effB;
+    });
+  }, [nonClusterableDatasets, clusterableDatasets, clusteredLayers, layerOrder, visibleDatasetsList]);
 
   const onViewStateChange = useCallback(
     ({ viewState: newViewState }: { viewState: unknown }) => {

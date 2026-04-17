@@ -103,6 +103,8 @@ interface MapState {
   setBasemap: (basemap: Basemap) => void;
   toggleBasemapGallery: () => void;
   setBasemapGalleryOpen: (open: boolean) => void;
+  layerOrder: string[];
+  setLayerOrder: (order: string[]) => void;
 }
 
 export const useMapStore = create<MapState>((set) => ({
@@ -184,4 +186,16 @@ export const useMapStore = create<MapState>((set) => ({
     set((state) => ({ isBasemapGalleryOpen: !state.isBasemapGalleryOpen })),
 
   setBasemapGalleryOpen: (open) => set({ isBasemapGalleryOpen: open }),
+
+  layerOrder: (() => {
+    try {
+      const raw = localStorage.getItem('map:layer-order');
+      return raw ? (JSON.parse(raw) as string[]) : [];
+    } catch { return []; }
+  })(),
+
+  setLayerOrder: (order) => {
+    try { localStorage.setItem('map:layer-order', JSON.stringify(order)); } catch { /* */ }
+    set({ layerOrder: order });
+  },
 }));

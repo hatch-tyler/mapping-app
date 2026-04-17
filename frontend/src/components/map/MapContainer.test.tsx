@@ -83,6 +83,8 @@ describe('MapContainer', () => {
       setBasemapGalleryOpen: vi.fn(),
       truncatedLayers: new Set(),
       setLayerTruncated: vi.fn(),
+      layerOrder: [],
+      setLayerOrder: vi.fn(),
     });
 
     vi.mocked(useDatasetStore).mockReturnValue({
@@ -128,6 +130,8 @@ describe('MapContainer', () => {
       setBasemapGalleryOpen: vi.fn(),
       truncatedLayers: new Set(),
       setLayerTruncated: vi.fn(),
+      layerOrder: [],
+      setLayerOrder: vi.fn(),
     });
 
     render(<MapContainer />);
@@ -154,6 +158,8 @@ describe('MapContainer', () => {
       setBasemapGalleryOpen: vi.fn(),
       truncatedLayers: new Set(),
       setLayerTruncated: vi.fn(),
+      layerOrder: [],
+      setLayerOrder: vi.fn(),
     });
 
     render(<MapContainer />);
