@@ -13,10 +13,13 @@ import {
   getEditablePlaceholders,
   type PlaceholderField,
 } from '../templates/FigureExporter';
-import { EmbeddedMap, type EmbeddedViewState } from './EmbeddedMap';
+import { EmbeddedMap, type EmbeddedViewState, type EmbeddedMapHandle } from './EmbeddedMap';
 
 const LAST_TEMPLATE_KEY = 'figure-export:last-template-id';
-const MM_TO_PX = 3.7795; // 1mm ≈ 3.78px at 96 DPI (screen)
+const MM_TO_PX = 3.7795;
+const MIN_ZOOM = 0.2;
+const MAX_ZOOM = 3.0;
+const ZOOM_STEP = 0.15;
 
 interface Props {
   deckRef: React.RefObject<HTMLDivElement | null>;
@@ -24,7 +27,7 @@ interface Props {
 }
 
 // ---------------------------------------------------------------------------
-// Small preview sub-components for legend, scale bar, north arrow
+// Preview sub-components
 // ---------------------------------------------------------------------------
 
 function rgbaStr(c: RGBAColor): string {
@@ -98,34 +101,38 @@ function PreviewNorthArrow() {
 }
 
 // ---------------------------------------------------------------------------
-// Inline-editable text element
+// Inline-editable text element (multiline, with visual hints)
 // ---------------------------------------------------------------------------
 
 function EditableTextElement({
   elem,
   value,
+  label,
   onChange,
   scale,
 }: {
   elem: LayoutElement;
   value: string;
+  label: string;
   onChange: (v: string) => void;
   scale: number;
 }) {
   const [editing, setEditing] = useState(false);
-  const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (editing && inputRef.current) inputRef.current.focus();
+    if (editing && textareaRef.current) {
+      textareaRef.current.focus();
+      textareaRef.current.select();
+    }
   }, [editing]);
 
   const fontSize = Math.max(6, (elem.fontSize || 10) * scale * 0.35);
   const fontWeight = elem.fontWeight === 'bold' ? 700 : 400;
   const textAlign = (elem.textAlign || 'left') as 'left' | 'center' | 'right';
   const color = elem.textColor || '#000000';
-  const isMultiline = (elem.h ?? 0) * scale > 30;
 
-  const style: React.CSSProperties = {
+  const baseStyle: React.CSSProperties = {
     fontSize,
     fontWeight,
     textAlign,
@@ -135,52 +142,45 @@ function EditableTextElement({
     width: '100%',
     height: '100%',
     overflow: 'hidden',
-    cursor: 'text',
   };
 
   if (editing) {
-    const inputStyle: React.CSSProperties = {
-      ...style,
-      border: 'none',
-      outline: 'none',
-      background: 'rgba(255,255,255,0.9)',
-      padding: 0,
-      margin: 0,
-      resize: 'none',
-      boxShadow: '0 0 0 1px rgba(59,130,246,0.5)',
-    };
-    if (isMultiline) {
-      return (
-        <textarea
-          ref={inputRef as React.RefObject<HTMLTextAreaElement>}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onBlur={() => setEditing(false)}
-          style={inputStyle}
-        />
-      );
-    }
     return (
-      <input
-        ref={inputRef as React.RefObject<HTMLInputElement>}
-        type="text"
+      <textarea
+        ref={textareaRef}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onBlur={() => setEditing(false)}
-        onKeyDown={(e) => { if (e.key === 'Enter') setEditing(false); }}
-        style={inputStyle}
+        style={{
+          ...baseStyle,
+          border: 'none',
+          outline: '2px solid rgba(59,130,246,0.7)',
+          outlineOffset: -1,
+          background: 'rgba(255,255,255,0.95)',
+          padding: '1px 2px',
+          margin: 0,
+          resize: 'none',
+          cursor: 'text',
+        }}
       />
     );
   }
 
   return (
     <div
-      onClick={() => setEditing(true)}
-      className="hover:outline hover:outline-1 hover:outline-dashed hover:outline-blue-400 transition-all"
-      style={style}
-      title="Click to edit"
+      onClick={(e) => { e.stopPropagation(); setEditing(true); }}
+      title={`Click to edit: ${label}`}
+      style={{
+        ...baseStyle,
+        cursor: 'text',
+        outline: '1px dashed transparent',
+        padding: '1px 2px',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+      }}
+      className="hover:outline-blue-400 hover:!outline-dashed hover:bg-blue-50/30 transition-colors"
     >
-      {value || <span className="text-gray-300 italic">Click to edit</span>}
+      {value || <span style={{ color: '#bbb', fontStyle: 'italic', fontSize: Math.max(6, fontSize * 0.9) }}>Click to edit: {label}</span>}
     </div>
   );
 }
@@ -196,7 +196,13 @@ export function FigureExportModal({ onClose }: Props) {
   const [exporting, setExporting] = useState<string | null>(null);
   const [overrides, setOverrides] = useState<Record<number, string>>({});
 
-  const embeddedMapRef = useRef<HTMLDivElement>(null);
+  // Preview zoom/pan state
+  const [previewZoom, setPreviewZoom] = useState<number | null>(null); // null = fit
+  const [previewPan, setPreviewPan] = useState({ x: 0, y: 0 });
+  const [isPanning, setIsPanning] = useState(false);
+  const panStart = useRef({ x: 0, y: 0, panX: 0, panY: 0 });
+
+  const embeddedMapRef = useRef<EmbeddedMapHandle>(null);
   const pageContainerRef = useRef<HTMLDivElement>(null);
 
   const { viewState: globalViewState, visibleDatasets: visibleSet, currentBasemap } = useMapStore();
@@ -251,14 +257,22 @@ export function FigureExportModal({ onClose }: Props) {
     [placeholderFields],
   );
 
+  const placeholderLabels = useMemo(() => {
+    const map: Record<number, string> = {};
+    for (const f of placeholderFields) map[f.elementIndex] = f.label;
+    return map;
+  }, [placeholderFields]);
+
   useEffect(() => {
     if (!selectedTemplate) return;
     const initial: Record<number, string> = {};
     for (const f of placeholderFields) initial[f.elementIndex] = f.defaultValue;
     setOverrides(initial);
+    setPreviewZoom(null);
+    setPreviewPan({ x: 0, y: 0 });
   }, [selectedTemplate, placeholderFields]);
 
-  // Compute the scale to fit the template page into the modal body.
+  // Page layout
   const [containerSize, setContainerSize] = useState({ w: 800, h: 500 });
   useEffect(() => {
     if (!pageContainerRef.current) return;
@@ -276,20 +290,21 @@ export function FigureExportModal({ onClose }: Props) {
     const { width, height } = selectedTemplate.page_config;
     const pageWPx = width * MM_TO_PX;
     const pageHPx = height * MM_TO_PX;
-    const scale = Math.min(
+    const fitScale = Math.min(
       (containerSize.w - 32) / pageWPx,
       (containerSize.h - 16) / pageHPx,
       1,
     );
-    return { pageWPx, pageHPx, scale };
+    return { pageWPx, pageHPx, fitScale };
   }, [selectedTemplate, containerSize]);
 
-  // Check if an element should be rendered (skip referenceOnly heuristic)
+  const effectiveZoom = previewZoom ?? pageLayout?.fitScale ?? 0.5;
+
+  // Reference-only heuristic (same as FigureExporter.ts)
   const shouldRender = useCallback(
-    (elem: LayoutElement, _idx: number) => {
+    (elem: LayoutElement) => {
       if (elem.referenceOnly) return false;
       if (!selectedTemplate) return true;
-      // Replicate the referenceOnly heuristic from FigureExporter.ts
       const raw = (elem.text || '').trim();
       if (raw.length >= 8 && raw.length <= 80) {
         const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -304,12 +319,59 @@ export function FigureExportModal({ onClose }: Props) {
     [selectedTemplate],
   );
 
+  // Preview zoom/pan handlers
+  const handleWheel = useCallback((e: React.WheelEvent) => {
+    e.stopPropagation();
+    const fit = pageLayout?.fitScale ?? 0.5;
+    setPreviewZoom((prev) => {
+      const current = prev ?? fit;
+      const next = e.deltaY < 0 ? current + ZOOM_STEP : current - ZOOM_STEP;
+      return Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, next));
+    });
+  }, [pageLayout]);
+
+  const handlePreviewMouseDown = useCallback((e: React.MouseEvent) => {
+    // Only pan on middle-click or when clicking empty space (not map/text)
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest('[data-no-pan]')) return;
+    setIsPanning(true);
+    panStart.current = { x: e.clientX, y: e.clientY, panX: previewPan.x, panY: previewPan.y };
+  }, [previewPan]);
+
+  const handlePreviewMouseMove = useCallback((e: React.MouseEvent) => {
+    if (!isPanning) return;
+    setPreviewPan({
+      x: panStart.current.panX + (e.clientX - panStart.current.x),
+      y: panStart.current.panY + (e.clientY - panStart.current.y),
+    });
+  }, [isPanning]);
+
+  const handlePreviewMouseUp = useCallback(() => {
+    setIsPanning(false);
+  }, []);
+
+  const resetZoom = useCallback(() => {
+    setPreviewZoom(null);
+    setPreviewPan({ x: 0, y: 0 });
+  }, []);
+
+  // Export
   const handleExport = async (format: 'png' | 'pdf') => {
     if (!selectedTemplate || !embeddedMapRef.current) return;
     setExporting(format);
 
     try {
-      const mapImage = captureMapCanvas(embeddedMapRef.current);
+      // Force DeckGL to flush its render to the canvas buffer
+      embeddedMapRef.current.redraw();
+
+      // Wait for the GPU to finish
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+
+      const container = embeddedMapRef.current.getContainer();
+      const mapImage = container ? captureMapCanvas(container) : null;
       if (!mapImage) throw new Error('Map canvas not ready — try again in a moment');
 
       const options = {
@@ -344,11 +406,10 @@ export function FigureExportModal({ onClose }: Props) {
     }
   };
 
-  // Render a single template element as positioned HTML
+  // Render a single template element
   function renderElement(elem: LayoutElement, idx: number) {
-    if (!pageLayout || !shouldRender(elem, idx)) return null;
+    if (!pageLayout || !shouldRender(elem)) return null;
 
-    const { scale } = pageLayout;
     const left = elem.x * MM_TO_PX;
     const top = elem.y * MM_TO_PX;
     const width = elem.w * MM_TO_PX;
@@ -363,7 +424,7 @@ export function FigureExportModal({ onClose }: Props) {
     switch (elem.type) {
       case 'map_frame':
         return (
-          <div key={`el-${idx}`} style={{ ...posStyle, border: '1px solid #000', zIndex: 0 }}>
+          <div key={`el-${idx}`} data-no-pan style={{ ...posStyle, border: '1px solid #000', zIndex: 0 }}>
             <EmbeddedMap
               ref={embeddedMapRef}
               viewState={embeddedViewState}
@@ -381,12 +442,13 @@ export function FigureExportModal({ onClose }: Props) {
       case 'text':
         if (!editableIndices.has(idx)) return null;
         return (
-          <div key={`el-${idx}`} style={posStyle}>
+          <div key={`el-${idx}`} data-no-pan style={posStyle}>
             <EditableTextElement
               elem={elem}
               value={overrides[idx] ?? elem.text ?? ''}
+              label={placeholderLabels[idx] || 'Text'}
               onChange={(v) => setOverrides((o) => ({ ...o, [idx]: v }))}
-              scale={scale}
+              scale={pageLayout.fitScale}
             />
           </div>
         );
@@ -449,11 +511,32 @@ export function FigureExportModal({ onClose }: Props) {
         {/* Header */}
         <div className="px-6 py-3 border-b border-gray-200 flex items-center justify-between shrink-0">
           <h3 className="text-lg font-semibold text-gray-900">Export as Figure</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Close">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Zoom controls */}
+            <div className="flex items-center gap-1 mr-2 text-xs text-gray-500">
+              <button
+                onClick={() => setPreviewZoom((p) => Math.max(MIN_ZOOM, (p ?? pageLayout?.fitScale ?? 0.5) - ZOOM_STEP))}
+                className="px-1.5 py-0.5 rounded border border-gray-300 hover:bg-gray-100 text-sm"
+                title="Zoom out"
+              >−</button>
+              <span className="w-10 text-center">{Math.round(effectiveZoom * 100)}%</span>
+              <button
+                onClick={() => setPreviewZoom((p) => Math.min(MAX_ZOOM, (p ?? pageLayout?.fitScale ?? 0.5) + ZOOM_STEP))}
+                className="px-1.5 py-0.5 rounded border border-gray-300 hover:bg-gray-100 text-sm"
+                title="Zoom in"
+              >+</button>
+              <button
+                onClick={resetZoom}
+                className="px-1.5 py-0.5 rounded border border-gray-300 hover:bg-gray-100 text-[10px]"
+                title="Fit to window"
+              >Fit</button>
+            </div>
+            <button onClick={onClose} className="text-gray-400 hover:text-gray-600" aria-label="Close">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         {/* Template picker */}
@@ -476,28 +559,45 @@ export function FigureExportModal({ onClose }: Props) {
               ))}
             </select>
           )}
-          <p className="text-[10px] text-gray-400 hidden sm:block">Click text to edit in-place</p>
+          <p className="text-[10px] text-gray-400 hidden sm:block">Click text to edit · Scroll to zoom · Drag to pan</p>
         </div>
 
-        {/* Unified preview body */}
+        {/* Unified preview body — zoomable/pannable */}
         <div
           ref={pageContainerRef}
-          className="flex-1 min-h-0 bg-gray-100 flex items-center justify-center overflow-hidden p-4"
+          className="flex-1 min-h-0 bg-gray-100 overflow-hidden relative"
+          style={{ cursor: isPanning ? 'grabbing' : 'grab' }}
+          onWheel={handleWheel}
+          onMouseDown={handlePreviewMouseDown}
+          onMouseMove={handlePreviewMouseMove}
+          onMouseUp={handlePreviewMouseUp}
+          onMouseLeave={handlePreviewMouseUp}
         >
           {selectedTemplate && pageLayout ? (
             <div
-              className="bg-white shadow-lg border border-gray-300 relative"
+              className="absolute"
               style={{
-                width: pageLayout.pageWPx,
-                height: pageLayout.pageHPx,
-                transform: `scale(${pageLayout.scale})`,
+                left: '50%',
+                top: '50%',
+                transform: `translate(-50%, -50%) translate(${previewPan.x}px, ${previewPan.y}px) scale(${effectiveZoom})`,
                 transformOrigin: 'center center',
               }}
             >
-              {selectedTemplate.elements.map((elem, idx) => renderElement(elem, idx))}
+              <div
+                className="bg-white shadow-lg relative"
+                style={{
+                  width: pageLayout.pageWPx,
+                  height: pageLayout.pageHPx,
+                  border: '2px solid #000',
+                }}
+              >
+                {selectedTemplate.elements.map((elem, idx) => renderElement(elem, idx))}
+              </div>
             </div>
           ) : (
-            <p className="text-gray-400 text-sm">Select a template to preview</p>
+            <div className="flex items-center justify-center h-full">
+              <p className="text-gray-400 text-sm">Select a template to preview</p>
+            </div>
           )}
         </div>
 

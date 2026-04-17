@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useMemo } from 'react';
+import { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
 import DeckGL from '@deck.gl/react';
 import { Map } from 'react-map-gl/maplibre';
 import type { StyleSpecification } from 'maplibre-gl';
@@ -13,12 +13,16 @@ export interface EmbeddedViewState {
   bearing: number;
 }
 
+export interface EmbeddedMapHandle {
+  redraw: () => void;
+  getContainer: () => HTMLDivElement | null;
+}
+
 interface Props {
   viewState: EmbeddedViewState;
   onViewStateChange: (vs: EmbeddedViewState) => void;
   layers: unknown[];
   basemap: Basemap;
-  /** Pixel width × height of the map container. */
   width: number;
   height: number;
 }
@@ -50,16 +54,28 @@ function isRasterTileUrl(url: string): boolean {
   return url.includes('{z}') && url.includes('{x}') && url.includes('{y}');
 }
 
-/**
- * A self-contained MapLibre + DeckGL instance used inside the figure export
- * modal. It manages its own viewState so panning/zooming here doesn't mutate
- * the main map. The caller owns the container ref, which is used for
- * capturing the rendered canvases at export time.
- */
-export const EmbeddedMap = forwardRef<HTMLDivElement, Props>(function EmbeddedMap(
+export const EmbeddedMap = forwardRef<EmbeddedMapHandle, Props>(function EmbeddedMap(
   { viewState, onViewStateChange, layers, basemap, width, height },
   ref,
 ) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const deckRef = useRef<any>(null);
+
+  useImperativeHandle(ref, () => ({
+    redraw: () => {
+      // The DeckGL React component stores a `deck` property that references
+      // the underlying Deck instance. Calling redraw(true) forces a
+      // synchronous render, populating the WebGL buffer so captureMapCanvas
+      // can read valid pixels.
+      const deckInstance = deckRef.current?.deck;
+      if (deckInstance && typeof deckInstance.redraw === 'function') {
+        deckInstance.redraw(true);
+      }
+    },
+    getContainer: () => containerRef.current,
+  }));
+
   const mapStyle = useMemo(() => {
     if (isRasterTileUrl(basemap.url)) return createRasterStyle(basemap.url);
     return basemap.url;
@@ -74,11 +90,11 @@ export const EmbeddedMap = forwardRef<HTMLDivElement, Props>(function EmbeddedMa
 
   return (
     <div
-      ref={ref}
+      ref={containerRef}
       style={{ width, height, position: 'relative', overflow: 'hidden' }}
-      className="bg-gray-200 rounded border border-gray-300"
     >
       <DeckGL
+        ref={deckRef}
         viewState={viewState}
         onViewStateChange={handleChange}
         controller={true}
@@ -86,7 +102,6 @@ export const EmbeddedMap = forwardRef<HTMLDivElement, Props>(function EmbeddedMa
         width={width}
         height={height}
         glOptions={{ preserveDrawingBuffer: true }}
-        _animate={false}
       >
         <Map mapStyle={mapStyle} preserveDrawingBuffer={true} />
       </DeckGL>
