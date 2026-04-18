@@ -31,7 +31,6 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM_EMAIL: str = "noreply@example.com"
     SMTP_FROM_NAME: str = "GIS Application"
-    ADMIN_EMAIL: str = "admin@example.com"
     APP_URL: str = "http://localhost:5173"
 
     # Initial admin setup (required for first run)

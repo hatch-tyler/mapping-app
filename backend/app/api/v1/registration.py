@@ -1,5 +1,6 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
@@ -51,9 +52,16 @@ async def submit_registration_request(
     # Create the registration request
     registration = await registration_crud.create_registration_request(db, request_in)
 
-    # Send notification email to admin in the background
+    # Query active admin users for notification
+    admin_result = await db.execute(
+        select(User.email).where(User.role == "admin", User.is_active == True)
+    )
+    admin_emails = [row[0] for row in admin_result.all()]
+
+    # Send notification email to all admins in the background
     background_tasks.add_task(
         email_service.send_admin_new_registration,
+        admin_emails,
         registration.email,
         registration.full_name,
     )

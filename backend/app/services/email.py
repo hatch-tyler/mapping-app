@@ -58,9 +58,12 @@ class EmailService:
             return False
 
     async def send_admin_new_registration(
-        self, email: str, full_name: str | None
+        self, admin_emails: list[str], email: str, full_name: str | None
     ) -> bool:
-        """Notify admin of a new registration request."""
+        """Notify all active admin users of a new registration request."""
+        if not admin_emails:
+            logger.warning("No admin emails to notify for registration from %s", email)
+            return False
         html = f"""
         <!DOCTYPE html>
         <html>
@@ -93,9 +96,11 @@ class EmailService:
         </body>
         </html>
         """
-        return await self.send_email(
-            settings.ADMIN_EMAIL, "New Registration Request", html
-        )
+        success = True
+        for admin_email in admin_emails:
+            if not await self.send_email(admin_email, "New Registration Request", html):
+                success = False
+        return success
 
     async def send_registration_approved(
         self, email: str, full_name: str | None
