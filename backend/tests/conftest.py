@@ -23,6 +23,9 @@ os.environ["SECRET_KEY"] = "test-secret-key-for-testing-only"
 os.environ["CORS_ORIGINS"] = "http://localhost:3000"
 os.environ["UPLOAD_DIR"] = tempfile.mkdtemp(prefix="test_uploads_")
 os.environ["RASTER_DIR"] = tempfile.mkdtemp(prefix="test_rasters_")
+os.environ["SMTP_HOST"] = ""
+os.environ["SMTP_USER"] = ""
+os.environ["SMTP_PASSWORD"] = ""
 
 # Mock heavy geospatial dependencies before importing app modules
 mock_rasterio = MagicMock()
