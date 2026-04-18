@@ -19,21 +19,57 @@ export interface FigureExportOptions {
   textOverrides?: Record<number, string>;
 }
 
-/** Capture the map by compositing all canvases in a container element. */
-export function captureMapCanvas(container: HTMLElement): HTMLCanvasElement | null {
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+/**
+ * Capture the map by compositing all canvases in a container element.
+ *
+ * Uses `canvas.toDataURL()` instead of direct `ctx.drawImage(canvas)` because
+ * `drawImage` on a WebGL canvas reads the drawing buffer which may have been
+ * cleared by the browser compositor between frames — even with
+ * `preserveDrawingBuffer: true`. `toDataURL()` explicitly reads the current
+ * framebuffer contents and is the WebGL-spec-recommended approach for
+ * capturing WebGL canvas pixels.
+ */
+export async function captureMapCanvas(container: HTMLElement): Promise<HTMLCanvasElement | null> {
   const canvases = container.querySelectorAll('canvas');
   if (canvases.length === 0) return null;
 
   const first = canvases[0] as HTMLCanvasElement;
+  const w = first.width || first.clientWidth;
+  const h = first.height || first.clientHeight;
+  if (w === 0 || h === 0) return null;
+
   const exportCanvas = document.createElement('canvas');
-  exportCanvas.width = first.width;
-  exportCanvas.height = first.height;
+  exportCanvas.width = w;
+  exportCanvas.height = h;
   const ctx = exportCanvas.getContext('2d');
   if (!ctx) return null;
 
-  canvases.forEach((c) => {
-    ctx.drawImage(c as HTMLCanvasElement, 0, 0);
-  });
+  for (const c of Array.from(canvases)) {
+    const canvas = c as HTMLCanvasElement;
+    const cw = canvas.width || canvas.clientWidth;
+    const ch = canvas.height || canvas.clientHeight;
+    if (cw === 0 || ch === 0) continue;
+    try {
+      const dataUrl = canvas.toDataURL('image/png');
+      const img = await loadImage(dataUrl);
+      ctx.drawImage(img, 0, 0, w, h);
+    } catch {
+      try {
+        ctx.drawImage(canvas, 0, 0);
+      } catch {
+        /* skip unreadable canvas */
+      }
+    }
+  }
 
   return exportCanvas;
 }

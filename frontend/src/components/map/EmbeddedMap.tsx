@@ -3,6 +3,7 @@ import DeckGL from '@deck.gl/react';
 import { Map } from 'react-map-gl/maplibre';
 import type { StyleSpecification } from 'maplibre-gl';
 import type { Basemap } from '../../stores/mapStore';
+import { captureMapCanvas } from '../templates/FigureExporter';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
 export interface EmbeddedViewState {
@@ -16,6 +17,7 @@ export interface EmbeddedViewState {
 export interface EmbeddedMapHandle {
   redraw: () => void;
   getContainer: () => HTMLDivElement | null;
+  captureImage: () => Promise<HTMLCanvasElement | null>;
 }
 
 interface Props {
@@ -64,16 +66,21 @@ export const EmbeddedMap = forwardRef<EmbeddedMapHandle, Props>(function Embedde
 
   useImperativeHandle(ref, () => ({
     redraw: () => {
-      // The DeckGL React component stores a `deck` property that references
-      // the underlying Deck instance. Calling redraw(true) forces a
-      // synchronous render, populating the WebGL buffer so captureMapCanvas
-      // can read valid pixels.
       const deckInstance = deckRef.current?.deck;
       if (deckInstance && typeof deckInstance.redraw === 'function') {
         deckInstance.redraw(true);
       }
     },
     getContainer: () => containerRef.current,
+    captureImage: async () => {
+      // Force a synchronous render so the WebGL buffer is populated
+      const deckInstance = deckRef.current?.deck;
+      if (deckInstance && typeof deckInstance.redraw === 'function') {
+        deckInstance.redraw(true);
+      }
+      if (!containerRef.current) return null;
+      return captureMapCanvas(containerRef.current);
+    },
   }));
 
   const mapStyle = useMemo(() => {

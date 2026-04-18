@@ -7,7 +7,6 @@ import { useDatasetStore } from '@/stores/datasetStore';
 import { createLayerFromDataset } from '@/utils/layerFactory';
 import { getColorRamp, interpolateRamp } from '@/utils/colorRamps';
 import {
-  captureMapCanvas,
   exportFigureAsPNG,
   exportFigureAsPDF,
   getEditablePlaceholders,
@@ -362,16 +361,7 @@ export function FigureExportModal({ onClose }: Props) {
     setExporting(format);
 
     try {
-      // Force DeckGL to flush its render to the canvas buffer
-      embeddedMapRef.current.redraw();
-
-      // Wait for the GPU to finish
-      await new Promise<void>((resolve) => {
-        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
-      });
-
-      const container = embeddedMapRef.current.getContainer();
-      const mapImage = container ? captureMapCanvas(container) : null;
+      const mapImage = await embeddedMapRef.current.captureImage();
       if (!mapImage) throw new Error('Map canvas not ready — try again in a moment');
 
       const options = {
