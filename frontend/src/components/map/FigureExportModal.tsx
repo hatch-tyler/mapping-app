@@ -507,7 +507,7 @@ export function FigureExportModal({ onClose }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-lg shadow-xl w-[min(1100px,95vw)] max-h-[92vh] flex flex-col">
+      <div className="bg-white rounded-lg shadow-xl w-[min(1100px,95vw)] h-[92vh] flex flex-col">
         {/* Header */}
         <div className="px-6 py-3 border-b border-gray-200 flex items-center justify-between shrink-0">
           <h3 className="text-lg font-semibold text-gray-900">Export as Figure</h3>
@@ -565,7 +565,7 @@ export function FigureExportModal({ onClose }: Props) {
         {/* Unified preview body — zoomable/pannable */}
         <div
           ref={pageContainerRef}
-          className="flex-1 min-h-0 bg-gray-100 overflow-hidden relative"
+          className="flex-1 min-h-[300px] bg-gray-100 overflow-hidden relative"
           style={{ cursor: isPanning ? 'grabbing' : 'grab' }}
           onWheel={handleWheel}
           onMouseDown={handlePreviewMouseDown}
