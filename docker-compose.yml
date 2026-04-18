@@ -32,8 +32,8 @@ services:
       - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
       - UPLOAD_DIR=/app/data/uploads
       - RASTER_DIR=/app/data/rasters
-      - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL:-admin@example.com}
-      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-admin123}
+      - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL:-}
+      - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-}
       - INITIAL_ADMIN_FULL_NAME=${INITIAL_ADMIN_FULL_NAME:-Administrator}
     volumes:
       - ./data:/app/data
