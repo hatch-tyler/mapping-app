@@ -48,7 +48,7 @@ docker-compose up -d
 - Frontend: http://localhost:5173
 - Backend API: http://localhost:8000
 - API Docs: http://localhost:8000/api/docs
-- Default login: admin@example.com / admin123
+- Default login: set via `INITIAL_ADMIN_EMAIL` / `INITIAL_ADMIN_PASSWORD` in `.env`
 
 ## Production Deployment
 
@@ -141,7 +141,7 @@ Key config: `azure/terraform/terraform.tfvars`
 - **crud/**: Database CRUD operations
 - **models/**: SQLAlchemy ORM models with GeoAlchemy2 for spatial types
 - **schemas/**: Pydantic request/response validation
-- **services/**: Business logic (file_processor, external_source, import_service, email)
+- **services/**: Business logic (file_processor, external_source, import_service, email, template_parser)
 
 ### Frontend Structure (`frontend/src/`)
 - **api/**: Axios-based API client modules (auth, datasets, users, projects, externalSources)
@@ -149,7 +149,7 @@ Key config: `azure/terraform/terraform.tfvars`
 - **pages/**: Route page components (LoginPage, RegisterPage, MapPage, AdminPage, UploadPage/DataManager, DataPage, CatalogPage)
 - **stores/**: Zustand state stores (authStore, datasetStore, mapStore, toastStore, importStore)
 - **hooks/**: Custom React hooks
-- **utils/**: Layer factory, style interpreter, color ramps, cluster layer
+- **utils/**: Layer factory, style interpreter, color ramps, cluster layer, loaders (MVT worker registration), zip inspector
 
 ### Data Flow
 1. FastAPI receives requests at `/api/v1/*` endpoints
@@ -184,7 +184,8 @@ Choice of Deck.gl layer depends on dataset size and source:
 | Local, < 10K features | GeoJsonLayer | Direct GeoJSON, all features in browser |
 | Local, >= 10K features | MVTLayer | Server-side vector tiles via PostGIS `ST_AsMVT` |
 | External FeatureServer | TileLayer | Per-tile queries with adaptive feature limits |
-| External MapServer/ImageServer/XYZ | TileLayer + BitmapLayer | Direct cached tile access (no proxy) |
+| External MapServer/ImageServer | TileLayer + BitmapLayer | Routed through backend proxy to avoid CORS |
+| External XYZ | TileLayer + BitmapLayer | Direct tile access (providers set CORS headers) |
 | External WMS | TileLayer + BitmapLayer | GetMap via backend proxy |
 | Local raster | TileLayer + BitmapLayer | Served as raster tiles |
 
@@ -192,15 +193,42 @@ MVT auto-enables for datasets with 10,000+ features.
 
 ### Background Tasks and Connection Pool
 - External dataset imports run as `asyncio.create_task()` with **short-lived DB sessions** to avoid blocking the pool during long network fetches. Progress is tracked via `UploadJob` rows, polled from the frontend every 2s via `importStore` (survives navigation).
+- Multi-dataset bundle uploads process datasets **sequentially** in a single background task to bound peak memory (prevents OOM on large bundles). Each dataset gets its own `UploadJob` row linked by `bundle_id`. If the upload POST is lost (502, network drop), the frontend recovers by querying `GET /upload/bundles/recent`.
 - DB pool sized for ~100 concurrent users: `pool_size=10, max_overflow=20` per worker (× 4 Gunicorn workers = 120 total connections). Be mindful of long-held sessions in new endpoints.
+
+### External Service Proxy
+- All external ArcGIS MapServer, ImageServer, FeatureServer, WMS, and WFS requests are routed through the backend proxy (`/api/v1/external-sources/{id}/proxy`) to avoid CORS and CSP issues. The proxy uses a shared `httpx.AsyncClient` with connection pooling and opportunistic http→https upgrade.
+- A 60-second TTL cache on the proxy endpoint avoids a DB lookup per tile request.
+
+### Upload CRS Enforcement
+- Uploads without a coordinate reference system (CRS) are **rejected** with a descriptive error. The app does not assume WGS84. Users must add a `.prj` file or define a CRS before uploading.
+
+### loaders.gl Worker Bundling
+- The MVT parser worker (`@loaders.gl/mvt/dist/mvt-worker.js`) is bundled via Vite's `?url` import and registered at app bootstrap via `registerLoaders()`. This avoids loaders.gl's default CDN fetch to `unpkg.com`, which the production CSP blocks.
 
 ### Layer Styling System
 - `style_config` JSONB field stored per dataset in the database
 - Three modes: `uniform` (single color), `categorical` (color by field), `graduated` (color ramp)
 - Style interpreter (`frontend/src/utils/styleInterpreter.ts`) converts config to Deck.gl accessors
 - Color ramps defined in `frontend/src/utils/colorRamps.ts`
-- StyleEditor modal accessible from DatasetTable and LayerManager
-- Categorical mode supports unique values from both local PostGIS and external ArcGIS services
+- StyleEditor modal accessible from DatasetTable and LayerManager with four tabs: Uniform, Categorical, Graduated, Display
+- Categorical mode supports unique values from both local PostGIS and external ArcGIS services (fetches up to 250, warns when total exceeds fetched)
+- Display tab: configurable hover tooltip fields (`hoverFields`) and optional map labels via deck.gl TextLayer (`labelField`, `labelSize`, `labelColor`)
+- Point controls (radius, min/max pixels) are hidden for polygon/line geometries
+
+### Export as Figure
+- Unified interactive preview: template rendered at screen scale with live DeckGL map in the map_frame, inline click-to-edit text fields, and HTML legend/scale bar/north arrow
+- Preview is zoomable (scroll wheel, +/- buttons) and pannable (drag)
+- Export captures at 300 DPI: `captureHighRes()` temporarily inflates WebGL canvas buffers, uses `toDataURL()` for reliable WebGL framebuffer reads, then composites via `renderFigure()`
+- ArcGIS Pro `.pagx` dynamic text (`<dyn>` tags) substituted with app data: current date, user name, project name
+- Template elements support rotation (parsed from `.pagx`, applied via `ctx.rotate()` in canvas and CSS `transform` in preview)
+- `referenceOnly` elements (template identification labels) auto-detected via template-name heuristic and excluded from both editing and rendering
+
+### Layer Panel (Map Page)
+- Layers grouped by project (emerald sections) and reference data (gray section)
+- All sections start collapsed; expand/collapse state persisted to localStorage
+- Per-section bulk visibility toggle (eye icon) and expand-all/collapse-all buttons
+- Legend panel supports drag-and-drop layer reordering via @dnd-kit; draw order persisted to localStorage and applied to the deck.gl layers array
 
 ## Code Style
 
@@ -236,5 +264,14 @@ MVT auto-enables for datasets with 10,000+ features.
 | Import | `backend/app/services/import_service.py` | Background external-to-local import |
 | External | `backend/app/services/external_source.py` | Probe, fetch, proxy external services |
 | Map | `frontend/src/components/map/FeatureDetailPanel.tsx` | Click-to-inspect feature attributes |
+| Map | `frontend/src/components/map/EmbeddedMap.tsx` | Standalone DeckGL+MapLibre for figure export |
+| Map | `frontend/src/components/map/Legend.tsx` | Drag-and-drop legend with layer reordering |
+| Map | `frontend/src/components/map/LayerManager.tsx` | Collapsible project-grouped layer panel |
+| Figure | `frontend/src/components/map/FigureExportModal.tsx` | Unified figure export with inline editing |
+| Figure | `frontend/src/components/templates/FigureExporter.ts` | 300 DPI canvas rendering + WebGL capture |
+| Templates | `backend/app/services/template_parser.py` | QGIS .qpt and ArcGIS .pagx template parser |
+| Styling | `frontend/src/components/styling/DisplayStylePanel.tsx` | Hover fields + label configuration |
+| Loaders | `frontend/src/utils/loaders.ts` | MVT worker registration (CSP-safe) |
+| Upload | `backend/app/api/v1/upload.py` | Bundle upload with sequential processing + recovery endpoints |
 | State | `frontend/src/stores/importStore.ts` | Persistent import polling across navigation |
 | State | `frontend/src/stores/toastStore.ts` | In-app toast notification system |

@@ -29,7 +29,7 @@ docker-compose up -d
 - **Frontend**: http://localhost:5173
 - **Backend API**: http://localhost:8000
 - **API Docs**: http://localhost:8000/api/docs
-- **Default login**: admin@example.com / admin123
+- **Default login**: set via `INITIAL_ADMIN_EMAIL` / `INITIAL_ADMIN_PASSWORD` in `.env`
 
 ## Features
 
@@ -37,22 +37,33 @@ docker-compose up -d
 - **Interactive map** with deck.gl rendering on MapLibre basemaps
 - **9 basemaps**: CARTO (Positron, Dark Matter, Voyager) + Esri (Satellite, Streets, Topographic, Light Gray, National Geographic, Ocean)
 - **Feature identification**: Click any feature to inspect all attributes in a slide-out panel
-- **Layer manager**: Toggle layers, zoom to extent, view metadata, search/filter datasets
+- **Customizable hover tooltips**: Choose which fields appear on hover via the Display tab in the style editor
+- **Map labels**: Optionally display text labels on features from any field, with configurable size and color
+- **Layer manager**: Toggle layers, zoom to extent, view metadata, search/filter datasets; layers grouped by project (collapsed by default, persisted to localStorage)
+- **Legend with drag-and-drop reordering**: Reorder layers to control draw order; top item in legend = top of map
 - **Shareable map state**: Zoom, center, and visible layers encoded in URL hash for bookmarking and sharing
 - **Zoom-level notifications**: Automatic min_zoom for large datasets with informational banners
 - **Clustering**: Point datasets auto-cluster at low zoom levels via Supercluster
 
 ### Data Management (Manage Page)
-- **Upload local data**: Drag-and-drop file upload with progress tracking
-- **Connect external services**: Register ArcGIS Feature/Map/Image Servers, WMS, WFS, XYZ tile services
+- **Upload local data**: Drag-and-drop file upload with progress tracking; CRS required (no silent WGS84 assumption)
+- **Multi-dataset ZIP upload**: Upload a ZIP containing multiple shapefiles/rasters; each becomes its own dataset with independent processing. Sequential background processing prevents OOM on large bundles. Recovery endpoints allow the UI to resume tracking if the upload POST fails.
+- **Connect external services**: Register ArcGIS Feature/Map/Image Servers, WMS, WFS, XYZ tile services (all proxied through the backend to avoid CORS/CSP issues)
 - **Background imports**: Import external vector services to local PostGIS with adaptive pagination and progress polling (survives page navigation)
 - **Dataset organization**: Categorize as reference or project data, assign geographic scope, tag datasets
 - **Project management**: Create projects, assign datasets, manage team members with roles
 - **Inline editing**: Edit dataset name, description, category, tags, and zoom range
 - **Visibility and sharing**: Toggle dataset visibility and public access
-- **Style editor**: Uniform, categorical, and graduated color modes with color ramps
+- **Style editor**: Uniform, categorical, and graduated color modes with color ramps; Display tab for hover field selection and map label configuration
 - **Metadata refresh**: Re-probe all external service metadata with one click
 - **Toast notifications**: In-app notification system for all actions
+
+### Export as Figure
+- **Unified interactive preview**: Template rendered at screen scale with live DeckGL map in the map frame
+- **Inline text editing**: Click text elements directly on the template to edit; ArcGIS Pro dynamic text fields auto-populated with current date, user name, project name
+- **Zoomable/pannable preview**: Scroll to zoom, drag to pan the template preview
+- **300 DPI export**: High-resolution PNG and PDF export with print-quality map capture
+- **Template support**: QGIS `.qpt` and ArcGIS Pro `.pagx` (JSON format) templates with rotation, dynamic text, and element positioning
 
 ### External Service Support
 - **ArcGIS FeatureServer**: Vector data with adaptive page size fetching, per-field unique values for styling
@@ -162,10 +173,15 @@ alembic revision --autogenerate -m "description"  # Generate new
 |----------|-------------|---------|
 | `DATABASE_URL` | PostgreSQL connection string | (required) |
 | `SECRET_KEY` | JWT signing key | (required) |
-| `CORS_ORIGINS` | Allowed CORS origins | `*` |
+| `CORS_ORIGINS` | Allowed CORS origins | `http://localhost:5173,http://localhost:3000` |
 | `VITE_API_URL` | Backend API URL (frontend build) | `http://localhost:8000` |
 | `INITIAL_ADMIN_EMAIL` | Bootstrap admin email | (optional) |
 | `INITIAL_ADMIN_PASSWORD` | Bootstrap admin password | (optional) |
+| `INITIAL_ADMIN_FULL_NAME` | Bootstrap admin display name | `Administrator` |
+| `SMTP_HOST` | SMTP server for email notifications | (optional) |
+| `SMTP_USER` | SMTP username | (optional) |
+| `SMTP_PASSWORD` | SMTP password | (optional) |
+| `APP_URL` | Public app URL for email links | `http://localhost:5173` |
 
 ## Architecture
 
@@ -189,3 +205,5 @@ Configured for up to 100 concurrent users: `pool_size=10, max_overflow=20` (30 t
 ### Background Tasks
 
 External dataset imports run as `asyncio.create_task()` background tasks with short-lived database sessions to avoid blocking the connection pool during long network fetches. Progress tracked via UploadJob records, polled by the frontend every 2 seconds.
+
+Multi-dataset bundle uploads process datasets sequentially in a single background task (bounded peak memory). Each dataset gets its own UploadJob linked by `bundle_id`. Failed jobs are automatically marked with error messages; the lifespan sweeper handles worker-restart recovery.
