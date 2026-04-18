@@ -110,6 +110,14 @@ export function renderFigure(options: FigureExportOptions): HTMLCanvasElement {
 
     ctx.save();
 
+    if (elem.rotation) {
+      const cx = x + w / 2;
+      const cy = y + h / 2;
+      ctx.translate(cx, cy);
+      ctx.rotate((elem.rotation * Math.PI) / 180);
+      ctx.translate(-cx, -cy);
+    }
+
     switch (elem.type) {
       case 'map_frame':
         drawMapFrame(ctx, x, y, w, h, mapImage);
@@ -702,6 +710,27 @@ export function getEditablePlaceholders(template: LayoutTemplate): PlaceholderFi
     });
   });
   return fields;
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic text substitution
+// ---------------------------------------------------------------------------
+
+export interface DynamicTextContext {
+  currentDate?: string;
+  userName?: string;
+  projectName?: string;
+  mapName?: string;
+  layoutName?: string;
+}
+
+export function substituteDynamicText(text: string, ctx: DynamicTextContext): string {
+  return text
+    .replace(/\{current_date\}/g, ctx.currentDate || new Date().toLocaleDateString())
+    .replace(/\{user_name\}/g, ctx.userName || '')
+    .replace(/\{project_name\}/g, ctx.projectName || '')
+    .replace(/\{map_name\}/g, ctx.mapName || '')
+    .replace(/\{layout_name\}/g, ctx.layoutName || '');
 }
 
 // ---------------------------------------------------------------------------

@@ -10,8 +10,10 @@ import {
   exportFigureAsPNG,
   exportFigureAsPDF,
   getEditablePlaceholders,
+  substituteDynamicText,
   type PlaceholderField,
 } from '../templates/FigureExporter';
+import { useAuthStore } from '@/stores/authStore';
 import { EmbeddedMap, type EmbeddedViewState, type EmbeddedMapHandle } from './EmbeddedMap';
 
 const LAST_TEMPLATE_KEY = 'figure-export:last-template-id';
@@ -207,6 +209,7 @@ export function FigureExportModal({ onClose }: Props) {
 
   const { viewState: globalViewState, visibleDatasets: visibleSet, currentBasemap } = useMapStore();
   const { datasets } = useDatasetStore();
+  const { user } = useAuthStore();
 
   const [embeddedViewState, setEmbeddedViewState] = useState<EmbeddedViewState>(() => ({
     longitude: globalViewState.longitude,
@@ -243,6 +246,14 @@ export function FigureExportModal({ onClose }: Props) {
 
   const selectedTemplate = templates.find((t) => t.id === selectedId);
 
+  const dynamicTextContext = useMemo(() => ({
+    currentDate: new Date().toLocaleDateString(),
+    userName: user?.full_name || user?.email || '',
+    projectName: selectedTemplate?.name || '',
+    mapName: selectedTemplate?.name || '',
+    layoutName: selectedTemplate?.name || '',
+  }), [user, selectedTemplate]);
+
   useEffect(() => {
     if (selectedId) localStorage.setItem(LAST_TEMPLATE_KEY, selectedId);
   }, [selectedId]);
@@ -266,7 +277,9 @@ export function FigureExportModal({ onClose }: Props) {
   useEffect(() => {
     if (!selectedTemplate) return;
     const initial: Record<number, string> = {};
-    for (const f of placeholderFields) initial[f.elementIndex] = f.defaultValue;
+    for (const f of placeholderFields) {
+      initial[f.elementIndex] = substituteDynamicText(f.defaultValue, dynamicTextContext);
+    }
     setOverrides(initial);
     setPreviewZoom(null);
     setPreviewPan({ x: 0, y: 0 });
@@ -415,6 +428,8 @@ export function FigureExportModal({ onClose }: Props) {
       position: 'absolute',
       left, top, width, height,
       overflow: 'hidden',
+      transform: elem.rotation ? `rotate(${elem.rotation}deg)` : undefined,
+      transformOrigin: 'center center',
     };
 
     switch (elem.type) {

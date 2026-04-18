@@ -5,6 +5,7 @@ unknown elements are skipped and the original file is always preserved.
 """
 
 import logging
+import re
 from xml.etree.ElementTree import fromstring, Element
 
 logger = logging.getLogger(__name__)
@@ -223,7 +224,6 @@ def _parse_pagx_json(data: dict) -> tuple[dict, list[dict]]:
     }
 
     elements: list[dict] = []
-    import re
 
     for el in layout.get("elements", []):
         try:
@@ -267,6 +267,27 @@ def _parse_pagx_json(data: dict) -> tuple[dict, list[dict]]:
 
                 if gtype in ("CIMTextGraphic", "CIMParagraphTextGraphic"):
                     text = graphic.get("text", "")
+                    # Substitute known ArcGIS dynamic text tags with
+                    # app-resolvable placeholders before stripping HTML.
+                    text = re.sub(
+                        r'<dyn\s+[^>]*property="dateExported"[^/]*/>',
+                        "{current_date}",
+                        text,
+                    )
+                    text = re.sub(r'<dyn\s+type="user"[^/]*/>', "{user_name}", text)
+                    text = re.sub(
+                        r'<dyn\s+[^>]*property="path"[^/]*/>', "{project_name}", text
+                    )
+                    text = re.sub(
+                        r'<dyn\s+[^>]*property="mapName"[^/]*/>', "{map_name}", text
+                    )
+                    text = re.sub(
+                        r'<dyn\s+[^>]*property="name"[^/]*/>', "{layout_name}", text
+                    )
+                    text = re.sub(
+                        r'<dyn\s+[^>]*property="serviceLayerCredits"[^/]*/>', "", text
+                    )
+                    # Strip remaining HTML/formatting tags (<fnt>, <bol>, <ita>, etc.)
                     clean_text = re.sub(r"<[^>]+>", "", text).strip()
                     elem = {
                         **pos,
@@ -390,14 +411,23 @@ def _pagx_json_position(el: dict, inch_to_mm: float, page_height_mm: float) -> d
             "h": round((box["ymax"] - box["ymin"]) * inch_to_mm, 1),
         }
 
-    # 4. el.graphic.shape.x/.y (point-based text)
+    # 4. el.graphic.shape.x/.y (point-based text — estimate size from content)
     shape = graphic.get("shape", {})
     if "x" in shape and "y" in shape:
+        text_symbol = graphic.get("symbol", {}).get("symbol", {})
+        font_height = float(text_symbol.get("height", 10))
+        raw_text = graphic.get("text", "")
+        clean = re.sub(r"<[^>]+>", "", raw_text).strip()
+        lines = clean.split("\n") if clean else [""]
+        longest_line = max(len(line) for line in lines) if lines else 10
+        char_w = font_height * 0.6 * PT_TO_MM
+        est_w = max(20, min(200, longest_line * char_w))
+        est_h = max(5, len(lines) * font_height * PT_TO_MM * 1.4)
         return {
             "x": round(shape["x"] * inch_to_mm, 1),
             "y": round(page_height_mm - shape["y"] * inch_to_mm, 1),
-            "w": 50,
-            "h": 10,
+            "w": round(est_w, 1),
+            "h": round(est_h, 1),
         }
 
     # 5. Fallback
