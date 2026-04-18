@@ -15,7 +15,8 @@ import {
 import { EmbeddedMap, type EmbeddedViewState, type EmbeddedMapHandle } from './EmbeddedMap';
 
 const LAST_TEMPLATE_KEY = 'figure-export:last-template-id';
-const MM_TO_PX = 3.7795;
+const MM_TO_PX = 3.7795; // 96 DPI screen
+const MM_TO_PX_300DPI = 300 / 25.4; // ~11.811 px per mm at 300 DPI
 const MIN_ZOOM = 0.2;
 const MAX_ZOOM = 3.0;
 const ZOOM_STEP = 0.15;
@@ -361,7 +362,12 @@ export function FigureExportModal({ onClose }: Props) {
     setExporting(format);
 
     try {
-      const mapImage = await embeddedMapRef.current.captureImage();
+      // Capture at 300 DPI resolution for print quality.
+      // The map renders on screen at MM_TO_PX (~96 DPI); the figure
+      // needs MM_TO_PX_300DPI. The ratio inflates the canvas buffer
+      // so lines, labels and features render at print resolution.
+      const exportRatio = MM_TO_PX_300DPI / MM_TO_PX;
+      const mapImage = await embeddedMapRef.current.captureHighRes(exportRatio);
       if (!mapImage) throw new Error('Map canvas not ready — try again in a moment');
 
       const options = {
