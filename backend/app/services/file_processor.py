@@ -75,132 +75,71 @@ class FileProcessor:
         ext = FileProcessor.get_file_extension(filename)
         return ext in FileProcessor.SUPPORTED_RASTER
 
-    async def process_vector(
-        self,
-        file_path: Path,
-        dataset_id: uuid.UUID,
-        db: AsyncSession,
-    ) -> dict[str, Any]:
-        # Read file with geopandas
-        gdf = gpd.read_file(str(file_path))
+    @staticmethod
+    def _extract_gpkg_metadata(file_path: Path) -> dict[str, Any]:
+        """Read embedded metadata from a GeoPackage's gpkg_metadata table, if any.
 
-        if gdf.empty:
-            raise ValueError("File contains no features")
+        Returns a (possibly empty) dict suitable for merging into the dataset
+        metadata. All errors are swallowed — embedded metadata is optional.
+        """
+        if not str(file_path).lower().endswith(".gpkg"):
+            return {}
+        out: dict[str, Any] = {}
+        try:
+            import sqlite3
 
-        # Reproject to WGS84 if needed; reject if no CRS defined
-        if gdf.crs is None:
-            raise ValueError(
-                "No coordinate reference system (CRS) found. "
-                "The application requires a CRS to display data correctly. "
-                "Please add a .prj file (shapefiles) or define a CRS before uploading."
-            )
-        if gdf.crs.to_epsg() != 4326:
-            gdf = gdf.to_crs(epsg=4326)
-
-        # Strip Z coordinates if present (PostGIS column is 2D)
-        if gdf.geometry.has_z.any():
-            from shapely.ops import transform
-
-            gdf["geometry"] = gdf.geometry.apply(
-                lambda geom: (
-                    transform(lambda x, y, z=None: (x, y), geom)
-                    if geom and geom.has_z
-                    else geom
-                )
-            )
-
-        # Get geometry type
-        geom_types = gdf.geometry.geom_type.unique()
-        geom_type = geom_types[0] if len(geom_types) == 1 else "Geometry"
-
-        # Calculate bounds
-        bounds = gdf.total_bounds.tolist()  # [minx, miny, maxx, maxy]
-
-        # Create table name
-        table_name = f"vector_data_{str(dataset_id).replace('-', '_')}"
-
-        # Create table
-        await self._create_vector_table(db, table_name)
-
-        # Insert features
-        await self._insert_features(db, table_name, gdf)
-
-        metadata = {
-            "crs": str(gdf.crs) if gdf.crs else None,
-            "crs_epsg": gdf.crs.to_epsg() if gdf.crs else None,
-            "field_count": len([c for c in gdf.columns if c != "geometry"]),
-            "fields": [
-                {"name": c, "dtype": str(gdf[c].dtype)}
-                for c in gdf.columns
-                if c != "geometry"
-            ],
-        }
-
-        # Additional metadata
-        metadata["total_features"] = len(gdf)
-        metadata["total_bounds"] = gdf.total_bounds.tolist()
-        metadata["geometry_types"] = gdf.geometry.geom_type.unique().tolist()
-
-        # GeoPackage embedded metadata
-        if str(file_path).lower().endswith(".gpkg"):
+            conn = sqlite3.connect(str(file_path))
             try:
-                import sqlite3
+                cursor = conn.execute(
+                    "SELECT md_scope, metadata FROM gpkg_metadata LIMIT 1"
+                )
+                row = cursor.fetchone()
+                if row:
+                    out["gpkg_metadata_scope"] = row[0]
+                    out["gpkg_metadata"] = row[1][:5000]
+            except sqlite3.OperationalError:
+                pass  # Table doesn't exist
+            finally:
+                conn.close()
+        except Exception:
+            pass
+        return out
 
-                conn = sqlite3.connect(str(file_path))
-                try:
-                    cursor = conn.execute(
-                        "SELECT md_scope, metadata FROM gpkg_metadata LIMIT 1"
-                    )
-                    row = cursor.fetchone()
-                    if row:
-                        metadata["gpkg_metadata_scope"] = row[0]
-                        metadata["gpkg_metadata"] = row[1][:5000]
-                except sqlite3.OperationalError:
-                    pass  # Table doesn't exist
-                finally:
-                    conn.close()
-            except Exception:
-                pass
+    @staticmethod
+    def _extract_fgdc_xml(file_path: Path) -> dict[str, Any]:
+        """Read shapefile companion FGDC XML metadata from `file_path`'s directory.
 
-        # Shapefile companion XML metadata
+        Returns a dict with any of: ``metadata_xml_source``, ``abstract``,
+        ``purpose``, ``origin``, ``metadata_xml``. All errors are swallowed.
+        """
         import glob as _glob
 
+        out: dict[str, Any] = {}
         xml_files = _glob.glob(str(file_path.parent / "*.xml"))
-        if xml_files:
+        if not xml_files:
+            return out
+        try:
+            with open(xml_files[0], "r", errors="ignore") as xf:
+                xml_content = xf.read()[:10000]
+            out["metadata_xml_source"] = xml_files[0].split("/")[-1]
             try:
-                with open(xml_files[0], "r", errors="ignore") as xf:
-                    xml_content = xf.read()[:10000]
-                metadata["metadata_xml_source"] = xml_files[0].split("/")[-1]
-                # Try to extract key fields from FGDC XML
-                try:
-                    from xml.etree import ElementTree as ET
+                from xml.etree import ElementTree as ET
 
-                    root = ET.fromstring(xml_content)
-                    # FGDC abstract
-                    abstract = root.find(".//abstract")
-                    if abstract is not None and abstract.text:
-                        metadata["abstract"] = abstract.text[:2000]
-                    # FGDC purpose
-                    purpose = root.find(".//purpose")
-                    if purpose is not None and purpose.text:
-                        metadata["purpose"] = purpose.text[:2000]
-                    # FGDC origin (publisher)
-                    origin = root.find(".//origin")
-                    if origin is not None and origin.text:
-                        metadata["origin"] = origin.text[:500]
-                except ET.ParseError:
-                    metadata["metadata_xml"] = xml_content[:3000]
-            except Exception:
-                pass
-
-        return {
-            "geometry_type": geom_type,
-            "feature_count": len(gdf),
-            "bounds": bounds,
-            "table_name": table_name,
-            "columns": [col for col in gdf.columns if col != "geometry"],
-            "metadata": metadata,
-        }
+                root = ET.fromstring(xml_content)
+                abstract = root.find(".//abstract")
+                if abstract is not None and abstract.text:
+                    out["abstract"] = abstract.text[:2000]
+                purpose = root.find(".//purpose")
+                if purpose is not None and purpose.text:
+                    out["purpose"] = purpose.text[:2000]
+                origin = root.find(".//origin")
+                if origin is not None and origin.text:
+                    out["origin"] = origin.text[:500]
+            except ET.ParseError:
+                out["metadata_xml"] = xml_content[:3000]
+        except Exception:
+            pass
+        return out
 
     async def _create_vector_table(self, db: AsyncSession, table_name: str) -> None:
         # Validate table name to prevent SQL injection
@@ -409,59 +348,9 @@ class FileProcessor:
                     gdf.geometry.geom_type.unique().tolist()
                 )
 
-                # GeoPackage embedded metadata
-                if str(file_path).lower().endswith(".gpkg"):
-                    try:
-                        import sqlite3
-
-                        conn = sqlite3.connect(str(file_path))
-                        try:
-                            cursor = conn.execute(
-                                "SELECT md_scope, metadata FROM gpkg_metadata LIMIT 1"
-                            )
-                            row = cursor.fetchone()
-                            if row:
-                                file_metadata["gpkg_metadata_scope"] = row[0]
-                                file_metadata["gpkg_metadata"] = row[1][:5000]
-                        except sqlite3.OperationalError:
-                            pass  # Table doesn't exist
-                        finally:
-                            conn.close()
-                    except Exception:
-                        pass
-
-                # Shapefile companion XML metadata
-                import glob as _glob
-
-                xml_files = _glob.glob(str(file_path.parent / "*.xml"))
-                if xml_files:
-                    try:
-                        with open(xml_files[0], "r", errors="ignore") as xf:
-                            xml_content = xf.read()[:10000]
-                        file_metadata["metadata_xml_source"] = xml_files[0].split("/")[
-                            -1
-                        ]
-                        # Try to extract key fields from FGDC XML
-                        try:
-                            from xml.etree import ElementTree as ET
-
-                            root = ET.fromstring(xml_content)
-                            # FGDC abstract
-                            abstract = root.find(".//abstract")
-                            if abstract is not None and abstract.text:
-                                file_metadata["abstract"] = abstract.text[:2000]
-                            # FGDC purpose
-                            purpose = root.find(".//purpose")
-                            if purpose is not None and purpose.text:
-                                file_metadata["purpose"] = purpose.text[:2000]
-                            # FGDC origin (publisher)
-                            origin = root.find(".//origin")
-                            if origin is not None and origin.text:
-                                file_metadata["origin"] = origin.text[:500]
-                        except ET.ParseError:
-                            file_metadata["metadata_xml"] = xml_content[:3000]
-                    except Exception:
-                        pass
+                # GeoPackage embedded metadata + shapefile companion FGDC XML
+                file_metadata.update(self._extract_gpkg_metadata(file_path))
+                file_metadata.update(self._extract_fgdc_xml(file_path))
 
                 # Update dataset with results
                 dataset = await dataset_crud.get_dataset(db, dataset_id)
@@ -615,14 +504,6 @@ class FileProcessor:
                     logger.warning(
                         "Failed to clean up processing dir %s: %s", parent, cleanup_err
                     )
-
-    async def process_raster(
-        self,
-        file_path: Path,
-        dataset_id: uuid.UUID,
-    ) -> dict[str, Any]:
-        # Run blocking I/O in a thread pool to avoid blocking the event loop
-        return await asyncio.to_thread(self._process_raster_sync, file_path, dataset_id)
 
     @staticmethod
     def extract_members_to_dir(

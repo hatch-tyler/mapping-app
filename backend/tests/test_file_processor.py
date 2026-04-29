@@ -7,7 +7,7 @@ import math
 import tempfile
 import uuid
 from pathlib import Path
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -124,50 +124,63 @@ class TestFileProcessorVector:
             json.dump(sample_geojson, f)
             return Path(f.name)
 
-    @pytest.mark.asyncio
-    async def test_process_vector_geojson(
-        self, db_session: AsyncSession, geojson_file: Path
-    ):
-        """Test processing a GeoJSON file."""
-        dataset_id = uuid.uuid4()
-        processor = FileProcessor()
+    def test_extract_gpkg_metadata_returns_empty_for_non_gpkg(self, tmp_path: Path):
+        """Non-GeoPackage files return empty metadata, no exception."""
+        f = tmp_path / "x.geojson"
+        f.write_text("{}")
+        assert FileProcessor._extract_gpkg_metadata(f) == {}
 
-        with patch.object(
-            processor, "_create_vector_table", new_callable=AsyncMock
-        ) as _mock_create:
-            with patch.object(
-                processor, "_insert_features", new_callable=AsyncMock
-            ) as _mock_insert:
-                result = await processor.process_vector(
-                    geojson_file, dataset_id, db_session
-                )
+    def test_extract_gpkg_metadata_handles_missing_table(self, tmp_path: Path):
+        """GeoPackage without a gpkg_metadata table returns empty dict."""
+        import sqlite3
 
-        assert result["geometry_type"] == "Point"
-        assert result["feature_count"] == 2
-        assert len(result["bounds"]) == 4
-        assert "table_name" in result
-        assert result["table_name"].startswith("vector_data_")
+        f = tmp_path / "x.gpkg"
+        # Make a valid SQLite file with no metadata table.
+        conn = sqlite3.connect(str(f))
+        conn.execute("CREATE TABLE other (id INTEGER)")
+        conn.commit()
+        conn.close()
+        assert FileProcessor._extract_gpkg_metadata(f) == {}
 
-        # Cleanup
-        geojson_file.unlink()
+    def test_extract_gpkg_metadata_reads_row(self, tmp_path: Path):
+        """When gpkg_metadata exists, the first row's scope + content surface."""
+        import sqlite3
 
-    @pytest.mark.asyncio
-    async def test_process_vector_empty_file(self, db_session: AsyncSession):
-        """Test processing an empty GeoJSON file raises error."""
-        empty_geojson = {"type": "FeatureCollection", "features": []}
+        f = tmp_path / "x.gpkg"
+        conn = sqlite3.connect(str(f))
+        conn.execute(
+            "CREATE TABLE gpkg_metadata (id INTEGER, md_scope TEXT, metadata TEXT)"
+        )
+        conn.execute(
+            "INSERT INTO gpkg_metadata VALUES (1, 'dataset', '<meta>x</meta>')"
+        )
+        conn.commit()
+        conn.close()
+        out = FileProcessor._extract_gpkg_metadata(f)
+        assert out == {
+            "gpkg_metadata_scope": "dataset",
+            "gpkg_metadata": "<meta>x</meta>",
+        }
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".geojson", delete=False
-        ) as f:
-            json.dump(empty_geojson, f)
-            file_path = Path(f.name)
+    def test_extract_fgdc_xml_returns_empty_when_no_xml(self, tmp_path: Path):
+        f = tmp_path / "x.shp"
+        f.write_bytes(b"")
+        assert FileProcessor._extract_fgdc_xml(f) == {}
 
-        processor = FileProcessor()
-
-        with pytest.raises(ValueError, match="File contains no features"):
-            await processor.process_vector(file_path, uuid.uuid4(), db_session)
-
-        file_path.unlink()
+    def test_extract_fgdc_xml_pulls_abstract_purpose_origin(self, tmp_path: Path):
+        f = tmp_path / "x.shp"
+        f.write_bytes(b"")
+        (tmp_path / "x.shp.xml").write_text(
+            "<metadata><idinfo>"
+            "<descript><abstract>An abstract</abstract>"
+            "<purpose>A purpose</purpose></descript>"
+            "<citation><citeinfo><origin>An origin</origin></citeinfo></citation>"
+            "</idinfo></metadata>"
+        )
+        out = FileProcessor._extract_fgdc_xml(f)
+        assert out["abstract"] == "An abstract"
+        assert out["purpose"] == "A purpose"
+        assert out["origin"] == "An origin"
 
     @pytest.mark.asyncio
     async def test_create_vector_table_validates_name(self, db_session: AsyncSession):
@@ -227,22 +240,21 @@ class TestFileProcessorRaster:
 
             yield mock
 
-    @pytest.mark.asyncio
-    async def test_process_raster(self, mock_rasterio):
-        """Test processing a raster file."""
+    def test_process_raster_sync(self, mock_rasterio):
+        """The sync raster core produces a COG plus WGS84 bounds metadata."""
         with tempfile.TemporaryDirectory() as temp_dir:
-            # Create a dummy input file
             input_file = Path(temp_dir) / "input.tif"
             input_file.touch()
 
-            # Patch the settings
             with patch("app.services.file_processor.settings") as mock_settings:
                 mock_settings.RASTER_DIR = temp_dir
 
                 processor = FileProcessor()
                 dataset_id = uuid.uuid4()
 
-                result = await processor.process_raster(input_file, dataset_id)
+                # Exercises _process_raster_sync directly — the sync
+                # process_raster wrapper was removed in PR 2.
+                result = processor._process_raster_sync(input_file, dataset_id)
 
         assert "file_path" in result
         assert "bounds_wgs84" in result
