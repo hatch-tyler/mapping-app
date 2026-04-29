@@ -156,6 +156,10 @@ class UploadJob(Base):
     )
     # Groups multiple UploadJobs that originated from the same multi-dataset ZIP
     bundle_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(), index=True)
+    # Client-supplied unique identifier for a bundle upload attempt. Recorded
+    # on every UploadJob in the bundle so the frontend can reconcile a lost
+    # POST response by exact-match lookup instead of fragile timestamp windows.
+    client_nonce: Mapped[str | None] = mapped_column(String(64), index=True)
     status: Mapped[str] = mapped_column(
         String(50), default="pending"
     )  # pending, processing, completed, failed

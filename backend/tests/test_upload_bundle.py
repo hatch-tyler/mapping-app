@@ -419,6 +419,56 @@ class TestLpkBundleUpload:
         assert resp.status_code == 400
 
 
+class TestBundleByNonce:
+    @pytest.mark.asyncio
+    async def test_recovers_bundle_by_nonce(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        zip_data = _zip_bytes(
+            {"a.shp": b"s", "a.shx": b"s", "a.dbf": b"s", "a.prj": b"p"}
+        )
+        meta = [{"primary_file": "a.shp", "name": "A", "include": True}]
+        nonce = "11111111-2222-3333-4444-555555555555"
+        with patch(
+            "app.services.file_processor.file_processor.process_vector_background",
+            new=AsyncMock(return_value=None),
+        ):
+            upload_resp = await client.post(
+                "/api/v1/upload/bundle",
+                files={"file": ("b.zip", io.BytesIO(zip_data), "application/zip")},
+                data={
+                    "datasets": json.dumps(meta),
+                    "category": "reference",
+                    "client_nonce": nonce,
+                },
+                headers=admin_auth_headers,
+            )
+        assert upload_resp.status_code == 202
+        expected_bundle_id = upload_resp.json()["bundle_id"]
+
+        # Now look up the bundle by nonce — simulates the case where the
+        # original POST response was lost.
+        recovery_resp = await client.get(
+            f"/api/v1/upload/bundles/by-nonce/{nonce}",
+            headers=admin_auth_headers,
+        )
+        assert recovery_resp.status_code == 200, recovery_resp.text
+        body = recovery_resp.json()
+        assert body["bundle_id"] == expected_bundle_id
+        assert len(body["jobs"]) == 1
+        assert body["jobs"][0]["dataset_name"] == "A"
+
+    @pytest.mark.asyncio
+    async def test_unknown_nonce_returns_404(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        resp = await client.get(
+            "/api/v1/upload/bundles/by-nonce/does-not-exist",
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 404
+
+
 class TestBundleListEndpoint:
     @pytest.mark.asyncio
     async def test_list_recent_bundles_includes_just_uploaded(

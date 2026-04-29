@@ -31,22 +31,16 @@ type Phase = 'idle' | 'inspecting' | 'uploading' | 'processing' | 'completed' | 
 const POLL_INTERVAL = 2000;
 const MAX_POLL_FAILURES = 30;
 
-/** After a failed bundle upload POST, poke the backend to see if a bundle
- * was actually created for this user in the expected time window. If exactly
- * one matches, treat that as the lost response. */
+/** After a failed bundle upload POST, look up the bundle by the client-supplied
+ *  nonce — the backend stamps every UploadJob with the nonce before the wire
+ *  drops, so an exact-match query reliably finds the partially-committed
+ *  bundle without the fragile timestamp-window heuristic this replaces. */
 async function tryRecoverBundle(
-  uploadStartedAt: number,
-  expectedTotal: number,
+  clientNonce: string,
 ): Promise<{ bundle_id: string } | null> {
   try {
-    const summaries = await datasetsApi.listRecentBundles(10);
-    const lowerBound = uploadStartedAt - 60_000; // allow 60s of clock skew
-    const candidates = summaries.filter((s) => {
-      const createdMs = new Date(s.created_at).getTime();
-      return createdMs >= lowerBound && s.total === expectedTotal;
-    });
-    if (candidates.length === 1) return { bundle_id: candidates[0].bundle_id };
-    return null;
+    const detail = await datasetsApi.getBundleByNonce(clientNonce);
+    return { bundle_id: detail.bundle_id };
   } catch {
     return null;
   }
@@ -305,24 +299,33 @@ export function UploadForm({ onSuccess }: Props) {
         tags: tagsInput || undefined,
       };
 
-      const uploadStartedAt = Date.now();
+      // Generate a fresh nonce for this attempt. The backend stamps every
+      // UploadJob with it so we can recover the bundle by exact-match lookup
+      // if this POST response is lost.
+      const clientNonce = crypto.randomUUID();
       try {
         const onUploadProgress = (event: { loaded?: number; total?: number }) => {
           if (event.total) {
             setUploadProgress(Math.round(((event.loaded ?? 0) / event.total) * 100));
           }
         };
-        const resp = await datasetsApi.uploadBundle(file, datasets, uploadOpts, onUploadProgress);
+        const resp = await datasetsApi.uploadBundle(
+          file,
+          datasets,
+          uploadOpts,
+          onUploadProgress,
+          clientNonce,
+        );
         localStorage.setItem('lastBundleId', resp.bundle_id);
         setPhase('processing');
         pollBundleJobs(resp.jobs);
       } catch (err) {
         // The POST may have failed (502 from an OOM'd worker, dropped
         // connection, etc.) AFTER the backend committed dataset + job rows
-        // for at least some of the included datasets. Try to recover by
-        // looking up the caller's recent bundles and matching on the
-        // window + expected job count.
-        const recovered = await tryRecoverBundle(uploadStartedAt, included.length);
+        // for at least some of the included datasets. Try to recover via
+        // the nonce — the backend stamped it on every UploadJob before
+        // the wire dropped.
+        const recovered = await tryRecoverBundle(clientNonce);
         if (recovered) {
           localStorage.setItem('lastBundleId', recovered.bundle_id);
           setPhase('processing');

@@ -448,6 +448,7 @@ async def upload_bundle(
     geographic_scope: str | None = Form(None),
     project_id: str | None = Form(None),
     tags: str = Form(""),
+    client_nonce: str | None = Form(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_editor_or_admin_user),
 ):
@@ -574,7 +575,9 @@ async def upload_bundle(
             file_hash=file_hash,
             **extra,
         )
-        job = await dataset_crud.create_upload_job(db, dataset.id, bundle_id=bundle_id)
+        job = await dataset_crud.create_upload_job(
+            db, dataset.id, bundle_id=bundle_id, client_nonce=client_nonce
+        )
         created_jobs.append(UploadJobResponse.model_validate(job))
         plan.append(
             BundleProcessPlan(dataset_id=dataset.id, job_id=job.id, detected=det)
@@ -788,6 +791,75 @@ async def get_bundle_status(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Not authorized to view this bundle",
             )
+
+    return BundleStatusResponse(
+        bundle_id=bundle_id,
+        jobs=[
+            BundleJobDetail(
+                id=job.id,
+                dataset_id=job.dataset_id,
+                dataset_name=dataset.name,
+                status=job.status,
+                progress=job.progress,
+                error_message=job.error_message,
+                created_at=job.created_at,
+                completed_at=job.completed_at,
+            )
+            for (job, dataset) in pairs
+        ],
+    )
+
+
+@router.get("/bundles/by-nonce/{nonce}", response_model=BundleStatusResponse)
+async def get_bundle_by_nonce(
+    nonce: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_editor_or_admin_user),
+):
+    """Look up a bundle by its client-supplied nonce.
+
+    Used by the frontend to recover from a lost POST response (nginx 502,
+    network drop) without the fragile timestamp-window matching that
+    /upload/bundles/by-nonce replaces. The nonce is recorded on every
+    UploadJob row in the bundle at /upload/bundle time. Returns the full
+    per-dataset status, identical in shape to ``/upload/bundles/{bundle_id}``.
+
+    Authorization: the caller must have created at least one dataset in the
+    matched bundle, or be an admin.
+    """
+    rows = await db.execute(
+        select(UploadJob, Dataset)
+        .join(Dataset, Dataset.id == UploadJob.dataset_id)
+        .where(UploadJob.client_nonce == nonce)
+        .order_by(UploadJob.created_at)
+    )
+    pairs = list(rows.all())
+    if not pairs:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No bundle found for that nonce",
+        )
+
+    if not current_user.is_admin:
+        caller_owns = any(
+            getattr(d, "created_by_id", None) == current_user.id for (_j, d) in pairs
+        )
+        if not caller_owns:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Not authorized to view this bundle",
+            )
+
+    # All jobs share a bundle_id by construction (they came from one upload),
+    # so take the first.
+    bundle_id = pairs[0][0].bundle_id
+    if bundle_id is None:
+        # Defensive: a non-bundle single-file upload that somehow recorded a
+        # nonce shouldn't surface here, but don't crash if it did.
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No bundle found for that nonce",
+        )
 
     return BundleStatusResponse(
         bundle_id=bundle_id,

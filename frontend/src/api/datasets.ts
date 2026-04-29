@@ -182,12 +182,18 @@ export async function inspectBundle(file: File): Promise<BundleInspectResponse> 
   return response.data;
 }
 
-/** Upload a ZIP containing multiple datasets; each becomes its own UploadJob. */
+/** Upload a ZIP containing multiple datasets; each becomes its own UploadJob.
+ *
+ *  ``clientNonce`` is recorded on every job in the resulting bundle. If this
+ *  POST response is lost (502 from an OOM'd worker, dropped connection), the
+ *  frontend can recover the bundle via ``getBundleByNonce(clientNonce)``.
+ */
 export async function uploadBundle(
   file: File,
   datasets: BundleDatasetInput[],
   options?: UploadOptions,
   onUploadProgress?: (event: AxiosProgressEvent) => void,
+  clientNonce?: string,
 ): Promise<BundleUploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
@@ -197,11 +203,23 @@ export async function uploadBundle(
     formData.append('geographic_scope', options.geographic_scope);
   if (options?.project_id) formData.append('project_id', options.project_id);
   if (options?.tags) formData.append('tags', options.tags);
+  if (clientNonce) formData.append('client_nonce', clientNonce);
 
   const response = await uploadClient.post<BundleUploadResponse>(
     '/upload/bundle',
     formData,
     { onUploadProgress },
+  );
+  return response.data;
+}
+
+/** Recover a bundle by its client-supplied nonce. Used after a lost POST
+ *  response to find the bundle the backend committed before the wire dropped. */
+export async function getBundleByNonce(
+  nonce: string,
+): Promise<BundleStatusResponse> {
+  const response = await apiClient.get<BundleStatusResponse>(
+    `/upload/bundles/by-nonce/${encodeURIComponent(nonce)}`,
   );
   return response.data;
 }

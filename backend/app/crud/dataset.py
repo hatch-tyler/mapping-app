@@ -229,9 +229,14 @@ async def update_public_status(
 
 
 async def create_upload_job(
-    db: AsyncSession, dataset_id: UUID, bundle_id: UUID | None = None
+    db: AsyncSession,
+    dataset_id: UUID,
+    bundle_id: UUID | None = None,
+    client_nonce: str | None = None,
 ) -> UploadJob:
-    job = UploadJob(dataset_id=dataset_id, bundle_id=bundle_id)
+    job = UploadJob(
+        dataset_id=dataset_id, bundle_id=bundle_id, client_nonce=client_nonce
+    )
     db.add(job)
     await db.commit()
     await db.refresh(job)
