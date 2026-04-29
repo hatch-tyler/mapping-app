@@ -120,6 +120,28 @@ class TestShapefileZipValidation:
         assert response.status_code == 202
 
 
+class TestProjectIdValidation:
+    """Single-file uploads should reject malformed project_id with 400, not crash."""
+
+    @pytest.mark.asyncio
+    async def test_invalid_project_id_returns_400(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        geojson = b'{"type":"FeatureCollection","features":[]}'
+        response = await client.post(
+            "/api/v1/upload/vector",
+            files={"file": ("test.geojson", io.BytesIO(geojson), "application/json")},
+            data={
+                "name": "Test",
+                "category": "project",
+                "project_id": "not-a-uuid",
+            },
+            headers=admin_auth_headers,
+        )
+        assert response.status_code == 400
+        assert "project_id" in response.json()["detail"].lower()
+
+
 class TestDuplicateDetection:
     @pytest.mark.asyncio
     async def test_duplicate_file_returns_409(

@@ -98,6 +98,168 @@ def _processing_dir(job_id: UUID) -> Path:
     return d
 
 
+def _validate_single_file_upload(file: UploadFile, data_type: str) -> str:
+    """Validate filename and extension for a single-file upload.
+
+    Returns the (lowercase, dotted) extension. Raises HTTPException on bad input.
+    """
+    if not file.filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No filename provided",
+        )
+
+    ext = FileProcessor.get_file_extension(file.filename)
+    if data_type == "vector":
+        if not FileProcessor.is_vector_file(file.filename):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Unsupported file format: {ext}. "
+                    f"Supported: {FileProcessor.SUPPORTED_VECTOR}"
+                ),
+            )
+    elif data_type == "raster":
+        if not FileProcessor.is_raster_file(file.filename) and ext != ".zip":
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"Unsupported file format: {ext}. "
+                    f"Supported: {FileProcessor.SUPPORTED_RASTER} or .zip archive"
+                ),
+            )
+        # Sidecar-dependent raster formats cannot be uploaded as bare files —
+        # they need .hdr / .prj which only ride along inside a ZIP.
+        if ext in FileProcessor.SIDECAR_DEPENDENT_RASTER:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    f"{ext} format requires sidecar files (.prj, .hdr) for "
+                    "spatial reference. Please upload as a ZIP archive "
+                    "containing the raster file and all required sidecar files."
+                ),
+            )
+    else:
+        raise ValueError(f"Unknown data_type: {data_type}")
+    return ext
+
+
+async def _stream_save_with_size_limit(file: UploadFile, dest: Path) -> None:
+    """Stream an UploadFile to ``dest`` in 1 MB chunks, enforcing the size cap.
+
+    Raises HTTP 413 if the size limit is exceeded; the caller is responsible
+    for cleaning up partial files when an exception escapes.
+    """
+    max_bytes = settings.UPLOAD_MAX_SIZE_MB * 1024 * 1024
+    size = 0
+    with open(dest, "wb") as buffer:
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > max_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=(
+                        f"File exceeds maximum size of "
+                        f"{settings.UPLOAD_MAX_SIZE_MB}MB"
+                    ),
+                )
+            buffer.write(chunk)
+
+
+async def _save_validate_create_dataset(
+    *,
+    file: UploadFile,
+    data_type: str,
+    name: str,
+    description: str | None,
+    category: str,
+    geographic_scope: str | None,
+    project_id: str | None,
+    tags: str,
+    db: AsyncSession,
+    current_user: User,
+) -> UploadJob:
+    """Shared core for /upload/vector and /upload/raster.
+
+    Owns: extension validation, hash + duplicate check, dataset + upload-job
+    row creation, streamed-to-disk save with size cap, background task spawn
+    with crash-marks-failed callback. Returns the freshly created UploadJob.
+    """
+    ext = _validate_single_file_upload(file, data_type)
+
+    file_content = await file.read()
+    file_hash = hashlib.sha256(file_content).hexdigest()
+    await file.seek(0)
+
+    dup_result = await db.execute(
+        select(Dataset).where(Dataset.file_hash == file_hash).limit(1)
+    )
+    existing = dup_result.scalar_one_or_none()
+    if existing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This file has already been uploaded as dataset '{existing.name}'",
+        )
+
+    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
+
+    dataset_in = DatasetCreate(
+        name=name,
+        description=description,
+        category=category,
+        geographic_scope=geographic_scope,
+        tags=tag_list,
+    )
+    extra_kwargs: dict = {}
+    if project_id:
+        try:
+            extra_kwargs["project_id"] = UUID(project_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid project_id",
+            )
+
+    dataset = await dataset_crud.create_dataset(
+        db,
+        dataset_in,
+        data_type=data_type,
+        source_format=ext.lstrip("."),
+        created_by_id=current_user.id,
+        file_hash=file_hash,
+        **extra_kwargs,
+    )
+    job = await dataset_crud.create_upload_job(db, dataset.id)
+
+    proc_dir = _processing_dir(job.id)
+    file_path = proc_dir / (file.filename or "upload")
+    try:
+        await _stream_save_with_size_limit(file, file_path)
+    except HTTPException:
+        shutil.rmtree(str(proc_dir), ignore_errors=True)
+        await dataset_crud.delete_dataset(db, dataset)
+        raise
+    except Exception as e:
+        logger.exception("Failed to save uploaded file: %s", e)
+        shutil.rmtree(str(proc_dir), ignore_errors=True)
+        await dataset_crud.delete_dataset(db, dataset)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to save uploaded file",
+        )
+
+    if data_type == "vector":
+        coro = file_processor.process_vector_background(file_path, dataset.id, job.id)
+    else:
+        coro = file_processor.process_raster_background(file_path, dataset.id, job.id)
+    task = asyncio.create_task(coro)
+    # Mark the job failed if the background task dies from an uncaught
+    # exception — without this it would sit stuck in pending/processing.
+    task.add_done_callback(_fail_job_on_crash(job.id))
+
+    return job
+
+
 @router.post("/vector", response_model=UploadJobResponse, status_code=202)
 async def upload_vector(
     file: UploadFile = File(...),
@@ -110,101 +272,18 @@ async def upload_vector(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_editor_or_admin_user),
 ):
-    if not file.filename:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No filename provided",
-        )
-
-    ext = FileProcessor.get_file_extension(file.filename)
-    if not FileProcessor.is_vector_file(file.filename):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file format: {ext}. Supported: {FileProcessor.SUPPORTED_VECTOR}",
-        )
-
-    # Read file content for hashing
-    file_content = await file.read()
-    file_hash = hashlib.sha256(file_content).hexdigest()
-    await file.seek(0)  # Reset for later reading
-
-    # Check for duplicates
-    dup_result = await db.execute(
-        select(Dataset).where(Dataset.file_hash == file_hash).limit(1)
-    )
-    existing = dup_result.scalar_one_or_none()
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"This file has already been uploaded as dataset '{existing.name}'",
-        )
-
-    # Parse tags from comma-separated string
-    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
-
-    # Create dataset record
-    dataset_in = DatasetCreate(
+    return await _save_validate_create_dataset(
+        file=file,
+        data_type="vector",
         name=name,
         description=description,
         category=category,
         geographic_scope=geographic_scope,
-        tags=tag_list,
+        project_id=project_id,
+        tags=tags,
+        db=db,
+        current_user=current_user,
     )
-    extra_kwargs = {}
-    if project_id:
-        from uuid import UUID as PyUUID
-
-        extra_kwargs["project_id"] = PyUUID(project_id)
-    dataset = await dataset_crud.create_dataset(
-        db,
-        dataset_in,
-        data_type="vector",
-        source_format=ext.lstrip("."),
-        created_by_id=current_user.id,
-        file_hash=file_hash,
-        **extra_kwargs,
-    )
-
-    # Create upload job
-    job = await dataset_crud.create_upload_job(db, dataset.id)
-
-    # Save file to persistent processing directory
-    proc_dir = _processing_dir(job.id)
-    file_path = proc_dir / file.filename
-
-    max_bytes = settings.UPLOAD_MAX_SIZE_MB * 1024 * 1024
-    try:
-        size = 0
-        with open(file_path, "wb") as buffer:
-            while chunk := await file.read(1024 * 1024):  # 1MB chunks
-                size += len(chunk)
-                if size > max_bytes:
-                    buffer.close()
-                    shutil.rmtree(str(proc_dir), ignore_errors=True)
-                    await dataset_crud.delete_dataset(db, dataset)
-                    raise HTTPException(
-                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                        detail=f"File exceeds maximum size of {settings.UPLOAD_MAX_SIZE_MB}MB",
-                    )
-                buffer.write(chunk)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Failed to save uploaded file: %s", e)
-        shutil.rmtree(str(proc_dir), ignore_errors=True)
-        await dataset_crud.delete_dataset(db, dataset)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to save uploaded file",
-        )
-
-    # Spawn background processing with error logging
-    task = asyncio.create_task(
-        file_processor.process_vector_background(file_path, dataset.id, job.id)
-    )
-    task.add_done_callback(_log_task_error)
-
-    return job
 
 
 @router.post("/raster", response_model=UploadJobResponse, status_code=202)
@@ -219,111 +298,18 @@ async def upload_raster(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_editor_or_admin_user),
 ):
-    if not file.filename:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No filename provided",
-        )
-
-    ext = FileProcessor.get_file_extension(file.filename)
-    if not FileProcessor.is_raster_file(file.filename) and ext != ".zip":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unsupported file format: {ext}. Supported: {FileProcessor.SUPPORTED_RASTER} or .zip archive",
-        )
-
-    # Sidecar-dependent raster formats cannot be uploaded as bare files
-    sidecar_formats = {".asc", ".bil", ".bip", ".bsq", ".flt"}
-    if ext in sidecar_formats:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=(
-                f"{ext} format requires sidecar files (.prj, .hdr) for spatial reference. "
-                "Please upload as a ZIP archive containing the raster file and all required sidecar files."
-            ),
-        )
-
-    # Read file content for hashing
-    file_content = await file.read()
-    file_hash = hashlib.sha256(file_content).hexdigest()
-    await file.seek(0)  # Reset for later reading
-
-    # Check for duplicates
-    dup_result = await db.execute(
-        select(Dataset).where(Dataset.file_hash == file_hash).limit(1)
-    )
-    existing = dup_result.scalar_one_or_none()
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"This file has already been uploaded as dataset '{existing.name}'",
-        )
-
-    # Parse tags from comma-separated string
-    tag_list = [t.strip() for t in tags.split(",") if t.strip()] if tags else []
-
-    # Create dataset record
-    dataset_in = DatasetCreate(
+    return await _save_validate_create_dataset(
+        file=file,
+        data_type="raster",
         name=name,
         description=description,
         category=category,
         geographic_scope=geographic_scope,
-        tags=tag_list,
+        project_id=project_id,
+        tags=tags,
+        db=db,
+        current_user=current_user,
     )
-    extra_kwargs = {}
-    if project_id:
-        from uuid import UUID as PyUUID
-
-        extra_kwargs["project_id"] = PyUUID(project_id)
-    dataset = await dataset_crud.create_dataset(
-        db,
-        dataset_in,
-        data_type="raster",
-        source_format=ext.lstrip("."),
-        created_by_id=current_user.id,
-        file_hash=file_hash,
-        **extra_kwargs,
-    )
-
-    # Create upload job
-    job = await dataset_crud.create_upload_job(db, dataset.id)
-
-    # Save file to persistent processing directory
-    proc_dir = _processing_dir(job.id)
-    file_path = proc_dir / file.filename
-
-    max_bytes = settings.UPLOAD_MAX_SIZE_MB * 1024 * 1024
-    try:
-        size = 0
-        with open(file_path, "wb") as buffer:
-            while chunk := await file.read(1024 * 1024):
-                size += len(chunk)
-                if size > max_bytes:
-                    buffer.close()
-                    shutil.rmtree(str(proc_dir), ignore_errors=True)
-                    await dataset_crud.delete_dataset(db, dataset)
-                    raise HTTPException(
-                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                        detail=f"File exceeds maximum size of {settings.UPLOAD_MAX_SIZE_MB}MB",
-                    )
-                buffer.write(chunk)
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.exception("Failed to save uploaded file: %s", e)
-        shutil.rmtree(str(proc_dir), ignore_errors=True)
-        await dataset_crud.delete_dataset(db, dataset)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to save uploaded file",
-        )
-
-    task = asyncio.create_task(
-        file_processor.process_raster_background(file_path, dataset.id, job.id)
-    )
-    task.add_done_callback(_log_task_error)
-
-    return job
 
 
 @router.get("/status/{job_id}", response_model=UploadJobResponse)

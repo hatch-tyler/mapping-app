@@ -57,6 +57,9 @@ class FileProcessor:
     # as a bare single file via /upload/vector or /upload/raster — they only
     # flow through the bundle path, where each layer becomes its own dataset.
     SUPPORTED_CONTAINER = {".gdb", ".lpk", ".lpkx"}
+    # Raster formats that can't be uploaded bare — they need .hdr / .prj
+    # sidecars and must arrive in a ZIP.
+    SIDECAR_DEPENDENT_RASTER = {".asc", ".bil", ".bip", ".bsq", ".flt"}
 
     @staticmethod
     def get_file_extension(filename: str) -> str:
