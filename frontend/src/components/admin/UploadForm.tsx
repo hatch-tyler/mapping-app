@@ -227,6 +227,7 @@ export function UploadForm({ onSuccess }: Props) {
             primaryFile: d.primary_file,
             memberFiles: d.member_files,
             warnings: d.warnings,
+            entryPath: d.entry_path,
             containerPath: d.container_path,
             layerName: d.layer_name,
           }));

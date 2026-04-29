@@ -3,6 +3,7 @@ import hashlib
 import json
 import shutil
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Callable
 from uuid import UUID
@@ -45,6 +46,24 @@ router = APIRouter(prefix="/upload", tags=["upload"])
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class BundleProcessPlan:
+    """One entry in the bundle's per-job processing plan.
+
+    Created up-front at /upload/bundle (one per included DetectedDataset)
+    and consumed sequentially by ``_process_bundle_sequentially``.
+    """
+
+    dataset_id: UUID
+    job_id: UUID
+    detected: DetectedDataset
+
+    @property
+    def primary_file(self) -> str:
+        # Convenience for logs / error messages.
+        return self.detected.primary_file
 
 
 def _log_task_error(task: asyncio.Task) -> None:
@@ -330,6 +349,30 @@ async def get_upload_status(
 # ===== Multi-Dataset Bundle Upload =====
 
 
+def _hash_detected_dataset(zip_path: Path, det: DetectedDataset) -> str:
+    """Compute the deduplication hash for a detected dataset within a bundle.
+
+    For plain-file datasets (``entry_path`` set), hashes the entry's content.
+    For container-layer datasets (``.gdb`` / ``.lpk`` — ``entry_path`` is None),
+    streams every member's content in sorted order and mixes in ``layer_name``
+    so two layers from the same .gdb get distinct hashes.
+    """
+    import zipfile
+
+    with zipfile.ZipFile(str(zip_path), "r") as zf:
+        if det.entry_path is not None:
+            with zf.open(det.entry_path) as f:
+                return hashlib.sha256(f.read()).hexdigest()
+        h = hashlib.sha256()
+        for member in sorted(det.member_files):
+            with zf.open(member) as f:
+                for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                    h.update(chunk)
+        h.update(b"\x00")
+        h.update((det.layer_name or "").encode("utf-8"))
+        return h.hexdigest()
+
+
 async def _save_upload_to_temp(file: UploadFile, dest: Path) -> int:
     """Stream an UploadFile to disk in 1MB chunks, enforcing the size limit.
 
@@ -482,8 +525,7 @@ async def upload_bundle(
     # every dataset's processing concurrently, which was the OOM root cause
     # for large bundles).
     created_jobs: list[UploadJobResponse] = []
-    plan: list[tuple[UUID, UUID, DetectedDataset, str]] = []
-    # (dataset_id, job_id, det, primary_file)
+    plan: list[BundleProcessPlan] = []
 
     for meta in included:
         det = detected_by_primary.get(meta.primary_file)
@@ -496,26 +538,7 @@ async def upload_bundle(
             continue
 
         try:
-            import zipfile
-
-            with zipfile.ZipFile(str(zip_path), "r") as zf:
-                if getattr(det, "container_path", None):
-                    # Container layers (.gdb / .lpk) — primary_file is a synthetic
-                    # "<container>::<layer>" key, not a real ZIP entry. Hash the
-                    # combined content of all member files (the .gdb tree or the
-                    # .lpk file) plus the layer name so different layers in the
-                    # same .gdb get distinct hashes.
-                    h = hashlib.sha256()
-                    for member in sorted(det.member_files):
-                        with zf.open(member) as f:
-                            for chunk in iter(lambda: f.read(1024 * 1024), b""):
-                                h.update(chunk)
-                    h.update(b"\x00")
-                    h.update((det.layer_name or "").encode("utf-8"))
-                    file_hash = h.hexdigest()
-                else:
-                    with zf.open(det.primary_file) as f:
-                        file_hash = hashlib.sha256(f.read()).hexdigest()
+            file_hash = _hash_detected_dataset(zip_path, det)
         except Exception as e:
             logger.exception("Failed to hash %s: %s", det.primary_file, e)
             continue
@@ -553,7 +576,9 @@ async def upload_bundle(
         )
         job = await dataset_crud.create_upload_job(db, dataset.id, bundle_id=bundle_id)
         created_jobs.append(UploadJobResponse.model_validate(job))
-        plan.append((dataset.id, job.id, det, det.primary_file))
+        plan.append(
+            BundleProcessPlan(dataset_id=dataset.id, job_id=job.id, detected=det)
+        )
 
     if not created_jobs:
         shutil.rmtree(str(bundle_dir), ignore_errors=True)
@@ -643,7 +668,7 @@ async def _process_bundle_sequentially(
     bundle_id: UUID,
     bundle_dir: Path,
     zip_path: Path,
-    plan: list[tuple[UUID, UUID, DetectedDataset, str]],
+    plan: list[BundleProcessPlan],
 ) -> None:
     """Extract and process each dataset in the bundle one at a time.
 
@@ -652,20 +677,21 @@ async def _process_bundle_sequentially(
     mitigation for the prior worker-OOM 502 incidents on large bundles.
     """
     try:
-        for dataset_id, job_id, det, primary_file in plan:
+        for entry in plan:
+            det = entry.detected
             try:
-                job_dir = bundle_dir / str(job_id)
+                job_dir = bundle_dir / str(entry.job_id)
 
                 # Multi-layer container path: .gdb or .lpk
-                if getattr(det, "container_path", None):
+                if det.container_path is not None:
                     read_path, layer_name, kind = await _resolve_container_layer(
                         job_dir, zip_path, det
                     )
                     if kind == "vector":
                         await file_processor.process_vector_background(
                             read_path,
-                            dataset_id,
-                            job_id,
+                            entry.dataset_id,
+                            entry.job_id,
                             layer_name=layer_name,
                         )
                     else:
@@ -674,11 +700,11 @@ async def _process_bundle_sequentially(
                         # rasters; raster inside .lpk gets layer_name=None).
                         if layer_name is not None:
                             await file_processor.process_gdb_raster_layer_background(
-                                read_path, layer_name, dataset_id, job_id
+                                read_path, layer_name, entry.dataset_id, entry.job_id
                             )
                         else:
                             await file_processor.process_raster_background(
-                                read_path, dataset_id, job_id
+                                read_path, entry.dataset_id, entry.job_id
                             )
                     continue
 
@@ -691,22 +717,22 @@ async def _process_bundle_sequentially(
                 )
                 if det.data_type == "vector":
                     await file_processor.process_vector_background(
-                        primary_path, dataset_id, job_id
+                        primary_path, entry.dataset_id, entry.job_id
                     )
                 else:
                     await file_processor.process_raster_background(
-                        primary_path, dataset_id, job_id
+                        primary_path, entry.dataset_id, entry.job_id
                     )
             except Exception as e:
                 logger.exception(
                     "Bundle %s: failed to process %s (job %s): %s",
                     bundle_id,
-                    primary_file,
-                    job_id,
+                    entry.primary_file,
+                    entry.job_id,
                     e,
                 )
                 await _mark_job_failed(
-                    job_id, f"Failed to process from bundle: {e}"[:1000]
+                    entry.job_id, f"Failed to process from bundle: {e}"[:1000]
                 )
     finally:
         # All datasets processed (or crashed); the ZIP + bundle dir are no

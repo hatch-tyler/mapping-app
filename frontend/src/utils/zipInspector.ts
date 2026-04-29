@@ -7,9 +7,13 @@ export interface DetectedDataset {
   dataType: DataType;
   format: string;
     // 'shapefile' | 'geotiff' | 'geopackage' | 'geojson' | 'grid' | 'gdb-vector' | 'gdb-raster' | <ext>
-  primaryFile: string; // path inside the bundle archive (or "<container>::<layer>" for GDB layers)
-  memberFiles: string[]; // includes primaryFile + sidecars
+  /** Opaque unique key. For plain files this equals entryPath; for container
+   *  layers it is a synthetic "<container>::<layer>" identifier. */
+  primaryFile: string;
+  memberFiles: string[]; // includes the primary entry + sidecars (or just the container)
   warnings: string[];
+  /** Real bundle-archive entry path for plain-file datasets; null for container layers. */
+  entryPath?: string | null;
   // Set when the dataset is a layer inside a multi-layer container
   // (.gdb directory or .lpk/.lpkx file).
   containerPath?: string | null;
@@ -163,6 +167,7 @@ export async function inspectZip(file: File): Promise<DetectedDataset[]> {
         primaryFile: entry,
         memberFiles: members,
         warnings,
+        entryPath: entry,
       });
       continue;
     }
@@ -179,6 +184,7 @@ export async function inspectZip(file: File): Promise<DetectedDataset[]> {
         warnings: [
           'Multi-layer GeoPackages will be imported as the first layer only',
         ],
+        entryPath: entry,
       });
       continue;
     }
@@ -193,6 +199,7 @@ export async function inspectZip(file: File): Promise<DetectedDataset[]> {
         primaryFile: entry,
         memberFiles: [entry],
         warnings: [],
+        entryPath: entry,
       });
       continue;
     }
@@ -213,6 +220,7 @@ export async function inspectZip(file: File): Promise<DetectedDataset[]> {
         primaryFile: entry,
         memberFiles: members,
         warnings: [],
+        entryPath: entry,
       });
       continue;
     }
@@ -246,6 +254,7 @@ export async function inspectZip(file: File): Promise<DetectedDataset[]> {
         primaryFile: entry,
         memberFiles: members,
         warnings,
+        entryPath: entry,
       });
     }
   }

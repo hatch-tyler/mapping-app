@@ -242,9 +242,13 @@ export interface DetectedDatasetApi {
   suggested_name: string;
   data_type: 'vector' | 'raster';
   format: string;
+  /** Opaque unique key. For plain files this equals entry_path; for container
+   *  layers it is a synthetic "<container>::<layer>" identifier. */
   primary_file: string;
   member_files: string[];
   warnings: string[];
+  /** Real ZIP entry path for plain-file datasets; null for container layers. */
+  entry_path?: string | null;
   // Set when the dataset is a layer inside a multi-layer container
   // (.gdb directory or .lpk/.lpkx file).
   container_path?: string | null;

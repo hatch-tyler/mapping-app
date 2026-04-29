@@ -38,19 +38,37 @@ DataType = Literal["vector", "raster"]
 
 @dataclass
 class DetectedDataset:
-    """One dataset detected within an uploaded ZIP archive."""
+    """One dataset detected within an uploaded ZIP archive.
+
+    The dataset is identified in one of two ways depending on whether it lives
+    in a multi-layer container (.gdb / .lpk):
+
+    * **Plain file** (shapefile, GeoJSON, GeoPackage, raster, grid): ``entry_path``
+      is the real path within the bundle ZIP. ``container_path`` and
+      ``layer_name`` are None.
+    * **Container layer** (gdb-vector, gdb-raster, anything inside a .lpk):
+      ``container_path`` is the path within the bundle ZIP to the .gdb
+      directory or .lpk/.lpkx file; ``layer_name`` is the layer name inside.
+      ``entry_path`` is None — there is no single ZIP entry that *is* the
+      dataset; the bundle processor reads from the container at process time.
+
+    ``primary_file`` is a frontend-facing **unique key** for the detection. It
+    is always set: equal to ``entry_path`` for plain files, or a synthetic
+    ``"<container>::<layer>"`` key for container layers. Consumers should use
+    ``entry_path`` / ``container_path`` / ``layer_name`` to do real work and
+    treat ``primary_file`` as an opaque identifier.
+    """
 
     suggested_name: str
     data_type: DataType
     format: str  # shapefile, geotiff, geopackage, geojson, grid, gdb-vector, gdb-raster
-    primary_file: str  # path within the ZIP
+    primary_file: str
     member_files: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    # Real ZIP entry path for plain-file datasets; None for container layers.
+    entry_path: str | None = None
     # Set for multi-layer container formats (.gdb / .lpk / .lpkx). The bundle
     # processor uses these to find and read the right layer at process time.
-    # ``container_path`` is the path within the uploaded ZIP to the .gdb
-    # directory (no trailing slash) or to the .lpk/.lpkx file. ``layer_name``
-    # is the layer/feature-class/raster name inside the container.
     container_path: str | None = None
     layer_name: str | None = None
 
@@ -380,6 +398,7 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                     primary_file=entry,
                     member_files=members,
                     warnings=warnings,
+                    entry_path=entry,
                 )
             )
             continue
@@ -397,6 +416,7 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                     warnings=[
                         "Multi-layer GeoPackages will be imported as the first layer only",
                     ],
+                    entry_path=entry,
                 )
             )
             continue
@@ -411,6 +431,7 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                     format="geojson",
                     primary_file=entry,
                     member_files=[entry],
+                    entry_path=entry,
                 )
             )
             continue
@@ -436,6 +457,7 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                     ),
                     primary_file=entry,
                     member_files=members,
+                    entry_path=entry,
                 )
             )
             continue
@@ -471,6 +493,7 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                     primary_file=entry,
                     member_files=members,
                     warnings=warnings,
+                    entry_path=entry,
                 )
             )
 

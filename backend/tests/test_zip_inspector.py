@@ -280,6 +280,38 @@ class TestMixedAndEdgeCases:
         assert datasets == []
 
 
+class TestEntryPathField:
+    """The ``entry_path`` field disambiguates plain files from container layers."""
+
+    def test_plain_files_have_entry_path(self, tmp_path: Path):
+        zip_path = _make_zip(
+            tmp_path,
+            {
+                "a.shp": b"s",
+                "a.shx": b"s",
+                "a.dbf": b"s",
+                "a.prj": b"p",
+                "b.tif": b"t",
+                "c.geojson": b'{"type":"FeatureCollection","features":[]}',
+                "d.gpkg": b"sqlite",
+            },
+        )
+        datasets = inspect_zip(zip_path)
+        for d in datasets:
+            assert d.entry_path == d.primary_file, d
+            assert d.container_path is None, d
+
+    def test_gdb_layers_have_no_entry_path(self, tmp_path: Path):
+        gdb_path = _make_sample_gdb(tmp_path, {"points": "Point"})
+        zip_path = _zip_directory(gdb_path, tmp_path / "sample.gdb.zip")
+        datasets = inspect_zip(zip_path)
+        gdb_layers = [d for d in datasets if d.format == "gdb-vector"]
+        assert gdb_layers
+        for d in gdb_layers:
+            assert d.entry_path is None
+            assert d.container_path is not None
+
+
 class TestDetectedDatasetOrdering:
     def test_stable_sort_by_primary_file(self, tmp_path: Path):
         zip_path = _make_zip(

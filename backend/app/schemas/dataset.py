@@ -101,7 +101,13 @@ class UploadJobResponse(BaseModel):
 
 
 class DetectedDatasetSchema(BaseModel):
-    """A dataset detected within an uploaded ZIP archive."""
+    """A dataset detected within an uploaded ZIP archive.
+
+    See ``app.services.zip_inspector.DetectedDataset`` for the field semantics.
+    Briefly: ``primary_file`` is an opaque unique key; do real work via
+    ``entry_path`` (plain files) or ``container_path`` + ``layer_name``
+    (multi-layer containers).
+    """
 
     suggested_name: str
     data_type: str  # "vector" or "raster"
@@ -109,9 +115,9 @@ class DetectedDatasetSchema(BaseModel):
     primary_file: str
     member_files: list[str]
     warnings: list[str] = Field(default_factory=list)
+    # Real ZIP entry path for plain-file datasets; None for container layers.
+    entry_path: str | None = None
     # Set when the dataset lives inside a multi-layer container (.gdb, .lpk, .lpkx).
-    # `container_path` points at the .gdb directory or .lpk/.lpkx file *inside* the
-    # uploaded ZIP; `layer_name` selects which layer within that container to read.
     container_path: str | None = None
     layer_name: str | None = None
 
