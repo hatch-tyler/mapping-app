@@ -5,10 +5,15 @@ export type DataType = 'vector' | 'raster';
 export interface DetectedDataset {
   suggestedName: string;
   dataType: DataType;
-  format: string; // 'shapefile' | 'geotiff' | 'geopackage' | 'geojson' | 'grid' | <ext>
-  primaryFile: string; // path inside ZIP
+  format: string;
+    // 'shapefile' | 'geotiff' | 'geopackage' | 'geojson' | 'grid' | 'gdb-vector' | 'gdb-raster' | <ext>
+  primaryFile: string; // path inside the bundle archive (or "<container>::<layer>" for GDB layers)
   memberFiles: string[]; // includes primaryFile + sidecars
   warnings: string[];
+  // Set when the dataset is a layer inside a multi-layer container
+  // (.gdb directory or .lpk/.lpkx file).
+  containerPath?: string | null;
+  layerName?: string | null;
 }
 
 const SHAPEFILE_EXT = '.shp';
@@ -94,9 +99,24 @@ async function listZipEntries(file: File): Promise<string[]> {
 /**
  * Inspect a ZIP and group its entries into detected datasets.
  * Mirrors backend/app/services/zip_inspector.py.
+ *
+ * Throws ``ContainerFormatError`` when the archive contains an Esri File
+ * Geodatabase or Layer Package — those need GDAL to enumerate layers, so
+ * the caller should fall back to the server-side ``/upload/inspect`` endpoint.
  */
+export class ContainerFormatError extends Error {
+  constructor() {
+    super('Archive contains a multi-layer container (.gdb / .lpk) — server-side inspection required');
+    this.name = 'ContainerFormatError';
+  }
+}
+
 export async function inspectZip(file: File): Promise<DetectedDataset[]> {
   const entries = await listZipEntries(file);
+
+  if (hasContainerFormat(entries)) {
+    throw new ContainerFormatError();
+  }
 
   // Group siblings by (directory, stem)
   const groups: Record<string, string[]> = {};
@@ -237,4 +257,23 @@ export async function inspectZip(file: File): Promise<DetectedDataset[]> {
 /** True if the filename is a ZIP archive. */
 export function isZipFile(filename: string): boolean {
   return filename.toLowerCase().endsWith('.zip');
+}
+
+/** True if the upload should go through the bundle flow (zip, layer package). */
+export function isBundleFile(filename: string): boolean {
+  const lower = filename.toLowerCase();
+  return lower.endsWith('.zip') || lower.endsWith('.lpk') || lower.endsWith('.lpkx');
+}
+
+/** True if the ZIP entries indicate a multi-layer container (.gdb / .lpk inside).
+ *  When this returns true, server-side inspection is required (the client
+ *  cannot enumerate layers without GDAL). */
+export function hasContainerFormat(entries: string[]): boolean {
+  for (const e of entries) {
+    const lower = e.toLowerCase();
+    if (lower.endsWith('.lpk') || lower.endsWith('.lpkx')) return true;
+    // Detect any ".gdb/" directory segment in the path.
+    if (/(^|\/)[^/]+\.gdb(\/|$)/.test(lower)) return true;
+  }
+  return false;
 }

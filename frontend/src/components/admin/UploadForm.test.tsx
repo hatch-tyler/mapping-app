@@ -10,6 +10,14 @@ vi.mock('../../api/datasets', () => ({
   uploadVector: vi.fn(),
   uploadRaster: vi.fn(),
   getUploadJobStatus: vi.fn(),
+  inspectBundle: vi.fn(),
+  uploadBundle: vi.fn(),
+  getBundleStatus: vi.fn(),
+  listRecentBundles: vi.fn(),
+}));
+
+vi.mock('../../api/projects', () => ({
+  getProjects: vi.fn().mockResolvedValue({ projects: [] }),
 }));
 
 // Mock react-dropzone
@@ -55,6 +63,8 @@ describe('UploadForm', () => {
     render(<UploadForm onSuccess={mockOnSuccess} />);
 
     expect(screen.getByText(/Supported: GeoJSON, Shapefile/)).toBeInTheDocument();
+    expect(screen.getByText(/File Geodatabase/)).toBeInTheDocument();
+    expect(screen.getByText(/Layer Package/)).toBeInTheDocument();
   });
 
   it('should have disabled submit button when no file is selected', () => {
@@ -340,5 +350,77 @@ describe('UploadForm', () => {
     await waitFor(() => {
       expect(screen.queryByText('Uploading...')).not.toBeInTheDocument();
     });
+  });
+
+  it('should route .gdb.zip with multiple feature classes through the bundle flow', async () => {
+    // .gdb.zip can't be inspected client-side (no GDAL in browser); the form
+    // falls back to the server-side /upload/inspect endpoint, which returns
+    // one detected dataset per feature class.
+    const mockFile = new File(['gdb-bytes'], 'sample.gdb.zip', {
+      type: 'application/zip',
+    });
+
+    vi.mocked(datasetsApi.inspectBundle).mockResolvedValue({
+      datasets: [
+        {
+          suggested_name: 'sample__roads',
+          data_type: 'vector',
+          format: 'gdb-vector',
+          primary_file: 'sample.gdb::roads',
+          member_files: ['sample.gdb/a00000001.gdbtable'],
+          warnings: [],
+          container_path: 'sample.gdb',
+          layer_name: 'roads',
+        },
+        {
+          suggested_name: 'sample__parcels',
+          data_type: 'vector',
+          format: 'gdb-vector',
+          primary_file: 'sample.gdb::parcels',
+          member_files: ['sample.gdb/a00000002.gdbtable'],
+          warnings: [],
+          container_path: 'sample.gdb',
+          layer_name: 'parcels',
+        },
+      ],
+    });
+
+    render(<UploadForm onSuccess={mockOnSuccess} />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const dataTransfer = new DataTransfer();
+    dataTransfer.items.add(mockFile);
+    fireEvent.change(input, { target: { files: dataTransfer.files } });
+
+    // Both detected feature class names should render in the bundle list.
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('sample__roads')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('sample__parcels')).toBeInTheDocument();
+    });
+    expect(datasetsApi.inspectBundle).toHaveBeenCalledWith(mockFile);
+
+    // The submit button should reflect bundle-mode label.
+    const submitButton = screen.getByRole('button', { name: /Upload 2 Datasets/i });
+    expect(submitButton).toBeInTheDocument();
+
+    vi.mocked(datasetsApi.uploadBundle).mockResolvedValue({
+      bundle_id: 'bundle-1',
+      jobs: [],
+    });
+    fireEvent.click(submitButton);
+
+    // The bundle upload payload should carry container_path / layer_name per layer.
+    await waitFor(() => {
+      expect(datasetsApi.uploadBundle).toHaveBeenCalled();
+    });
+    const uploadCall = vi.mocked(datasetsApi.uploadBundle).mock.calls[0];
+    const datasetsArg = uploadCall[1] as Array<{
+      primary_file: string;
+      container_path?: string | null;
+      layer_name?: string | null;
+    }>;
+    expect(datasetsArg).toHaveLength(2);
+    expect(datasetsArg[0].container_path).toBe('sample.gdb');
+    expect(datasetsArg[0].layer_name).toMatch(/^(roads|parcels)$/);
   });
 });

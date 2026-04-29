@@ -5,6 +5,8 @@ from __future__ import annotations
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from app.services.zip_inspector import inspect_zip
 
 
@@ -14,6 +16,57 @@ def _make_zip(tmp_path: Path, entries: dict[str, bytes]) -> Path:
     with zipfile.ZipFile(zip_path, "w") as zf:
         for name, data in entries.items():
             zf.writestr(name, data)
+    return zip_path
+
+
+def _make_sample_gdb(tmp_path: Path, layers: dict[str, str] | None = None) -> Path:
+    """Create a small File Geodatabase via geopandas + OpenFileGDB.
+
+    Each entry in ``layers`` maps a feature class name to a WKT geometry
+    representative ('Point', 'LineString', 'Polygon'). Skips the test if
+    the runtime can't write GDBs (no GDAL / OpenFileGDB).
+    """
+    pytest.importorskip("fiona")
+    pytest.importorskip("geopandas")
+    import fiona
+    import geopandas as gpd
+    from shapely.geometry import Point, LineString, Polygon
+
+    if "OpenFileGDB" not in fiona.supported_drivers:
+        pytest.skip("OpenFileGDB driver not available in this GDAL build")
+    # Read+write capability is required.
+    if "w" not in fiona.supported_drivers["OpenFileGDB"]:
+        pytest.skip("OpenFileGDB driver is read-only on this GDAL build")
+
+    layers = layers or {"points": "Point", "lines": "LineString"}
+    gdb_path = tmp_path / "sample.gdb"
+
+    geometry_makers = {
+        "Point": lambda: Point(-122.4, 37.8),
+        "LineString": lambda: LineString([(0, 0), (1, 1)]),
+        "Polygon": lambda: Polygon([(0, 0), (1, 0), (1, 1), (0, 1)]),
+    }
+
+    for layer_name, geom_kind in layers.items():
+        gdf = gpd.GeoDataFrame(
+            {"id": [1, 2], "name": ["a", "b"]},
+            geometry=[geometry_makers[geom_kind](), geometry_makers[geom_kind]()],
+            crs="EPSG:4326",
+        )
+        gdf.to_file(str(gdb_path), driver="OpenFileGDB", layer=layer_name)
+
+    return gdb_path
+
+
+def _zip_directory(src_dir: Path, zip_path: Path, prefix: str = "") -> Path:
+    """ZIP the contents of src_dir, optionally under a prefix path."""
+    with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_STORED) as zf:
+        for path in src_dir.rglob("*"):
+            if path.is_file():
+                rel = path.relative_to(src_dir.parent).as_posix()
+                if prefix:
+                    rel = f"{prefix.rstrip('/')}/{rel}"
+                zf.write(path, arcname=rel)
     return zip_path
 
 
@@ -239,3 +292,89 @@ class TestDetectedDatasetOrdering:
         )
         datasets = inspect_zip(zip_path)
         assert [d.primary_file for d in datasets] == ["a.tif", "m.tif", "z.tif"]
+
+
+class TestFileGeodatabaseDetection:
+    def test_gdb_zip_emits_one_dataset_per_feature_class(self, tmp_path: Path):
+        gdb_path = _make_sample_gdb(
+            tmp_path, {"points": "Point", "lines": "LineString"}
+        )
+        zip_path = _zip_directory(gdb_path, tmp_path / "sample.gdb.zip")
+
+        datasets = inspect_zip(zip_path)
+        assert len(datasets) >= 2, datasets
+        formats = {d.format for d in datasets}
+        assert "gdb-vector" in formats
+        layer_names = {d.layer_name for d in datasets if d.format == "gdb-vector"}
+        assert {"points", "lines"} <= layer_names
+        for d in datasets:
+            if d.format == "gdb-vector":
+                assert d.container_path is not None
+                assert d.container_path.endswith(".gdb")
+                assert d.data_type == "vector"
+
+    def test_gdb_inside_subdirectory(self, tmp_path: Path):
+        gdb_path = _make_sample_gdb(tmp_path, {"points": "Point"})
+        zip_path = _zip_directory(gdb_path, tmp_path / "wrapper.zip", prefix="data")
+
+        datasets = inspect_zip(zip_path)
+        gdb_layers = [d for d in datasets if d.format == "gdb-vector"]
+        assert gdb_layers
+        for d in gdb_layers:
+            assert d.container_path == "data/sample.gdb"
+
+
+class TestLayerPackageDetection:
+    def test_lpk_with_inner_gdb(self, tmp_path: Path):
+        # Build a .gdb, package it as a .lpk (which is itself a ZIP), then
+        # wrap that .lpk in an outer bundle ZIP.
+        gdb_path = _make_sample_gdb(tmp_path, {"buildings": "Polygon"})
+        lpk_path = tmp_path / "myLayer.lpk"
+        _zip_directory(gdb_path, lpk_path)
+
+        outer_zip = _make_zip(tmp_path, {"myLayer.lpk": lpk_path.read_bytes()})
+
+        datasets = inspect_zip(outer_zip)
+        lpk_inner = [d for d in datasets if d.container_path == "myLayer.lpk"]
+        assert lpk_inner, datasets
+        # The inner gdb-vector layer should surface, with layer_name encoding
+        # the inner gdb path so the bundle processor can resolve it.
+        gdb_inner = [d for d in lpk_inner if d.format == "gdb-vector"]
+        assert gdb_inner
+        for d in gdb_inner:
+            assert d.layer_name and "::" in d.layer_name
+            assert d.layer_name.endswith("::buildings")
+
+    def test_lpk_with_inner_shapefile(self, tmp_path: Path):
+        # Build a minimal shapefile-stub .lpk and outer ZIP
+        lpk_path = tmp_path / "shp_layer.lpk"
+        with zipfile.ZipFile(lpk_path, "w") as zf:
+            zf.writestr("data/parcels.shp", b"shp")
+            zf.writestr("data/parcels.shx", b"shx")
+            zf.writestr("data/parcels.dbf", b"dbf")
+            zf.writestr("data/parcels.prj", b"prj")
+
+        outer_zip = _make_zip(tmp_path, {"shp_layer.lpk": lpk_path.read_bytes()})
+
+        datasets = inspect_zip(outer_zip)
+        inner = [d for d in datasets if d.container_path == "shp_layer.lpk"]
+        assert inner
+        shp = [d for d in inner if d.format == "shapefile"]
+        assert shp
+        assert shp[0].layer_name == "data/parcels.shp"
+
+    def test_top_level_lpk_uploaded_directly(self, tmp_path: Path):
+        # User uploads a .lpk directly (not nested in a wrapper ZIP).
+        # inspect_zip is called on the .lpk file itself; since .lpk IS a ZIP,
+        # the inner data sources should surface as if it were a normal bundle.
+        lpk_path = tmp_path / "direct.lpk"
+        with zipfile.ZipFile(lpk_path, "w") as zf:
+            zf.writestr("foo.shp", b"shp")
+            zf.writestr("foo.shx", b"shx")
+            zf.writestr("foo.dbf", b"dbf")
+            zf.writestr("foo.prj", b"prj")
+
+        datasets = inspect_zip(lpk_path)
+        assert len(datasets) == 1
+        assert datasets[0].format == "shapefile"
+        assert datasets[0].primary_file == "foo.shp"

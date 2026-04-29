@@ -37,7 +37,7 @@ from app.api.deps import get_current_editor_or_admin_user
 from app.models.user import User
 from app.models.dataset import Dataset, UploadJob
 from app.services.file_processor import file_processor, FileProcessor
-from app.services.zip_inspector import inspect_zip
+from app.services.zip_inspector import inspect_zip, DetectedDataset
 from app.config import settings
 
 router = APIRouter(prefix="/upload", tags=["upload"])
@@ -368,20 +368,26 @@ async def _save_upload_to_temp(file: UploadFile, dest: Path) -> int:
     return size
 
 
+_BUNDLE_EXTS = {".zip", ".lpk", ".lpkx"}
+
+
 @router.post("/inspect", response_model=BundleInspectResponse)
 async def inspect_bundle(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_editor_or_admin_user),
 ):
-    """Inspect a ZIP archive and list the datasets found inside.
+    """Inspect a ZIP / .gdb.zip / .lpk / .lpkx archive and list the datasets found inside.
 
     Does not create any database rows. Used by the upload UI to preview
     what will be imported before the user commits.
     """
-    if not file.filename or FileProcessor.get_file_extension(file.filename) != ".zip":
+    if (
+        not file.filename
+        or FileProcessor.get_file_extension(file.filename) not in _BUNDLE_EXTS
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Inspection requires a .zip file",
+            detail="Inspection requires a .zip, .lpk, or .lpkx file",
         )
 
     tmp_dir = Path(settings.UPLOAD_DIR) / "inspect" / str(uuid.uuid4())
@@ -416,15 +422,18 @@ async def upload_bundle(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_editor_or_admin_user),
 ):
-    """Upload a ZIP containing multiple datasets.
+    """Upload a ZIP / .gdb.zip / .lpk / .lpkx containing multiple datasets.
 
     Each included dataset becomes its own Dataset row and UploadJob, sharing
     a bundle_id so the UI can track them as a group.
     """
-    if not file.filename or FileProcessor.get_file_extension(file.filename) != ".zip":
+    if (
+        not file.filename
+        or FileProcessor.get_file_extension(file.filename) not in _BUNDLE_EXTS
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Bundle upload requires a .zip file",
+            detail="Bundle upload requires a .zip, .lpk, or .lpkx file",
         )
 
     # Parse and validate per-dataset metadata
@@ -487,9 +496,8 @@ async def upload_bundle(
     # every dataset's processing concurrently, which was the OOM root cause
     # for large bundles).
     created_jobs: list[UploadJobResponse] = []
-    plan: list[tuple[UUID, UUID, object, str]] = (
-        []
-    )  # (dataset_id, job_id, det, primary_file)
+    plan: list[tuple[UUID, UUID, DetectedDataset, str]] = []
+    # (dataset_id, job_id, det, primary_file)
 
     for meta in included:
         det = detected_by_primary.get(meta.primary_file)
@@ -505,8 +513,23 @@ async def upload_bundle(
             import zipfile
 
             with zipfile.ZipFile(str(zip_path), "r") as zf:
-                with zf.open(det.primary_file) as f:
-                    file_hash = hashlib.sha256(f.read()).hexdigest()
+                if getattr(det, "container_path", None):
+                    # Container layers (.gdb / .lpk) — primary_file is a synthetic
+                    # "<container>::<layer>" key, not a real ZIP entry. Hash the
+                    # combined content of all member files (the .gdb tree or the
+                    # .lpk file) plus the layer name so different layers in the
+                    # same .gdb get distinct hashes.
+                    h = hashlib.sha256()
+                    for member in sorted(det.member_files):
+                        with zf.open(member) as f:
+                            for chunk in iter(lambda: f.read(1024 * 1024), b""):
+                                h.update(chunk)
+                    h.update(b"\x00")
+                    h.update((det.layer_name or "").encode("utf-8"))
+                    file_hash = h.hexdigest()
+                else:
+                    with zf.open(det.primary_file) as f:
+                        file_hash = hashlib.sha256(f.read()).hexdigest()
         except Exception as e:
             logger.exception("Failed to hash %s: %s", det.primary_file, e)
             continue
@@ -564,11 +587,77 @@ async def upload_bundle(
     return BundleUploadResponse(bundle_id=bundle_id, jobs=created_jobs)
 
 
+async def _resolve_container_layer(
+    job_dir: Path,
+    zip_path: Path,
+    det: DetectedDataset,
+) -> tuple[Path, str | None, str]:
+    """Extract a container layer's data from the bundle ZIP.
+
+    Returns ``(read_path, layer_name, kind)`` where:
+
+    * ``read_path`` is the on-disk path that the file processor should read
+      (a .gdb directory for GDB layers, a regular file for shapefile/raster
+      sources extracted out of a .lpk).
+    * ``layer_name`` is the OpenFileGDB layer name (vector/raster) or None
+      for non-GDB sources.
+    * ``kind`` is "vector" or "raster".
+
+    Handles both top-level .gdb directories in the bundle ZIP and .lpk/.lpkx
+    files that wrap a .gdb or shapefile/raster.
+    """
+    assert det.container_path is not None  # caller checks this
+    container_path: str = det.container_path
+    layer_name: str | None = det.layer_name
+    fmt: str = det.format
+    data_type: str = det.data_type
+    member_files: list[str] = det.member_files
+
+    # Extract all bundle-level members into the job dir, preserving the
+    # directory tree so .gdb folders / .lpk files keep their layout.
+    await asyncio.to_thread(
+        FileProcessor.extract_members_preserving_tree,
+        zip_path,
+        member_files,
+        job_dir,
+    )
+
+    # Case 1: top-level .gdb in the bundle ZIP. container_path points at it.
+    if container_path.lower().endswith(".gdb"):
+        gdb_on_disk = job_dir / container_path
+        return gdb_on_disk, layer_name, data_type
+
+    # Case 2: .lpk / .lpkx wrapping inner data.
+    if container_path.lower().endswith((".lpk", ".lpkx")):
+        lpk_on_disk = job_dir / container_path
+        # Unzip the .lpk into a sibling directory.
+        import zipfile
+
+        lpk_extract_dir = job_dir / "_lpk_extracted"
+        lpk_extract_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(str(lpk_on_disk), "r") as zf:
+            zf.extractall(str(lpk_extract_dir))
+
+        # layer_name encoding for .lpk-wrapped sources:
+        #   * "<inner_gdb_path>::<feature_class>"  for gdb-vector / gdb-raster
+        #   * "<inner_path>"                       for shapefile / raster / etc.
+        if fmt in ("gdb-vector", "gdb-raster") and layer_name and "::" in layer_name:
+            inner_gdb_path, fc_name = layer_name.split("::", 1)
+            return lpk_extract_dir / inner_gdb_path, fc_name, data_type
+
+        # Leaf source (shapefile / raster / geopackage / geojson) inside the
+        # .lpk. layer_name holds the inner path.
+        inner_path = layer_name or ""
+        return lpk_extract_dir / inner_path, None, data_type
+
+    raise ValueError(f"Unsupported container_path: {container_path}")
+
+
 async def _process_bundle_sequentially(
     bundle_id: UUID,
     bundle_dir: Path,
     zip_path: Path,
-    plan: list[tuple[UUID, UUID, object, str]],
+    plan: list[tuple[UUID, UUID, DetectedDataset, str]],
 ) -> None:
     """Extract and process each dataset in the bundle one at a time.
 
@@ -580,6 +669,34 @@ async def _process_bundle_sequentially(
         for dataset_id, job_id, det, primary_file in plan:
             try:
                 job_dir = bundle_dir / str(job_id)
+
+                # Multi-layer container path: .gdb or .lpk
+                if getattr(det, "container_path", None):
+                    read_path, layer_name, kind = await _resolve_container_layer(
+                        job_dir, zip_path, det
+                    )
+                    if kind == "vector":
+                        await file_processor.process_vector_background(
+                            read_path,
+                            dataset_id,
+                            job_id,
+                            layer_name=layer_name,
+                        )
+                    else:
+                        # GDB raster: route through the .gdb-aware extractor.
+                        # Other rasters (shapefile-shaped containers don't have
+                        # rasters; raster inside .lpk gets layer_name=None).
+                        if layer_name is not None:
+                            await file_processor.process_gdb_raster_layer_background(
+                                read_path, layer_name, dataset_id, job_id
+                            )
+                        else:
+                            await file_processor.process_raster_background(
+                                read_path, dataset_id, job_id
+                            )
+                    continue
+
+                # Standard single-file or shapefile-bundle path.
                 primary_path = await asyncio.to_thread(
                     FileProcessor.extract_members_to_dir,
                     zip_path,

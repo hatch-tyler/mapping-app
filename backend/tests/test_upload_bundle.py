@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import zipfile
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -17,6 +18,36 @@ def _zip_bytes(entries: dict[str, bytes]) -> bytes:
         for name, data in entries.items():
             zf.writestr(name, data)
     return buf.getvalue()
+
+
+def _make_sample_gdb_zip(tmp_path: Path) -> bytes:
+    """Build a small .gdb.zip in tmp_path. Skips the test if GDAL isn't available."""
+    pytest.importorskip("fiona")
+    pytest.importorskip("geopandas")
+    import fiona
+    import geopandas as gpd
+    from shapely.geometry import Point
+
+    if "OpenFileGDB" not in fiona.supported_drivers:
+        pytest.skip("OpenFileGDB driver not available")
+    if "w" not in fiona.supported_drivers["OpenFileGDB"]:
+        pytest.skip("OpenFileGDB driver is read-only on this build")
+
+    gdb_path = tmp_path / "sample.gdb"
+    gdf = gpd.GeoDataFrame(
+        {"id": [1, 2]},
+        geometry=[Point(-122.4, 37.8), Point(-122.3, 37.9)],
+        crs="EPSG:4326",
+    )
+    gdf.to_file(str(gdb_path), driver="OpenFileGDB", layer="points")
+    gdf.to_file(str(gdb_path), driver="OpenFileGDB", layer="more_points")
+
+    zip_path = tmp_path / "sample.gdb.zip"
+    with zipfile.ZipFile(zip_path, "w") as zf:
+        for p in gdb_path.rglob("*"):
+            if p.is_file():
+                zf.write(p, arcname=p.relative_to(gdb_path.parent).as_posix())
+    return zip_path.read_bytes()
 
 
 class TestInspectEndpoint:
@@ -268,6 +299,127 @@ class TestBundleRecoveryEndpoints:
         )
         assert resp.status_code == 404
 
+
+class TestGdbBundleUpload:
+    @pytest.mark.asyncio
+    async def test_inspect_gdb_zip_returns_per_layer_datasets(
+        self, client: AsyncClient, admin_auth_headers: dict, tmp_path: Path
+    ):
+        gdb_zip = _make_sample_gdb_zip(tmp_path)
+        resp = await client.post(
+            "/api/v1/upload/inspect",
+            files={"file": ("sample.gdb.zip", io.BytesIO(gdb_zip), "application/zip")},
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        datasets = resp.json()["datasets"]
+        gdb_layers = [d for d in datasets if d["format"] == "gdb-vector"]
+        assert len(gdb_layers) == 2
+        layer_names = {d["layer_name"] for d in gdb_layers}
+        assert layer_names == {"points", "more_points"}
+        for d in gdb_layers:
+            assert d["container_path"] is not None
+            assert d["container_path"].endswith(".gdb")
+            assert "::" in d["primary_file"]
+
+    @pytest.mark.asyncio
+    async def test_bundle_upload_gdb_creates_per_layer_jobs(
+        self, client: AsyncClient, admin_auth_headers: dict, tmp_path: Path
+    ):
+        gdb_zip = _make_sample_gdb_zip(tmp_path)
+
+        # First inspect to learn the detected primary_file keys.
+        inspect_resp = await client.post(
+            "/api/v1/upload/inspect",
+            files={"file": ("sample.gdb.zip", io.BytesIO(gdb_zip), "application/zip")},
+            headers=admin_auth_headers,
+        )
+        assert inspect_resp.status_code == 200
+        detected = inspect_resp.json()["datasets"]
+        meta = [
+            {
+                "primary_file": d["primary_file"],
+                "name": d["suggested_name"],
+                "include": True,
+                "container_path": d["container_path"],
+                "layer_name": d["layer_name"],
+            }
+            for d in detected
+            if d["format"] == "gdb-vector"
+        ]
+        assert len(meta) == 2
+
+        # Stub the actual processing — we're verifying the routing only.
+        with patch(
+            "app.services.file_processor.file_processor.process_vector_background",
+            new=AsyncMock(return_value=None),
+        ):
+            resp = await client.post(
+                "/api/v1/upload/bundle",
+                files={
+                    "file": ("sample.gdb.zip", io.BytesIO(gdb_zip), "application/zip")
+                },
+                data={"datasets": json.dumps(meta), "category": "reference"},
+                headers=admin_auth_headers,
+            )
+        assert resp.status_code == 202, resp.text
+        body = resp.json()
+        assert len(body["jobs"]) == 2
+        # All jobs share one bundle_id.
+        bundle_ids = {j["bundle_id"] for j in body["jobs"]}
+        assert bundle_ids == {body["bundle_id"]}
+
+
+class TestLpkBundleUpload:
+    @pytest.mark.asyncio
+    async def test_top_level_lpk_accepted(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        # Build a .lpk that wraps a single shapefile-shaped record.
+        lpk_data = _zip_bytes(
+            {
+                "data/parcels.shp": b"shp",
+                "data/parcels.shx": b"shx",
+                "data/parcels.dbf": b"dbf",
+                "data/parcels.prj": b"prj",
+            }
+        )
+        resp = await client.post(
+            "/api/v1/upload/inspect",
+            files={
+                "file": (
+                    "myLayer.lpk",
+                    io.BytesIO(lpk_data),
+                    "application/octet-stream",
+                )
+            },
+            headers=admin_auth_headers,
+        )
+        # .lpk extension should be accepted by the bundle inspector.
+        assert resp.status_code == 200, resp.text
+        datasets = resp.json()["datasets"]
+        assert len(datasets) == 1
+        assert datasets[0]["format"] == "shapefile"
+
+    @pytest.mark.asyncio
+    async def test_inspect_rejects_non_bundle_extension(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        resp = await client.post(
+            "/api/v1/upload/inspect",
+            files={
+                "file": (
+                    "data.shp",
+                    io.BytesIO(b"not a zip"),
+                    "application/octet-stream",
+                )
+            },
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 400
+
+
+class TestBundleListEndpoint:
     @pytest.mark.asyncio
     async def test_list_recent_bundles_includes_just_uploaded(
         self, client: AsyncClient, admin_auth_headers: dict

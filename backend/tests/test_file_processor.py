@@ -77,6 +77,40 @@ class TestFileProcessorHelpers:
         assert FileProcessor.is_raster_file("data.geojson") is False
         assert FileProcessor.is_raster_file("data.png") is False
 
+    def test_container_extensions_listed(self):
+        """Container formats are tracked separately from vector/raster sets."""
+        assert FileProcessor.SUPPORTED_CONTAINER == {".gdb", ".lpk", ".lpkx"}
+        # Container extensions must NOT collide with the vector single-file
+        # uploaders (.lpk/.lpkx flow through the bundle path, not /upload/vector).
+        assert FileProcessor.SUPPORTED_CONTAINER.isdisjoint(
+            FileProcessor.SUPPORTED_VECTOR
+        )
+        assert FileProcessor.SUPPORTED_CONTAINER.isdisjoint(
+            FileProcessor.SUPPORTED_RASTER
+        )
+
+
+class TestExtractMembersPreservingTree:
+    """Tests for extract_members_preserving_tree, used for .gdb / .lpk extraction."""
+
+    def test_preserves_subdirectories(self, tmp_path: Path):
+        import zipfile
+
+        zip_path = tmp_path / "src.zip"
+        with zipfile.ZipFile(zip_path, "w") as zf:
+            zf.writestr("foo/bar/a.txt", b"a")
+            zf.writestr("foo/bar/b.txt", b"b")
+            zf.writestr("foo/c.txt", b"c")
+
+        dest = tmp_path / "out"
+        FileProcessor.extract_members_preserving_tree(
+            zip_path, ["foo/bar/a.txt", "foo/bar/b.txt"], dest
+        )
+        assert (dest / "foo" / "bar" / "a.txt").read_bytes() == b"a"
+        assert (dest / "foo" / "bar" / "b.txt").read_bytes() == b"b"
+        # Member not in the list should not be extracted.
+        assert not (dest / "foo" / "c.txt").exists()
+
 
 class TestFileProcessorVector:
     """Tests for vector file processing."""

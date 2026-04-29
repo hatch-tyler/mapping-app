@@ -105,10 +105,15 @@ class DetectedDatasetSchema(BaseModel):
 
     suggested_name: str
     data_type: str  # "vector" or "raster"
-    format: str  # "shapefile", "geotiff", "geopackage", "geojson", "grid"
+    format: str  # shapefile, geotiff, geopackage, geojson, grid, gdb-vector, gdb-raster
     primary_file: str
     member_files: list[str]
     warnings: list[str] = Field(default_factory=list)
+    # Set when the dataset lives inside a multi-layer container (.gdb, .lpk, .lpkx).
+    # `container_path` points at the .gdb directory or .lpk/.lpkx file *inside* the
+    # uploaded ZIP; `layer_name` selects which layer within that container to read.
+    container_path: str | None = None
+    layer_name: str | None = None
 
 
 class BundleInspectResponse(BaseModel):
@@ -124,6 +129,10 @@ class BundleDatasetMetadata(BaseModel):
     name: str
     description: str | None = None
     include: bool = True
+    # Optional layer selector for multi-layer containers (.gdb / .lpk).
+    # Clients may omit these (server re-runs detection and supplies them).
+    container_path: str | None = None
+    layer_name: str | None = None
 
 
 class BundleUploadResponse(BaseModel):

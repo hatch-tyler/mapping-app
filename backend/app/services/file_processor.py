@@ -53,6 +53,10 @@ class FileProcessor:
         ".bsq",
         ".flt",
     }
+    # Multi-layer container formats. Members of these sets are not uploadable
+    # as a bare single file via /upload/vector or /upload/raster — they only
+    # flow through the bundle path, where each layer becomes its own dataset.
+    SUPPORTED_CONTAINER = {".gdb", ".lpk", ".lpkx"}
 
     @staticmethod
     def get_file_extension(filename: str) -> str:
@@ -296,8 +300,15 @@ class FileProcessor:
         file_path: Path,
         dataset_id: uuid.UUID,
         job_id: uuid.UUID,
+        *,
+        layer_name: str | None = None,
     ) -> None:
-        """Background vector processing with its own DB session."""
+        """Background vector processing with its own DB session.
+
+        When ``layer_name`` is set, ``file_path`` points at a multi-layer
+        container (a .gdb directory) and the named layer is read via the
+        OpenFileGDB driver. Shapefile-ZIP validation is skipped in that case.
+        """
         async with AsyncSessionLocal() as db:
             try:
                 from app.crud import dataset as dataset_crud
@@ -309,8 +320,9 @@ class FileProcessor:
                         db, job, status="processing", progress=5
                     )
 
-                # Validate shapefile ZIP contents before reading
-                if str(file_path).lower().endswith(".zip"):
+                # Validate shapefile ZIP contents before reading (only for
+                # the file-based path — .gdb layers don't need this check).
+                if layer_name is None and str(file_path).lower().endswith(".zip"):
                     import zipfile
 
                     with zipfile.ZipFile(str(file_path), "r") as zf:
@@ -332,7 +344,15 @@ class FileProcessor:
                                 )
 
                 # Read file in thread pool to avoid blocking event loop
-                gdf = await asyncio.to_thread(gpd.read_file, str(file_path))
+                if layer_name is not None:
+                    gdf = await asyncio.to_thread(
+                        gpd.read_file,
+                        str(file_path),
+                        layer=layer_name,
+                        driver="OpenFileGDB",
+                    )
+                else:
+                    gdf = await asyncio.to_thread(gpd.read_file, str(file_path))
 
                 if gdf.empty:
                     raise ValueError("File contains no features")
@@ -628,6 +648,79 @@ class FileProcessor:
         if primary_out is None:
             raise ValueError("No members extracted from ZIP")
         return primary_out
+
+    @staticmethod
+    def extract_members_preserving_tree(
+        zip_path: Path,
+        members: list[str],
+        dest_dir: Path,
+    ) -> Path:
+        """Extract members preserving their relative directory structure.
+
+        Used for multi-layer containers (.gdb directories, .lpk files) where
+        the directory layout is part of the data and must be kept intact for
+        GDAL / OpenFileGDB to read the layer.
+        """
+        import zipfile
+
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(str(zip_path), "r") as zf:
+            for member in members:
+                rel = member.replace("\\", "/")
+                target = dest_dir / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                with zf.open(member) as src, open(target, "wb") as out:
+                    shutil.copyfileobj(src, out)
+        return dest_dir
+
+    @staticmethod
+    def _gdb_raster_to_geotiff(
+        gdb_path: Path, raster_layer: str, out_path: Path
+    ) -> None:
+        """Materialize a single raster layer from a .gdb as a standalone GeoTIFF.
+
+        OpenFileGDB exposes raster datasets as subdatasets. ``gdal.Translate``
+        copies the named subdataset into a regular GeoTIFF that the existing
+        rasterio-based COG pipeline can process.
+        """
+        from osgeo import gdal
+
+        gdal.UseExceptions()
+        # Subdataset URI format used by the OpenFileGDB driver.
+        subdataset = f"OpenFileGDB:{gdb_path}:{raster_layer}"
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        ds = gdal.Translate(str(out_path), subdataset, format="GTiff")
+        if ds is None:
+            raise ValueError(
+                f"Failed to extract raster layer '{raster_layer}' from "
+                f"{gdb_path.name}"
+            )
+        ds = None  # close
+
+    async def process_gdb_raster_layer_background(
+        self,
+        gdb_path: Path,
+        layer_name: str,
+        dataset_id: uuid.UUID,
+        job_id: uuid.UUID,
+    ) -> None:
+        """Background processing for a single raster layer inside a .gdb.
+
+        Materializes the raster as a temporary GeoTIFF, then hands it off to
+        the existing raster pipeline (which performs CRS validation, COG
+        conversion, and pyramid generation).
+        """
+        # Materialize the raster to a temp GeoTIFF in the same processing dir
+        # so the standard cleanup (shutil.rmtree on file_path.parent) sweeps
+        # both the .gdb extract and the temp .tif.
+        work_dir = gdb_path.parent
+        tif_path = work_dir / f"_gdb_raster_{layer_name}_{dataset_id.hex}.tif"
+        await asyncio.to_thread(
+            self._gdb_raster_to_geotiff, gdb_path, layer_name, tif_path
+        )
+        # process_raster_background owns its own try/except and job-state
+        # updates; any failure inside it is recorded against the job.
+        await self.process_raster_background(tif_path, dataset_id, job_id)
 
     def _extract_raster_from_zip(self, zip_path: Path) -> Path:
         """Extract a ZIP archive and return the path to the primary raster file."""

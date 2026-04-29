@@ -3,7 +3,7 @@ import { useDropzone } from 'react-dropzone';
 import * as datasetsApi from '../../api/datasets';
 import * as projectsApi from '../../api/projects';
 import { UploadJob, DatasetCategory, GeographicScope, Project, BundleDatasetInput } from '../../api/types';
-import { inspectZip, isZipFile, DetectedDataset } from '../../utils/zipInspector';
+import { inspectZip, isBundleFile, DetectedDataset } from '../../utils/zipInspector';
 import { BundleDatasetList, BundleDatasetRow, rowsFromDetected } from './BundleDatasetList';
 
 interface Props {
@@ -13,7 +13,10 @@ interface Props {
 const ACCEPTED_VECTOR = {
   'application/json': ['.geojson', '.json'],
   'application/geopackage+sqlite3': ['.gpkg'],
+  // .zip catches shapefile bundles, .gdb.zip, generic mixed bundles
   'application/zip': ['.zip'],
+  // ArcGIS Layer Packages
+  'application/octet-stream': ['.lpk', '.lpkx'],
 };
 
 const ACCEPTED_RASTER = {
@@ -198,8 +201,8 @@ export function UploadForm({ onSuccess }: Props) {
       setName(selectedFile.name.replace(/\.[^/.]+$/, ''));
     }
 
-    // If ZIP, inspect for multiple datasets
-    if (isZipFile(selectedFile.name)) {
+    // ZIP / .gdb.zip / .lpk / .lpkx all flow through bundle inspection.
+    if (isBundleFile(selectedFile.name)) {
       setPhase('inspecting');
       try {
         const detected = await inspectZip(selectedFile);
@@ -210,10 +213,11 @@ export function UploadForm({ onSuccess }: Props) {
           setName(detected[0].suggestedName);
           setBundleRows(null);
         } else {
-          setError('No recognized datasets found in the ZIP.');
+          setError('No recognized datasets found in the archive.');
         }
       } catch (err) {
-        console.warn('Client-side ZIP inspection failed, falling back to server:', err);
+        // Client-side inspection can't read .gdb / .lpk contents; fall back
+        // to the server-side endpoint, which uses GDAL to enumerate layers.
         try {
           const resp = await datasetsApi.inspectBundle(selectedFile);
           const detected: DetectedDataset[] = resp.datasets.map((d) => ({
@@ -223,16 +227,19 @@ export function UploadForm({ onSuccess }: Props) {
             primaryFile: d.primary_file,
             memberFiles: d.member_files,
             warnings: d.warnings,
+            containerPath: d.container_path,
+            layerName: d.layer_name,
           }));
           if (detected.length > 1) {
             setBundleRows(rowsFromDetected(detected));
           } else if (detected.length === 1) {
             setName(detected[0].suggestedName);
           } else {
-            setError('No recognized datasets found in the ZIP.');
+            setError('No recognized datasets found in the archive.');
           }
         } catch (e) {
-          setError(e instanceof Error ? e.message : 'Failed to inspect ZIP.');
+          setError(e instanceof Error ? e.message : 'Failed to inspect archive.');
+          console.warn('Server-side inspection failed:', err, e);
         }
       } finally {
         setPhase('idle');
@@ -286,6 +293,8 @@ export function UploadForm({ onSuccess }: Props) {
         name: r.name.trim(),
         description: r.description || undefined,
         include: r.include,
+        container_path: r.containerPath ?? undefined,
+        layer_name: r.layerName ?? undefined,
       }));
 
       const uploadOpts: datasetsApi.UploadOptions = {
@@ -427,7 +436,7 @@ export function UploadForm({ onSuccess }: Props) {
               Drag & drop a file here, or click to select
             </p>
             <p className="text-gray-400 text-sm mt-2">
-              Supported: GeoJSON, Shapefile (ZIP), GeoPackage, GeoTIFF. ZIPs can contain multiple datasets.
+              Supported: GeoJSON, Shapefile (ZIP), GeoPackage, GeoTIFF, File Geodatabase (.gdb.zip), Layer Package (.lpk/.lpkx). ZIPs can contain multiple datasets.
             </p>
           </div>
         )}

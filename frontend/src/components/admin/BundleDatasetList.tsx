@@ -8,6 +8,10 @@ export interface BundleDatasetRow {
   name: string;
   description: string;
   warnings: string[];
+  // For multi-layer container layers (.gdb / .lpk). Forwarded to the bundle
+  // upload endpoint so the server can route to the right processor.
+  containerPath?: string | null;
+  layerName?: string | null;
 }
 
 interface Props {
@@ -25,6 +29,8 @@ export function rowsFromDetected(detected: DetectedDataset[]): BundleDatasetRow[
     name: d.suggestedName,
     description: '',
     warnings: d.warnings,
+    containerPath: d.containerPath ?? null,
+    layerName: d.layerName ?? null,
   }));
 }
 

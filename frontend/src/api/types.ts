@@ -245,6 +245,10 @@ export interface DetectedDatasetApi {
   primary_file: string;
   member_files: string[];
   warnings: string[];
+  // Set when the dataset is a layer inside a multi-layer container
+  // (.gdb directory or .lpk/.lpkx file).
+  container_path?: string | null;
+  layer_name?: string | null;
 }
 
 export interface BundleInspectResponse {
@@ -256,6 +260,8 @@ export interface BundleDatasetInput {
   name: string;
   description?: string | null;
   include: boolean;
+  container_path?: string | null;
+  layer_name?: string | null;
 }
 
 export interface BundleUploadResponse {
