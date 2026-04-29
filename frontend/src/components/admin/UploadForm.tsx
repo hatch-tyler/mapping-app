@@ -1,30 +1,19 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { useDropzone } from 'react-dropzone';
 import * as datasetsApi from '../../api/datasets';
 import * as projectsApi from '../../api/projects';
 import { UploadJob, DatasetCategory, GeographicScope, Project, BundleDatasetInput } from '../../api/types';
 import { inspectZip, isBundleFile, DetectedDataset } from '../../utils/zipInspector';
 import { BundleDatasetList, BundleDatasetRow, rowsFromDetected } from './BundleDatasetList';
+import { UploadDropzone } from './UploadDropzone';
+import {
+  BundleProcessingBar,
+  SingleProcessingBar,
+  UploadProgressBar,
+} from './UploadProgress';
 
 interface Props {
   onSuccess: () => void;
 }
-
-const ACCEPTED_VECTOR = {
-  'application/json': ['.geojson', '.json'],
-  'application/geopackage+sqlite3': ['.gpkg'],
-  // .zip catches shapefile bundles, .gdb.zip, generic mixed bundles
-  'application/zip': ['.zip'],
-  // ArcGIS Layer Packages
-  'application/octet-stream': ['.lpk', '.lpkx'],
-};
-
-const ACCEPTED_RASTER = {
-  'image/tiff': ['.tif', '.tiff'],
-  'image/jp2': ['.jp2'],
-  'application/octet-stream': ['.img', '.bil', '.bip', '.bsq', '.flt', '.asc'],
-  'application/zip': ['.zip'],
-};
 
 type Phase = 'idle' | 'inspecting' | 'uploading' | 'processing' | 'completed' | 'failed';
 
@@ -242,18 +231,6 @@ export function UploadForm({ onSuccess }: Props) {
     }
   }, [name]);
 
-  const onDrop = useCallback((acceptedFiles: File[]) => {
-    if (acceptedFiles.length > 0) {
-      handleFileSelected(acceptedFiles[0]);
-    }
-  }, [handleFileSelected]);
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: { ...ACCEPTED_VECTOR, ...ACCEPTED_RASTER },
-    maxFiles: 1,
-  });
-
   const isRasterFile = (filename: string): boolean => {
     const ext = filename.toLowerCase().split('.').pop();
     return ['tif', 'tiff', 'geotiff', 'jp2', 'img', 'bil', 'bip', 'bsq', 'flt', 'asc'].includes(ext || '');
@@ -414,37 +391,7 @@ export function UploadForm({ onSuccess }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <div
-        {...getRootProps()}
-        className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer transition-colors ${
-          isDragActive
-            ? 'border-blue-500 bg-blue-50'
-            : file
-            ? 'border-green-500 bg-green-50'
-            : 'border-gray-300 hover:border-gray-400'
-        } ${busy ? 'pointer-events-none opacity-60' : ''}`}
-      >
-        <input {...getInputProps()} disabled={busy} />
-        {file ? (
-          <div className="max-w-full overflow-hidden" title={file.name}>
-            <p className="text-green-600 font-medium truncate">{file.name}</p>
-            <p className="text-gray-500 text-sm mt-1">
-              {(file.size / 1024 / 1024).toFixed(2)} MB
-            </p>
-          </div>
-        ) : isDragActive ? (
-          <p className="text-blue-600">Drop the file here...</p>
-        ) : (
-          <div>
-            <p className="text-gray-600">
-              Drag & drop a file here, or click to select
-            </p>
-            <p className="text-gray-400 text-sm mt-2">
-              Supported: GeoJSON, Shapefile (ZIP), GeoPackage, GeoTIFF, File Geodatabase (.gdb.zip), Layer Package (.lpk/.lpkx). ZIPs can contain multiple datasets.
-            </p>
-          </div>
-        )}
-      </div>
+      <UploadDropzone file={file} disabled={busy} onFileSelected={handleFileSelected} />
 
       {phase === 'inspecting' && (
         <div className="text-sm text-gray-600">Inspecting archive...</div>
@@ -576,56 +523,18 @@ export function UploadForm({ onSuccess }: Props) {
         <p className="text-xs text-gray-400 mt-0.5">Comma-separated</p>
       </div>
 
-      {/* Upload progress */}
-      {phase === 'uploading' && (
-        <div>
-          <div className="flex justify-between text-sm text-blue-700 mb-1">
-            <span>Uploading file...</span>
-            <span>{uploadProgress}%</span>
-          </div>
-          <div className="w-full bg-blue-100 rounded-full h-3">
-            <div className="bg-blue-600 h-3 rounded-full transition-all duration-300" style={{ width: `${uploadProgress}%` }} />
-          </div>
-        </div>
-      )}
+      {phase === 'uploading' && <UploadProgressBar percent={uploadProgress} />}
 
-      {/* Processing progress — single or bundle */}
       {phase === 'processing' && !isBundle && (
-        <div>
-          <div className="flex justify-between text-sm text-green-700 mb-1">
-            <span>Processing dataset...</span>
-            <span>{processingProgress}%</span>
-          </div>
-          <div className="w-full bg-green-100 rounded-full h-3">
-            <div className="bg-green-600 h-3 rounded-full transition-all duration-300" style={{ width: `${processingProgress}%` }} />
-          </div>
-          <p className="text-xs text-gray-500 mt-1">
-            You can close this page. Processing will continue on the server.
-          </p>
-        </div>
+        <SingleProcessingBar percent={processingProgress} />
       )}
 
       {phase === 'processing' && isBundle && bundleSummary && (
-        <div>
-          <div className="flex justify-between text-sm text-green-700 mb-1">
-            <span>Processing datasets...</span>
-            <span>
-              {bundleSummary.completed + bundleSummary.failed} of {bundleSummary.total}
-              {bundleSummary.failed > 0 && ` (${bundleSummary.failed} failed)`}
-            </span>
-          </div>
-          <div className="w-full bg-green-100 rounded-full h-3">
-            <div
-              className="bg-green-600 h-3 rounded-full transition-all duration-300"
-              style={{
-                width: `${bundleSummary.total === 0 ? 0 : Math.round(((bundleSummary.completed + bundleSummary.failed) / bundleSummary.total) * 100)}%`,
-              }}
-            />
-          </div>
-          <p className="text-xs text-gray-500 mt-1">
-            You can close this page. Processing will continue on the server.
-          </p>
-        </div>
+        <BundleProcessingBar
+          total={bundleSummary.total}
+          completed={bundleSummary.completed}
+          failed={bundleSummary.failed}
+        />
       )}
 
       {phase === 'completed' && !isBundle && (
