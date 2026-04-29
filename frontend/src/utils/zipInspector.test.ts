@@ -1,167 +1,78 @@
-import JSZip from 'jszip';
-import { inspectZip, isZipFile } from './zipInspector';
+import { describe, it, expect } from 'vitest';
+import {
+  BLOCKING_WARNING_CODES,
+  WarningCode,
+  bundleSizeAdvisory,
+  isBundleFile,
+  isZipFile,
+} from './zipInspector';
 
-async function buildZip(entries: Record<string, string>): Promise<File> {
-  const zip = new JSZip();
-  for (const [name, data] of Object.entries(entries)) {
-    zip.file(name, data);
-  }
-  const blob = await zip.generateAsync({ type: 'blob' });
-  return new File([blob], 'test.zip', { type: 'application/zip' });
-}
-
-describe('zipInspector', () => {
+describe('zipInspector helpers', () => {
   describe('isZipFile', () => {
-    it('detects .zip extension', () => {
+    it('matches .zip extensions case-insensitively', () => {
       expect(isZipFile('foo.zip')).toBe(true);
-      expect(isZipFile('Foo.ZIP')).toBe(true);
-      expect(isZipFile('foo.tif')).toBe(false);
-      expect(isZipFile('foo')).toBe(false);
+      expect(isZipFile('FOO.ZIP')).toBe(true);
+      expect(isZipFile('foo.gdb.zip')).toBe(true);
+    });
+
+    it('rejects non-zip extensions', () => {
+      expect(isZipFile('foo.shp')).toBe(false);
+      expect(isZipFile('foo.lpk')).toBe(false);
+      expect(isZipFile('zip')).toBe(false);
     });
   });
 
-  describe('shapefile detection', () => {
-    it('groups complete shapefile components', async () => {
-      const file = await buildZip({
-        'counties.shp': 's',
-        'counties.shx': 'x',
-        'counties.dbf': 'd',
-        'counties.prj': 'p',
-      });
-      const result = await inspectZip(file);
-      expect(result).toHaveLength(1);
-      const d = result[0];
-      expect(d.dataType).toBe('vector');
-      expect(d.format).toBe('shapefile');
-      expect(d.suggestedName).toBe('counties');
-      expect(d.primaryFile).toBe('counties.shp');
-      expect(new Set(d.memberFiles)).toEqual(
-        new Set(['counties.shp', 'counties.shx', 'counties.dbf', 'counties.prj']),
-      );
-      expect(d.warnings).toEqual([]);
+  describe('isBundleFile', () => {
+    it('matches .zip / .lpk / .lpkx', () => {
+      expect(isBundleFile('foo.zip')).toBe(true);
+      expect(isBundleFile('layer.lpk')).toBe(true);
+      expect(isBundleFile('layer.lpkx')).toBe(true);
+      expect(isBundleFile('LAYER.LPK')).toBe(true);
     });
 
-    it('warns when .prj is missing', async () => {
-      const file = await buildZip({ 'a.shp': 's', 'a.shx': 'x', 'a.dbf': 'd' });
-      const result = await inspectZip(file);
-      expect(result[0].warnings.some((w) => w.code === 'missing_prj')).toBe(true);
-    });
-
-    it('flags missing required sidecars (.shx)', async () => {
-      const file = await buildZip({ 'a.shp': 's', 'a.dbf': 'd' });
-      const result = await inspectZip(file);
-      expect(
-        result[0].warnings.some(
-          (w) => w.code === 'shapefile_missing_required' && w.message.includes('.shx'),
-        ),
-      ).toBe(true);
-    });
-
-    it('detects multiple shapefiles', async () => {
-      const file = await buildZip({
-        'a.shp': 's', 'a.shx': 'x', 'a.dbf': 'd', 'a.prj': 'p',
-        'b.shp': 's', 'b.shx': 'x', 'b.dbf': 'd', 'b.prj': 'p',
-      });
-      const result = await inspectZip(file);
-      expect(result).toHaveLength(2);
-      expect(new Set(result.map((r) => r.primaryFile))).toEqual(
-        new Set(['a.shp', 'b.shp']),
-      );
+    it('rejects non-bundle extensions', () => {
+      expect(isBundleFile('foo.shp')).toBe(false);
+      expect(isBundleFile('foo.tif')).toBe(false);
+      expect(isBundleFile('foo')).toBe(false);
     });
   });
 
-  describe('raster detection', () => {
-    it('groups geotiff with sidecars', async () => {
-      const file = await buildZip({
-        'elevation.tif': 't',
-        'elevation.tfw': 'w',
-        'elevation.aux.xml': 'a',
-      });
-      const result = await inspectZip(file);
-      expect(result).toHaveLength(1);
-      const d = result[0];
-      expect(d.dataType).toBe('raster');
-      expect(d.format).toBe('geotiff');
-      expect(new Set(d.memberFiles)).toEqual(
-        new Set(['elevation.tif', 'elevation.tfw', 'elevation.aux.xml']),
-      );
+  describe('bundleSizeAdvisory', () => {
+    function makeFile(sizeBytes: number): File {
+      // Build a File with the requested apparent size by passing a Blob of that length.
+      const buf = new Uint8Array(sizeBytes);
+      return new File([buf], 'x.zip');
+    }
+
+    it('returns null for small bundles', () => {
+      expect(bundleSizeAdvisory(makeFile(100 * 1024))).toBeNull();
     });
 
-    it('detects multiple geotiffs independently', async () => {
-      const file = await buildZip({ 'a.tif': 'a', 'b.tif': 'b' });
-      const result = await inspectZip(file);
-      expect(result).toHaveLength(2);
-    });
-
-    it('groups BIL with .hdr and .prj', async () => {
-      const file = await buildZip({
-        'dem.bil': 'b', 'dem.hdr': 'h', 'dem.prj': 'p',
-      });
-      const result = await inspectZip(file);
-      expect(result).toHaveLength(1);
-      expect(result[0].format).toBe('grid');
-      expect(result[0].warnings).toEqual([]);
-    });
-
-    it('warns when .hdr is missing for BIL', async () => {
-      const file = await buildZip({ 'dem.bil': 'b', 'dem.prj': 'p' });
-      const result = await inspectZip(file);
-      expect(result[0].warnings.some((w) => w.code === 'grid_missing_hdr')).toBe(true);
+    it('returns a warning for >500 MB bundles', () => {
+      // Avoid actually allocating 500 MB by mocking File.size.
+      const f = makeFile(1024);
+      Object.defineProperty(f, 'size', { value: 600 * 1024 * 1024 });
+      const msg = bundleSizeAdvisory(f);
+      expect(msg).not.toBeNull();
+      expect(msg).toMatch(/600 MB/);
     });
   });
 
-  describe('geojson and geopackage', () => {
-    it('detects geopackage with multi-layer warning', async () => {
-      const file = await buildZip({ 'parcels.gpkg': 'x' });
-      const result = await inspectZip(file);
-      expect(result).toHaveLength(1);
-      expect(result[0].format).toBe('geopackage');
-      expect(result[0].warnings.some((w) => w.code === 'gpkg_first_layer_only')).toBe(true);
+  describe('warning codes', () => {
+    it('exposes the stable code values', () => {
+      // Locks the wire-format identifiers — backend mirrors these strings.
+      expect(WarningCode.ShapefileMissingRequired).toBe('shapefile_missing_required');
+      expect(WarningCode.MissingPrj).toBe('missing_prj');
+      expect(WarningCode.GpkgFirstLayerOnly).toBe('gpkg_first_layer_only');
     });
 
-    it('detects geojson', async () => {
-      const file = await buildZip({ 'cities.geojson': '{}' });
-      const result = await inspectZip(file);
-      expect(result[0].format).toBe('geojson');
-    });
-  });
-
-  describe('mixed and edge cases', () => {
-    it('detects mixed shapefile + geotiff', async () => {
-      const file = await buildZip({
-        'a.shp': 's', 'a.shx': 'x', 'a.dbf': 'd', 'a.prj': 'p',
-        'b.tif': 't',
-      });
-      const result = await inspectZip(file);
-      expect(result).toHaveLength(2);
-      const types = result.map((r) => r.dataType).sort();
-      expect(types).toEqual(['raster', 'vector']);
+    it('marks shapefile-missing-required as blocking', () => {
+      expect(BLOCKING_WARNING_CODES.has(WarningCode.ShapefileMissingRequired)).toBe(true);
     });
 
-    it('returns empty for non-geo files', async () => {
-      const file = await buildZip({ 'readme.txt': 'hi' });
-      const result = await inspectZip(file);
-      expect(result).toEqual([]);
-    });
-
-    it('ignores __MACOSX and ._ metadata', async () => {
-      const file = await buildZip({
-        'a.shp': 's', 'a.shx': 'x', 'a.dbf': 'd',
-        '__MACOSX/a.shp': 'junk',
-        '._a.shp': 'junk',
-      });
-      const result = await inspectZip(file);
-      expect(result).toHaveLength(1);
-      expect(result[0].memberFiles).not.toContain('__MACOSX/a.shp');
-      expect(result[0].memberFiles).not.toContain('._a.shp');
-    });
-
-    it('sorts datasets alphabetically', async () => {
-      const file = await buildZip({
-        'z.tif': 'z', 'a.tif': 'a', 'm.tif': 'm',
-      });
-      const result = await inspectZip(file);
-      expect(result.map((r) => r.primaryFile)).toEqual(['a.tif', 'm.tif', 'z.tif']);
+    it('does not block on advisory codes', () => {
+      expect(BLOCKING_WARNING_CODES.has(WarningCode.MissingPrj)).toBe(false);
+      expect(BLOCKING_WARNING_CODES.has(WarningCode.GpkgFirstLayerOnly)).toBe(false);
     });
   });
 });

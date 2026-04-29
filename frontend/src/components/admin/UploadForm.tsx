@@ -2,7 +2,7 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import * as datasetsApi from '../../api/datasets';
 import * as projectsApi from '../../api/projects';
 import { UploadJob, DatasetCategory, GeographicScope, Project, BundleDatasetInput } from '../../api/types';
-import { inspectZip, isBundleFile, DetectedDataset } from '../../utils/zipInspector';
+import { bundleSizeAdvisory, isBundleFile, DetectedDataset } from '../../utils/zipInspector';
 import { BundleDatasetList, BundleDatasetRow, rowsFromDetected } from './BundleDatasetList';
 import { UploadDropzone } from './UploadDropzone';
 import {
@@ -184,47 +184,36 @@ export function UploadForm({ onSuccess }: Props) {
       setName(selectedFile.name.replace(/\.[^/.]+$/, ''));
     }
 
-    // ZIP / .gdb.zip / .lpk / .lpkx all flow through bundle inspection.
+    // ZIP / .gdb.zip / .lpk / .lpkx all flow through bundle inspection on
+    // the server (the client used to mirror this logic but couldn't handle
+    // multi-layer containers without GDAL anyway, so the mirror was dropped).
     if (isBundleFile(selectedFile.name)) {
       setPhase('inspecting');
+      const advisory = bundleSizeAdvisory(selectedFile);
+      if (advisory) console.info(advisory);
       try {
-        const detected = await inspectZip(selectedFile);
+        const resp = await datasetsApi.inspectBundle(selectedFile);
+        const detected: DetectedDataset[] = resp.datasets.map((d) => ({
+          suggestedName: d.suggested_name,
+          dataType: d.data_type,
+          format: d.format,
+          primaryFile: d.primary_file,
+          memberFiles: d.member_files,
+          warnings: d.warnings,
+          entryPath: d.entry_path,
+          containerPath: d.container_path,
+          layerName: d.layer_name,
+        }));
         if (detected.length > 1) {
           setBundleRows(rowsFromDetected(detected));
         } else if (detected.length === 1) {
-          // Single dataset: prefill name from detected, stay in single-file flow
           setName(detected[0].suggestedName);
           setBundleRows(null);
         } else {
           setError('No recognized datasets found in the archive.');
         }
-      } catch (err) {
-        // Client-side inspection can't read .gdb / .lpk contents; fall back
-        // to the server-side endpoint, which uses GDAL to enumerate layers.
-        try {
-          const resp = await datasetsApi.inspectBundle(selectedFile);
-          const detected: DetectedDataset[] = resp.datasets.map((d) => ({
-            suggestedName: d.suggested_name,
-            dataType: d.data_type,
-            format: d.format,
-            primaryFile: d.primary_file,
-            memberFiles: d.member_files,
-            warnings: d.warnings,
-            entryPath: d.entry_path,
-            containerPath: d.container_path,
-            layerName: d.layer_name,
-          }));
-          if (detected.length > 1) {
-            setBundleRows(rowsFromDetected(detected));
-          } else if (detected.length === 1) {
-            setName(detected[0].suggestedName);
-          } else {
-            setError('No recognized datasets found in the archive.');
-          }
-        } catch (e) {
-          setError(e instanceof Error ? e.message : 'Failed to inspect archive.');
-          console.warn('Server-side inspection failed:', err, e);
-        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Failed to inspect archive.');
       } finally {
         setPhase('idle');
       }
