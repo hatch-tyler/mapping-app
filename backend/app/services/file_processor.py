@@ -15,6 +15,7 @@ from sqlalchemy import text
 
 from app.config import settings
 from app.database import AsyncSessionLocal
+from app.services.upload_errors import UploadError, UploadErrorCode
 
 logger = logging.getLogger(__name__)
 
@@ -279,33 +280,31 @@ class FileProcessor:
                             if not has_dbf:
                                 missing.append(".dbf")
                             if missing:
-                                raise ValueError(
-                                    f"Shapefile ZIP is missing required files: "
-                                    f"{', '.join(missing)}. A valid shapefile "
-                                    f"requires .shp, .shx, and .dbf files."
-                                )
+                                raise UploadError.invalid_shapefile_bundle(missing)
 
                 # Read file in thread pool to avoid blocking event loop
                 if layer_name is not None:
-                    gdf = await asyncio.to_thread(
-                        gpd.read_file,
-                        str(file_path),
-                        layer=layer_name,
-                        driver="OpenFileGDB",
-                    )
+                    try:
+                        gdf = await asyncio.to_thread(
+                            gpd.read_file,
+                            str(file_path),
+                            layer=layer_name,
+                            driver="OpenFileGDB",
+                        )
+                    except Exception as e:
+                        raise UploadError(
+                            UploadErrorCode.GDB_LAYER_UNREADABLE,
+                            f"Could not read GDB layer '{layer_name}': {e}",
+                        ) from e
                 else:
                     gdf = await asyncio.to_thread(gpd.read_file, str(file_path))
 
                 if gdf.empty:
-                    raise ValueError("File contains no features")
+                    raise UploadError.empty_file()
 
                 # Reject if no CRS defined; reproject to WGS84 if needed
                 if gdf.crs is None:
-                    raise ValueError(
-                        "No coordinate reference system (CRS) found. "
-                        "The application requires a CRS to display data correctly. "
-                        "Please add a .prj file (shapefiles) or define a CRS before uploading."
-                    )
+                    raise UploadError.missing_crs()
                 if gdf.crs.to_epsg() != 4326:
                     gdf = gdf.to_crs(epsg=4326)
 
@@ -395,6 +394,11 @@ class FileProcessor:
                                 job,
                                 status="failed",
                                 error_message=str(e)[:1000],
+                                error_code=(
+                                    e.code.value
+                                    if isinstance(e, UploadError)
+                                    else UploadErrorCode.PROCESSING_FAILED.value
+                                ),
                             )
 
                         # Clean up orphaned dataset if no table was created
@@ -492,6 +496,11 @@ class FileProcessor:
                                 job,
                                 status="failed",
                                 error_message=str(e)[:1000],
+                                error_code=(
+                                    e.code.value
+                                    if isinstance(e, UploadError)
+                                    else UploadErrorCode.PROCESSING_FAILED.value
+                                ),
                             )
                     except Exception:
                         logger.exception("Failed to mark upload job as failed")
@@ -830,10 +839,11 @@ class FileProcessor:
                 metadata["rat"] = rat
 
             if original_crs is None:
-                raise ValueError(
+                raise UploadError(
+                    UploadErrorCode.MISSING_CRS,
                     "No coordinate reference system (CRS) found in the raster file. "
                     "The application requires a CRS to display data correctly. "
-                    "Please define a CRS in the file metadata before uploading."
+                    "Please define a CRS in the file metadata before uploading.",
                 )
             else:
                 # Reproject bounds to WGS84 for storage

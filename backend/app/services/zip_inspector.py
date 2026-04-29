@@ -15,6 +15,8 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
+from app.services.upload_errors import DetectedWarning, WarningCode
+
 logger = logging.getLogger(__name__)
 
 # Primary file extensions that identify a dataset
@@ -64,7 +66,7 @@ class DetectedDataset:
     format: str  # shapefile, geotiff, geopackage, geojson, grid, gdb-vector, gdb-raster
     primary_file: str
     member_files: list[str] = field(default_factory=list)
-    warnings: list[str] = field(default_factory=list)
+    warnings: list[DetectedWarning] = field(default_factory=list)
     # Real ZIP entry path for plain-file datasets; None for container layers.
     entry_path: str | None = None
     # Set for multi-layer container formats (.gdb / .lpk / .lpkx). The bundle
@@ -324,8 +326,13 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                     primary_file=gdb_path_in_zip,
                     member_files=gdb_members,
                     warnings=[
-                        "Could not read this File Geodatabase. It may be corrupt "
-                        "or in an unsupported format (v9 or older)."
+                        DetectedWarning(
+                            code=WarningCode.GDB_UNREADABLE,
+                            message=(
+                                "Could not read this File Geodatabase. It may be "
+                                "corrupt or in an unsupported format (v9 or older)."
+                            ),
+                        )
                     ],
                     container_path=gdb_path_in_zip,
                 )
@@ -356,8 +363,14 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                         primary_file=entry,
                         member_files=[entry],
                         warnings=[
-                            "Layer package contains no recognized data sources "
-                            "(expected .gdb, shapefile, or raster inside)."
+                            DetectedWarning(
+                                code=WarningCode.LPK_NO_DATA_SOURCES,
+                                message=(
+                                    "Layer package contains no recognized data "
+                                    "sources (expected .gdb, shapefile, or raster "
+                                    "inside)."
+                                ),
+                            )
                         ],
                         container_path=entry,
                     )
@@ -367,7 +380,7 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
         # Shapefile
         if ext == SHAPEFILE_EXT:
             members = [entry]
-            warnings: list[str] = []
+            warnings: list[DetectedWarning] = []
             # Required sidecars
             missing = []
             for req in SHAPEFILE_REQUIRED_SIDECARS:
@@ -378,7 +391,13 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                     missing.append(req)
             if missing:
                 warnings.append(
-                    f"Shapefile is missing required files: {', '.join(missing)}"
+                    DetectedWarning(
+                        code=WarningCode.SHAPEFILE_MISSING_REQUIRED,
+                        message=(
+                            f"Shapefile is missing required files: "
+                            f"{', '.join(missing)}"
+                        ),
+                    )
                 )
             # Optional sidecars
             for opt in SHAPEFILE_OPTIONAL_SIDECARS:
@@ -387,7 +406,13 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                     members.append(match)
             if ".prj" not in sibling_exts:
                 warnings.append(
-                    "Missing .prj — upload will fail without a coordinate reference system"
+                    DetectedWarning(
+                        code=WarningCode.MISSING_PRJ,
+                        message=(
+                            "Missing .prj — upload will fail without a "
+                            "coordinate reference system"
+                        ),
+                    )
                 )
             consumed.update(members)
             detected.append(
@@ -414,7 +439,13 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                     primary_file=entry,
                     member_files=[entry],
                     warnings=[
-                        "Multi-layer GeoPackages will be imported as the first layer only",
+                        DetectedWarning(
+                            code=WarningCode.GPKG_FIRST_LAYER_ONLY,
+                            message=(
+                                "Multi-layer GeoPackages will be imported as "
+                                "the first layer only"
+                            ),
+                        )
                     ],
                     entry_path=entry,
                 )
@@ -479,10 +510,21 @@ def inspect_zip(zip_path: Path) -> list[DetectedDataset]:
                     if sib_ext == ".prj":
                         has_prj = True
             if ext != ".asc" and not has_hdr:
-                warnings.append(f"{ext} requires a .hdr sidecar for spatial reference")
+                warnings.append(
+                    DetectedWarning(
+                        code=WarningCode.GRID_MISSING_HDR,
+                        message=f"{ext} requires a .hdr sidecar for spatial reference",
+                    )
+                )
             if not has_prj:
                 warnings.append(
-                    "Missing .prj — upload will fail without a coordinate reference system"
+                    DetectedWarning(
+                        code=WarningCode.MISSING_PRJ,
+                        message=(
+                            "Missing .prj — upload will fail without a "
+                            "coordinate reference system"
+                        ),
+                    )
                 )
             consumed.update(members)
             detected.append(

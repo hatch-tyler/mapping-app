@@ -165,6 +165,10 @@ class UploadJob(Base):
     )  # pending, processing, completed, failed
     progress: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(Text)
+    # Stable identifier for the failure mode. See
+    # app.services.upload_errors.UploadErrorCode for valid values. Null while
+    # status != "failed".
+    error_code: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

@@ -1,4 +1,16 @@
-import { DetectedDataset } from '../../utils/zipInspector';
+import {
+  BLOCKING_WARNING_CODES,
+  DetectedDataset,
+  DetectedWarning,
+  WarningCode,
+} from '../../utils/zipInspector';
+
+const RED_WARNING_CODES: ReadonlySet<string> = new Set([
+  WarningCode.ShapefileMissingRequired,
+  WarningCode.MissingPrj,
+  WarningCode.GdbUnreadable,
+  WarningCode.LpkNoDataSources,
+]);
 
 export interface BundleDatasetRow {
   primaryFile: string;
@@ -7,7 +19,7 @@ export interface BundleDatasetRow {
   include: boolean;
   name: string;
   description: string;
-  warnings: string[];
+  warnings: DetectedWarning[];
   // For multi-layer container layers (.gdb / .lpk). Forwarded to the bundle
   // upload endpoint so the server can route to the right processor.
   containerPath?: string | null;
@@ -25,7 +37,7 @@ export function rowsFromDetected(detected: DetectedDataset[]): BundleDatasetRow[
     primaryFile: d.primaryFile,
     dataType: d.dataType,
     format: d.format,
-    include: d.warnings.every((w) => !w.toLowerCase().includes('missing required')),
+    include: !d.warnings.some((w) => BLOCKING_WARNING_CODES.has(w.code)),
     name: d.suggestedName,
     description: '',
     warnings: d.warnings,
@@ -49,7 +61,7 @@ export function BundleDatasetList({ rows, onChange, disabled }: Props) {
       <ul className="divide-y divide-gray-200">
         {rows.map((row) => {
           const blocking = row.warnings.some((w) =>
-            w.toLowerCase().includes('missing required'),
+            BLOCKING_WARNING_CODES.has(w.code),
           );
           return (
             <li key={row.primaryFile} className="p-3 space-y-2">
@@ -99,13 +111,12 @@ export function BundleDatasetList({ rows, onChange, disabled }: Props) {
                         <li
                           key={i}
                           className={`text-xs ${
-                            w.toLowerCase().includes('missing required') ||
-                            w.toLowerCase().includes('will fail')
+                            RED_WARNING_CODES.has(w.code)
                               ? 'text-red-600 font-medium'
                               : 'text-amber-600'
                           }`}
                         >
-                          ⚠ {w}
+                          ⚠ {w.message}
                         </li>
                       ))}
                     </ul>

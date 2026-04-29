@@ -107,7 +107,7 @@ class TestShapefileDetection:
         )
         datasets = inspect_zip(zip_path)
         assert len(datasets) == 1
-        assert any("prj" in w.lower() for w in datasets[0].warnings)
+        assert any(w.code == "missing_prj" for w in datasets[0].warnings)
 
     def test_shapefile_missing_shx(self, tmp_path: Path):
         zip_path = _make_zip(
@@ -119,7 +119,10 @@ class TestShapefileDetection:
         )
         datasets = inspect_zip(zip_path)
         assert len(datasets) == 1
-        assert any(".shx" in w for w in datasets[0].warnings)
+        assert any(
+            w.code == "shapefile_missing_required" and ".shx" in w.message
+            for w in datasets[0].warnings
+        )
 
     def test_multiple_shapefiles(self, tmp_path: Path):
         zip_path = _make_zip(
@@ -204,7 +207,7 @@ class TestRasterDetection:
     def test_bil_missing_hdr_warns(self, tmp_path: Path):
         zip_path = _make_zip(tmp_path, {"dem.bil": b"bil", "dem.prj": b"p"})
         datasets = inspect_zip(zip_path)
-        assert any(".hdr" in w for w in datasets[0].warnings)
+        assert any(w.code == "grid_missing_hdr" for w in datasets[0].warnings)
 
 
 class TestGeopackageAndGeojson:
@@ -213,7 +216,7 @@ class TestGeopackageAndGeojson:
         datasets = inspect_zip(zip_path)
         assert len(datasets) == 1
         assert datasets[0].format == "geopackage"
-        assert any("multi-layer" in w.lower() for w in datasets[0].warnings)
+        assert any(w.code == "gpkg_first_layer_only" for w in datasets[0].warnings)
 
     def test_geojson(self, tmp_path: Path):
         zip_path = _make_zip(

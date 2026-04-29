@@ -44,13 +44,17 @@ describe('zipInspector', () => {
     it('warns when .prj is missing', async () => {
       const file = await buildZip({ 'a.shp': 's', 'a.shx': 'x', 'a.dbf': 'd' });
       const result = await inspectZip(file);
-      expect(result[0].warnings.some((w) => w.toLowerCase().includes('prj'))).toBe(true);
+      expect(result[0].warnings.some((w) => w.code === 'missing_prj')).toBe(true);
     });
 
     it('flags missing required sidecars (.shx)', async () => {
       const file = await buildZip({ 'a.shp': 's', 'a.dbf': 'd' });
       const result = await inspectZip(file);
-      expect(result[0].warnings.some((w) => w.includes('.shx'))).toBe(true);
+      expect(
+        result[0].warnings.some(
+          (w) => w.code === 'shapefile_missing_required' && w.message.includes('.shx'),
+        ),
+      ).toBe(true);
     });
 
     it('detects multiple shapefiles', async () => {
@@ -102,7 +106,7 @@ describe('zipInspector', () => {
     it('warns when .hdr is missing for BIL', async () => {
       const file = await buildZip({ 'dem.bil': 'b', 'dem.prj': 'p' });
       const result = await inspectZip(file);
-      expect(result[0].warnings.some((w) => w.includes('.hdr'))).toBe(true);
+      expect(result[0].warnings.some((w) => w.code === 'grid_missing_hdr')).toBe(true);
     });
   });
 
@@ -112,7 +116,7 @@ describe('zipInspector', () => {
       const result = await inspectZip(file);
       expect(result).toHaveLength(1);
       expect(result[0].format).toBe('geopackage');
-      expect(result[0].warnings.some((w) => w.toLowerCase().includes('multi-layer'))).toBe(true);
+      expect(result[0].warnings.some((w) => w.code === 'gpkg_first_layer_only')).toBe(true);
     });
 
     it('detects geojson', async () => {

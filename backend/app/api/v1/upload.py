@@ -95,16 +95,30 @@ def _fail_job_on_crash(job_id: UUID) -> Callable[[asyncio.Task], None]:
     return _cb
 
 
-async def _mark_job_failed(job_id: UUID, message: str) -> None:
-    """Open a fresh session and mark the job `failed` with an error message."""
+async def _mark_job_failed(
+    job_id: UUID,
+    message: str,
+    error_code: str | None = None,
+) -> None:
+    """Open a fresh session and mark the job `failed` with an error message.
+
+    ``error_code`` should be a value from
+    ``app.services.upload_errors.UploadErrorCode``; defaults to
+    ``PROCESSING_FAILED`` if not supplied.
+    """
     from app.database import AsyncSessionLocal
+    from app.services.upload_errors import UploadErrorCode
 
     try:
         async with AsyncSessionLocal() as db:
             job = await dataset_crud.get_upload_job(db, job_id)
             if job and job.status not in ("completed", "failed"):
                 await dataset_crud.update_upload_job(
-                    db, job, status="failed", error_message=message
+                    db,
+                    job,
+                    status="failed",
+                    error_message=message,
+                    error_code=error_code or UploadErrorCode.PROCESSING_FAILED.value,
                 )
     except Exception:
         logger.exception("Failed to mark job %s as failed", job_id)
@@ -802,6 +816,7 @@ async def get_bundle_status(
                 status=job.status,
                 progress=job.progress,
                 error_message=job.error_message,
+                error_code=job.error_code,
                 created_at=job.created_at,
                 completed_at=job.completed_at,
             )
@@ -871,6 +886,7 @@ async def get_bundle_by_nonce(
                 status=job.status,
                 progress=job.progress,
                 error_message=job.error_message,
+                error_code=job.error_code,
                 created_at=job.created_at,
                 completed_at=job.completed_at,
             )

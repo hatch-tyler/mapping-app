@@ -2,6 +2,29 @@ import JSZip from 'jszip';
 
 export type DataType = 'vector' | 'raster';
 
+/** Stable warning-code identifiers; mirrors backend WarningCode.
+ *  Frontend code should switch on these instead of substring matching. */
+export const WarningCode = {
+  ShapefileMissingRequired: 'shapefile_missing_required',
+  MissingPrj: 'missing_prj',
+  GridMissingHdr: 'grid_missing_hdr',
+  GpkgFirstLayerOnly: 'gpkg_first_layer_only',
+  GdbUnreadable: 'gdb_unreadable',
+  LpkNoDataSources: 'lpk_no_data_sources',
+} as const;
+
+export type WarningCodeValue = typeof WarningCode[keyof typeof WarningCode];
+
+/** Codes that should disable selection of the affected dataset. */
+export const BLOCKING_WARNING_CODES: ReadonlySet<string> = new Set([
+  WarningCode.ShapefileMissingRequired,
+]);
+
+export interface DetectedWarning {
+  code: string;
+  message: string;
+}
+
 export interface DetectedDataset {
   suggestedName: string;
   dataType: DataType;
@@ -11,7 +34,7 @@ export interface DetectedDataset {
    *  layers it is a synthetic "<container>::<layer>" identifier. */
   primaryFile: string;
   memberFiles: string[]; // includes the primary entry + sidecars (or just the container)
-  warnings: string[];
+  warnings: DetectedWarning[];
   /** Real bundle-archive entry path for plain-file datasets; null for container layers. */
   entryPath?: string | null;
   // Set when the dataset is a layer inside a multi-layer container
@@ -140,7 +163,7 @@ export async function inspectZip(file: File): Promise<DetectedDataset[]> {
     // Shapefile
     if (ext === SHAPEFILE_EXT) {
       const members = [entry];
-      const warnings: string[] = [];
+      const warnings: DetectedWarning[] = [];
       const missing: string[] = [];
       for (const req of SHAPEFILE_REQUIRED_SIDECARS) {
         const match = siblings.find((s) => extOf(s) === req);
@@ -148,16 +171,20 @@ export async function inspectZip(file: File): Promise<DetectedDataset[]> {
         else missing.push(req);
       }
       if (missing.length) {
-        warnings.push(
-          `Shapefile is missing required files: ${missing.join(', ')}`,
-        );
+        warnings.push({
+          code: WarningCode.ShapefileMissingRequired,
+          message: `Shapefile is missing required files: ${missing.join(', ')}`,
+        });
       }
       for (const opt of SHAPEFILE_OPTIONAL_SIDECARS) {
         const match = siblings.find((s) => extOf(s) === opt);
         if (match) members.push(match);
       }
       if (!siblingExts.has('.prj')) {
-        warnings.push('Missing .prj — upload will fail without a coordinate reference system');
+        warnings.push({
+          code: WarningCode.MissingPrj,
+          message: 'Missing .prj — upload will fail without a coordinate reference system',
+        });
       }
       members.forEach((m) => consumed.add(m));
       detected.push({
@@ -182,7 +209,10 @@ export async function inspectZip(file: File): Promise<DetectedDataset[]> {
         primaryFile: entry,
         memberFiles: [entry],
         warnings: [
-          'Multi-layer GeoPackages will be imported as the first layer only',
+          {
+            code: WarningCode.GpkgFirstLayerOnly,
+            message: 'Multi-layer GeoPackages will be imported as the first layer only',
+          },
         ],
         entryPath: entry,
       });
@@ -228,7 +258,7 @@ export async function inspectZip(file: File): Promise<DetectedDataset[]> {
     // Esri grid primary
     if (GRID_PRIMARY_EXTS.has(ext)) {
       const members = [entry];
-      const warnings: string[] = [];
+      const warnings: DetectedWarning[] = [];
       let hasHdr = false;
       let hasPrj = false;
       for (const sib of siblings) {
@@ -241,10 +271,16 @@ export async function inspectZip(file: File): Promise<DetectedDataset[]> {
         }
       }
       if (ext !== '.asc' && !hasHdr) {
-        warnings.push(`${ext} requires a .hdr sidecar for spatial reference`);
+        warnings.push({
+          code: WarningCode.GridMissingHdr,
+          message: `${ext} requires a .hdr sidecar for spatial reference`,
+        });
       }
       if (!hasPrj) {
-        warnings.push('Missing .prj — upload will fail without a coordinate reference system');
+        warnings.push({
+          code: WarningCode.MissingPrj,
+          message: 'Missing .prj — upload will fail without a coordinate reference system',
+        });
       }
       members.forEach((m) => consumed.add(m));
       detected.push({

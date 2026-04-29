@@ -90,6 +90,9 @@ class UploadJobResponse(BaseModel):
     status: str
     progress: int
     error_message: str | None
+    # Stable failure-mode identifier; see app.services.upload_errors.UploadErrorCode.
+    # Always None unless ``status == "failed"``.
+    error_code: str | None = None
     created_at: datetime
     completed_at: datetime | None
 
@@ -98,6 +101,16 @@ class UploadJobResponse(BaseModel):
 
 
 # ===== Multi-Dataset Bundle Upload Schemas =====
+
+
+class DetectedWarningSchema(BaseModel):
+    """A non-fatal observation about a detected dataset.
+
+    See ``app.services.upload_errors.WarningCode`` for the stable code values.
+    """
+
+    code: str
+    message: str
 
 
 class DetectedDatasetSchema(BaseModel):
@@ -114,7 +127,7 @@ class DetectedDatasetSchema(BaseModel):
     format: str  # shapefile, geotiff, geopackage, geojson, grid, gdb-vector, gdb-raster
     primary_file: str
     member_files: list[str]
-    warnings: list[str] = Field(default_factory=list)
+    warnings: list[DetectedWarningSchema] = Field(default_factory=list)
     # Real ZIP entry path for plain-file datasets; None for container layers.
     entry_path: str | None = None
     # Set when the dataset lives inside a multi-layer container (.gdb, .lpk, .lpkx).
@@ -157,6 +170,7 @@ class BundleJobDetail(BaseModel):
     status: str
     progress: int
     error_message: str | None
+    error_code: str | None = None
     created_at: datetime
     completed_at: datetime | None
 

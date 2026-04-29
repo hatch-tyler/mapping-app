@@ -234,8 +234,17 @@ export interface UploadJob {
   status: 'pending' | 'processing' | 'completed' | 'failed';
   progress: number;
   error_message: string | null;
+  /** Stable identifier for the failure mode. See backend UploadErrorCode. */
+  error_code?: string | null;
   created_at: string;
   completed_at: string | null;
+}
+
+/** A non-fatal observation about a detected dataset. ``code`` is a stable
+ *  identifier (see backend's WarningCode); ``message`` is human-readable. */
+export interface DetectedWarningApi {
+  code: string;
+  message: string;
 }
 
 export interface DetectedDatasetApi {
@@ -246,7 +255,7 @@ export interface DetectedDatasetApi {
    *  layers it is a synthetic "<container>::<layer>" identifier. */
   primary_file: string;
   member_files: string[];
-  warnings: string[];
+  warnings: DetectedWarningApi[];
   /** Real ZIP entry path for plain-file datasets; null for container layers. */
   entry_path?: string | null;
   // Set when the dataset is a layer inside a multi-layer container
@@ -280,6 +289,7 @@ export interface BundleJobDetail {
   status: 'pending' | 'processing' | 'completed' | 'failed';
   progress: number;
   error_message: string | null;
+  error_code?: string | null;
   created_at: string;
   completed_at: string | null;
 }

@@ -41,7 +41,12 @@ describe('rowsFromDetected', () => {
         format: 'shapefile',
         primaryFile: 'a.shp',
         memberFiles: ['a.shp'],
-        warnings: ['Shapefile is missing required files: .shx, .dbf'],
+        warnings: [
+          {
+            code: 'shapefile_missing_required',
+            message: 'Shapefile is missing required files: .shx, .dbf',
+          },
+        ],
       },
     ];
     const rows = rowsFromDetected(detected);
@@ -97,7 +102,12 @@ describe('BundleDatasetList', () => {
     const rows = [
       makeRow({
         primaryFile: 'a.shp',
-        warnings: ['Shapefile is missing required files: .shx'],
+        warnings: [
+          {
+            code: 'shapefile_missing_required',
+            message: 'Shapefile is missing required files: .shx',
+          },
+        ],
         include: false,
       }),
     ];
@@ -111,7 +121,10 @@ describe('BundleDatasetList', () => {
       makeRow({
         primaryFile: 'a.shp',
         warnings: [
-          'Missing .prj — projection will be assumed WGS84 (EPSG:4326)',
+          {
+            code: 'missing_prj',
+            message: 'Missing .prj — projection will be assumed WGS84 (EPSG:4326)',
+          },
         ],
       }),
     ];

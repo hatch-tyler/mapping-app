@@ -254,6 +254,7 @@ async def update_upload_job(
     status: str | None = None,
     progress: int | None = None,
     error_message: str | None = None,
+    error_code: str | None = None,
     completed_at: datetime | None = None,
 ) -> UploadJob:
     if status is not None:
@@ -262,6 +263,8 @@ async def update_upload_job(
         job.progress = progress
     if error_message is not None:
         job.error_message = error_message
+    if error_code is not None:
+        job.error_code = error_code
     if completed_at is not None:
         job.completed_at = completed_at
 
