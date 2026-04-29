@@ -39,6 +39,7 @@ from app.models.user import User
 from app.models.dataset import Dataset, UploadJob
 from app.services.file_processor import file_processor, FileProcessor
 from app.services.zip_inspector import inspect_zip, DetectedDataset
+from app.services import upload_workspace
 from app.config import settings
 
 router = APIRouter(prefix="/upload", tags=["upload"])
@@ -125,10 +126,8 @@ async def _mark_job_failed(
 
 
 def _processing_dir(job_id: UUID) -> Path:
-    """Return a persistent directory for a processing job's files."""
-    d = Path(settings.UPLOAD_DIR) / "processing" / str(job_id)
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    """Return the per-job processing directory (delegates to upload_workspace)."""
+    return upload_workspace.processing_dir(job_id)
 
 
 def _validate_single_file_upload(file: UploadFile, data_type: str) -> str:
@@ -433,8 +432,7 @@ async def inspect_bundle(
             detail="Inspection requires a .zip, .lpk, or .lpkx file",
         )
 
-    tmp_dir = Path(settings.UPLOAD_DIR) / "inspect" / str(uuid.uuid4())
-    tmp_dir.mkdir(parents=True, exist_ok=True)
+    tmp_dir = upload_workspace.inspect_dir()
     zip_path = tmp_dir / file.filename
     try:
         await _save_upload_to_temp(file, zip_path)
@@ -499,8 +497,7 @@ async def upload_bundle(
 
     # Save ZIP to a shared bundle directory (extracted per-job below)
     bundle_id = uuid.uuid4()
-    bundle_dir = Path(settings.UPLOAD_DIR) / "bundles" / str(bundle_id)
-    bundle_dir.mkdir(parents=True, exist_ok=True)
+    bundle_dir = upload_workspace.bundle_dir(bundle_id)
     zip_path = bundle_dir / file.filename
 
     try:

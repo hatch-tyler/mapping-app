@@ -119,11 +119,23 @@ async def lifespan(app: FastAPI):
         except Exception:
             logger.exception("Failed to clean up orphaned upload jobs")
 
-    # Clean up leftover processing temp files
-    processing_dir = Path(settings.UPLOAD_DIR) / "processing"
-    if processing_dir.exists():
-        shutil.rmtree(str(processing_dir), ignore_errors=True)
-        logger.info("Cleaned up processing temp directory")
+    # Clean up leftover upload-work temp dirs from a prior run (processing
+    # and bundles). Inspect dirs are short-lived and cleaned by the endpoint
+    # itself, so they're not swept here.
+    try:
+        from app.services import upload_workspace
+
+        upload_workspace.sweep_orphans()
+    except Exception:
+        logger.exception("Failed to sweep orphaned upload-work dirs")
+
+    # Legacy fallback: pre-PR-8 deployments wrote processing/ directly under
+    # UPLOAD_DIR rather than under work/. Sweep that location once on startup
+    # so old leftovers don't accumulate forever.
+    legacy_processing = Path(settings.UPLOAD_DIR) / "processing"
+    if legacy_processing.exists():
+        shutil.rmtree(str(legacy_processing), ignore_errors=True)
+        logger.info("Cleaned up legacy processing temp directory")
 
     yield
 
