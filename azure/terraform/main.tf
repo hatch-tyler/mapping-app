@@ -203,4 +203,14 @@ resource "azurerm_linux_virtual_machine" "main" {
   }))
 
   tags = azurerm_resource_group.main.tags
+
+  # cloud-init only runs at first boot; once the VM is provisioned the
+  # custom_data field is informational. Without this block, any edit to
+  # cloud-init.yml or interpolated variables (db_password, etc.) would
+  # force VM replacement (destroy + recreate), wiping the OS disk
+  # including /etc/fstab, certbot install, and any post-provision state.
+  # In-place updates like vm_size resize are unaffected.
+  lifecycle {
+    ignore_changes = [custom_data]
+  }
 }
