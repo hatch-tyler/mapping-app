@@ -19,9 +19,15 @@ variable "location" {
 
 # VM Configuration
 variable "vm_size" {
-  description = "Azure VM size"
+  description = <<-EOT
+    Azure VM size. Default is Standard_B2ms (2 vCPU, 8 GB RAM) — sufficient
+    headroom for the backend container's 3 GB mem_limit during bulk-upload
+    processing of large .gdb feature classes. Standard_B2s (4 GB total) is
+    too tight for that workload; the gunicorn worker OOM-killed mid-bundle
+    on 441 MB .gdb.zip uploads with millions of features.
+  EOT
   type        = string
-  default     = "Standard_B2s"
+  default     = "Standard_B2ms"
 }
 
 variable "admin_username" {

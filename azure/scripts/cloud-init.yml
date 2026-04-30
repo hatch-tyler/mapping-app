@@ -75,6 +75,18 @@ runcmd:
   - mkdir -p /mnt/data/certbot/www
   - mkdir -p /mnt/data/backups
 
+  # Create a 4 GB swapfile as a safety net for memory spikes during bulk
+  # upload processing. Backend mem_limit is sized to fit in RAM; swap
+  # exists so a brief overshoot degrades to slowness instead of OOM-kill.
+  - |
+    if [ ! -f /swapfile ]; then
+      fallocate -l 4G /swapfile
+      chmod 600 /swapfile
+      mkswap /swapfile
+      swapon /swapfile
+      grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
+    fi
+
   # Create application directory
   - mkdir -p /opt/mapping-app
 

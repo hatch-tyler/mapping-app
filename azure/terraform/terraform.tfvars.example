@@ -7,7 +7,12 @@ environment  = "prod"
 location     = "East US"
 
 # VM
-vm_size             = "Standard_B2s"   # 2 vCPU, 4 GB RAM (~$33/month)
+# B2ms recommended for production: 2 vCPU, 8 GB RAM. Bulk-upload processing
+# of large vector layers (e.g. multi-million-feature contour datasets via
+# OpenFileGDB) needs ~3 GB peak in the backend container; B2s (4 GB total)
+# leaves no headroom for that.
+vm_size             = "Standard_B2ms"  # 2 vCPU, 8 GB RAM (~$67/month)
+# vm_size           = "Standard_B2s"   # 2 vCPU, 4 GB RAM (~$33/month) — light workloads only
 admin_username      = "azureuser"
 ssh_public_key_path = "~/.ssh/id_rsa.pub"
 ssh_allowed_cidr    = "0.0.0.0/0"      # CHANGE: restrict to your IP, e.g. "203.0.113.10/32"

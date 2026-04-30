@@ -34,7 +34,11 @@ services:
     image: tjhatch/mapping-app-backend:latest
     container_name: gis-backend
     restart: unless-stopped
-    mem_limit: 1536m
+    # 3 GB cap accommodates bulk-upload processing of large .gdb feature
+    # classes (geopandas/OpenFileGDB reads the whole layer into RAM). Pair
+    # with a Standard_B2ms VM (8 GB total); a B2s (4 GB) doesn't have
+    # the headroom and the gunicorn worker OOM-kills mid-bundle.
+    mem_limit: 3072m
     cpus: 1.5
     environment:
       - DATABASE_URL=postgresql+asyncpg://${DB_USER:-gis_user}:${DB_PASSWORD}@db:5432/${DB_NAME:-gis_db}
