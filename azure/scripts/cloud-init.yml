@@ -25,47 +25,78 @@ runcmd:
   - systemctl start docker
   - usermod -aG docker ${admin_username}
 
-  # Wait for data disk to be attached (LUN 0 = /dev/sdc on most Azure VMs)
+  # Detect, format, and mount the managed data disk at /mnt/data.
+  #
+  # Critical: this must FAIL LOUDLY if the disk can't be set up rather than
+  # silently falling back to creating /mnt/data as a regular directory. The
+  # default Azure cloud config mounts the *ephemeral resource disk* at /mnt
+  # (and resource disks are zeroed on every VM stop/deallocate, including
+  # resizes), so a silent fallback would land Postgres data, uploads, and
+  # certs on storage that gets wiped at any restart. See incident
+  # 2026-04-30: a year of "working" /mnt/data was actually on the resource
+  # disk and a single VM resize wiped the entire DB. The previous version
+  # of this block had that silent fallback; the version below refuses.
   - |
-    echo "Waiting for data disk..."
-    for i in $$(seq 1 30); do
-      if [ -b /dev/sdc ]; then
-        echo "Data disk found at /dev/sdc"
-        break
-      elif [ -b /dev/disk/azure/scsi1/lun0 ]; then
-        echo "Data disk found at /dev/disk/azure/scsi1/lun0"
+    set -e
+    echo "[disk-setup] Waiting for managed data disk at LUN 0..."
+
+    DATA_DISK=""
+    for i in $$(seq 1 60); do
+      # Canonical: Azure udev symlink. Stable across host re-attach.
+      if [ -b /dev/disk/azure/scsi1/lun0 ]; then
+        DATA_DISK=$$(readlink -f /dev/disk/azure/scsi1/lun0)
         break
       fi
-      echo "Waiting for data disk... attempt $$i"
-      sleep 10
+      # Fallback: SCSI letter scan (skip sda=OS, sdb=ephemeral resource).
+      for candidate in /dev/sdc /dev/sdd; do
+        if [ -b "$$candidate" ]; then
+          DATA_DISK="$$candidate"
+          break 2
+        fi
+      done
+      sleep 5
     done
 
-  # Format and mount data disk (only if not already formatted)
-  - |
-    DATA_DISK=""
-    if [ -b /dev/disk/azure/scsi1/lun0 ]; then
-      DATA_DISK="/dev/disk/azure/scsi1/lun0"
-    elif [ -b /dev/sdc ]; then
-      DATA_DISK="/dev/sdc"
+    if [ -z "$$DATA_DISK" ]; then
+      echo "[disk-setup] FATAL: managed data disk not found after 5 min."
+      echo "[disk-setup] Block devices present:"
+      lsblk
+      touch /var/log/cloud-init-data-disk-FAILED
+      exit 1
+    fi
+    echo "[disk-setup] Using $$DATA_DISK"
+
+    # Format only if no filesystem exists; idempotent on re-runs.
+    if ! blkid "$$DATA_DISK" | grep -q "TYPE="; then
+      echo "[disk-setup] Formatting $$DATA_DISK as ext4..."
+      mkfs.ext4 -F -L mapping-app-data "$$DATA_DISK"
     fi
 
-    if [ -n "$$DATA_DISK" ]; then
-      # Check if already has a filesystem
-      if ! blkid "$$DATA_DISK" | grep -q "TYPE="; then
-        echo "Formatting data disk..."
-        mkfs.ext4 -F "$$DATA_DISK"
-      fi
+    DISK_UUID=$$(blkid -s UUID -o value "$$DATA_DISK")
+    echo "[disk-setup] Data disk UUID: $$DISK_UUID"
 
-      mkdir -p /mnt/data
-      DISK_UUID=$$(blkid -s UUID -o value "$$DATA_DISK")
-      if ! grep -q "$$DISK_UUID" /etc/fstab; then
-        echo "UUID=$$DISK_UUID /mnt/data ext4 defaults,nofail 0 2" >> /etc/fstab
-      fi
-      mount -a
-    else
-      echo "WARNING: Data disk not found. Using /mnt/data on OS disk."
-      mkdir -p /mnt/data
+    mkdir -p /mnt/data
+    if ! grep -q "$$DISK_UUID" /etc/fstab; then
+      echo "UUID=$$DISK_UUID /mnt/data ext4 defaults,nofail,x-systemd.requires=cloud-init.service 0 2" >> /etc/fstab
     fi
+    mount -a
+
+    # Sanity-check: /mnt/data must be a mount point on the expected device.
+    if ! mountpoint -q /mnt/data; then
+      echo "[disk-setup] FATAL: /mnt/data is not a mount point after mount -a."
+      cat /etc/fstab
+      touch /var/log/cloud-init-data-disk-FAILED
+      exit 1
+    fi
+    MOUNTED_DEV=$$(findmnt -n -o SOURCE /mnt/data)
+    if [ "$$MOUNTED_DEV" != "$$DATA_DISK" ]; then
+      echo "[disk-setup] FATAL: /mnt/data mounted from $$MOUNTED_DEV, expected $$DATA_DISK."
+      touch /var/log/cloud-init-data-disk-FAILED
+      exit 1
+    fi
+
+    echo "[disk-setup] /mnt/data successfully mounted on $$DATA_DISK"
+    touch /var/log/cloud-init-data-disk-OK
 
   # Create directory structure on data disk
   - mkdir -p /mnt/data/postgres
