@@ -87,6 +87,14 @@ runcmd:
       grep -q '/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
     fi
 
+  # Daily nginx reload at 03:00 UTC so newly-renewed Let's Encrypt certs
+  # take effect within 24 h. The certbot container runs `certbot renew`
+  # every 12 h but doesn't signal nginx; this cron picks up any cert
+  # change. Reload is a no-op if the cert hasn't changed.
+  - |
+    CRON_LINE='0 3 * * * /usr/bin/docker exec gis-nginx nginx -s reload >> /var/log/nginx-reload.log 2>&1'
+    (crontab -u azureuser -l 2>/dev/null; echo "$CRON_LINE") | sort -u | crontab -u azureuser -
+
   # Create application directory
   - mkdir -p /opt/mapping-app
 
