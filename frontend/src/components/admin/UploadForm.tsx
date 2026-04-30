@@ -1,9 +1,17 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import * as datasetsApi from '../../api/datasets';
 import * as projectsApi from '../../api/projects';
-import { UploadJob, DatasetCategory, GeographicScope, Project, BundleDatasetInput } from '../../api/types';
+import {
+  UploadJob,
+  DatasetCategory,
+  GeographicScope,
+  Project,
+  BundleDatasetInput,
+  BundleStatusResponse,
+} from '../../api/types';
 import { bundleSizeAdvisory, isBundleFile, DetectedDataset } from '../../utils/zipInspector';
 import { BundleDatasetList, BundleDatasetRow, rowsFromDetected } from './BundleDatasetList';
+import { BundleResultsList } from './BundleResultsList';
 import { UploadDropzone } from './UploadDropzone';
 import {
   BundleProcessingBar,
@@ -49,6 +57,7 @@ export function UploadForm({ onSuccess }: Props) {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [processingProgress, setProcessingProgress] = useState(0);
   const [bundleSummary, setBundleSummary] = useState<{ total: number; completed: number; failed: number } | null>(null);
+  const [bundleResults, setBundleResults] = useState<BundleStatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pollRefs = useRef<ReturnType<typeof setInterval>[]>([]);
 
@@ -78,6 +87,7 @@ export function UploadForm({ onSuccess }: Props) {
     setUploadProgress(0);
     setProcessingProgress(0);
     setBundleSummary(null);
+    setBundleResults(null);
     setError(null);
   }, []);
 
@@ -141,8 +151,10 @@ export function UploadForm({ onSuccess }: Props) {
     pollRefs.current.push(id);
   };
 
-  // Bundle-level processing poll — watches all jobs in parallel
-  const pollBundleJobs = (jobs: UploadJob[]) => {
+  // Bundle-level processing poll — watches all jobs in parallel. After all
+  // jobs reach terminal status, fetches the full per-dataset detail once
+  // (dataset_name, error_code, error_message) for the BundleResultsList.
+  const pollBundleJobs = (bundleId: string, jobs: UploadJob[]) => {
     const total = jobs.length;
     let completed = 0;
     let failed = 0;
@@ -160,13 +172,26 @@ export function UploadForm({ onSuccess }: Props) {
           setBundleSummary({ total, completed, failed });
         }),
       ),
-    ).then(() => {
+    ).then(async () => {
+      // Fetch the canonical per-dataset detail so the UI can show which
+      // specific datasets failed and why. The poll loop only saw counts.
+      try {
+        const detail = await datasetsApi.getBundleStatus(bundleId);
+        setBundleResults(detail);
+      } catch (e) {
+        console.warn('Failed to fetch bundle results:', e);
+      }
+
       if (failed === 0) {
         setPhase('completed');
+        // Don't auto-reset on full success when the user has results to
+        // review. Auto-close after a longer pause to let them glance.
         setTimeout(() => {
-          resetForm();
-          onSuccess();
-        }, 2000);
+          if (failed === 0) {
+            resetForm();
+            onSuccess();
+          }
+        }, 4000);
       } else {
         setPhase(completed > 0 ? 'completed' : 'failed');
         if (completed === 0) {
@@ -284,7 +309,7 @@ export function UploadForm({ onSuccess }: Props) {
         );
         localStorage.setItem('lastBundleId', resp.bundle_id);
         setPhase('processing');
-        pollBundleJobs(resp.jobs);
+        pollBundleJobs(resp.bundle_id, resp.jobs);
       } catch (err) {
         // The POST may have failed (502 from an OOM'd worker, dropped
         // connection, etc.) AFTER the backend committed dataset + job rows
@@ -298,6 +323,7 @@ export function UploadForm({ onSuccess }: Props) {
           try {
             const detail = await datasetsApi.getBundleStatus(recovered.bundle_id);
             pollBundleJobs(
+              recovered.bundle_id,
               detail.jobs.map((j) => ({
                 id: j.id,
                 dataset_id: j.dataset_id,
@@ -544,6 +570,13 @@ export function UploadForm({ onSuccess }: Props) {
             ? `All ${bundleSummary.total} datasets uploaded and processed successfully.`
             : `${bundleSummary.completed} of ${bundleSummary.total} datasets processed successfully, ${bundleSummary.failed} failed.`}
         </div>
+      )}
+
+      {/* Per-dataset breakdown — surfaces failure names + error codes so the
+          user can identify what to re-upload. Shown for both completed (with
+          failures) and fully-failed bundle states. */}
+      {(phase === 'completed' || phase === 'failed') && bundleResults && (
+        <BundleResultsList bundle={bundleResults} />
       )}
 
       {error && (

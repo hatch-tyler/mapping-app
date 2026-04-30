@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { DatasetTable } from '../components/admin/DatasetTable';
 import { UploadModal } from '../components/admin/UploadModal';
+import { RecentUploadsModal } from '../components/admin/RecentUploadsModal';
 import { AddExternalSourceModal } from '../components/admin/AddExternalSourceModal';
 import { DatasetSearchBar } from '../components/admin/DatasetSearchBar';
 import { DatasetFilterPanel } from '../components/admin/DatasetFilterPanel';
@@ -19,6 +20,7 @@ type TabType = 'datasets' | 'projects' | 'templates' | 'views';
 export function UploadPage() {
   const [showAddExternal, setShowAddExternal] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
+  const [showRecentUploads, setShowRecentUploads] = useState(false);
   const [refreshingMetadata, setRefreshingMetadata] = useState(false);
   const [activeTab, setActiveTab] = useState<TabType>('datasets');
   const { datasets, loading, error, filters, fetchDatasets, setFilters, updateDataset, removeDataset } =
@@ -169,6 +171,13 @@ export function UploadPage() {
                     + Upload Dataset
                   </button>
                   <button
+                    onClick={() => setShowRecentUploads(true)}
+                    className="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+                    title="View per-dataset results from recent bulk uploads"
+                  >
+                    Recent Uploads
+                  </button>
+                  <button
                     onClick={() => setShowAddExternal(true)}
                     className="px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
                   >
@@ -236,6 +245,11 @@ export function UploadPage() {
           onSuccess={() => { setShowUpload(false); fetchDatasets(); }}
         />
       )}
+
+      <RecentUploadsModal
+        open={showRecentUploads}
+        onClose={() => setShowRecentUploads(false)}
+      />
 
       {showAddExternal && (
         <AddExternalSourceModal

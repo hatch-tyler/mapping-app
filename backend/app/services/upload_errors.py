@@ -37,6 +37,11 @@ class UploadErrorCode(str, Enum):
     GDB_RASTER_TRANSLATE_FAILED = "gdb_raster_translate_failed"
     BUNDLE_INNER_NOT_FOUND = "bundle_inner_not_found"
 
+    # Operational failure: the worker died or was restarted while the job
+    # was in flight. Distinct from data-quality failures so the UI can
+    # suggest a simple retry rather than asking the user to fix their data.
+    SERVER_RESTART = "server_restart"
+
     # Catch-all for anything else; pair with a descriptive ``error_message``.
     PROCESSING_FAILED = "processing_failed"
 

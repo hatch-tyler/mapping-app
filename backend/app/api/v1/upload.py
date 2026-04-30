@@ -894,14 +894,18 @@ async def get_bundle_by_nonce(
 
 @router.get("/bundles", response_model=list[BundleSummary])
 async def list_recent_bundles(
-    since_minutes: int = Query(60, ge=1, le=1440),
+    since_minutes: int = Query(60, ge=1, le=10080),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_editor_or_admin_user),
 ):
     """Return compact summaries of bundles uploaded by the current user within
-    the given window. Used by the frontend to recover from a lost POST
-    response: if a bundle is in-flight and its bundle_id wasn't received, the
-    UI can call this and continue polling.
+    the given window.
+
+    Two consumers:
+    * Lost-POST recovery (frontend default): a 60-minute window matches a
+      just-attempted bundle that didn't return its bundle_id.
+    * History view: callers may pass up to 10080 minutes (7 days) to show
+      recent uploads in the UI.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=since_minutes)
     rows = await db.execute(

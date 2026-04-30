@@ -423,4 +423,106 @@ describe('UploadForm', () => {
     expect(datasetsArg[0].container_path).toBe('sample.gdb');
     expect(datasetsArg[0].layer_name).toMatch(/^(roads|parcels)$/);
   });
+
+  it('surfaces per-dataset failures in BundleResultsList after a mixed bundle', async () => {
+    // Bundle with 2 datasets where 1 fails. After polling resolves, the
+    // form fetches the full bundle status and renders BundleResultsList,
+    // which shows the failed dataset's name + error_code chip.
+    const mockFile = new File(['z'], 'mixed.zip', { type: 'application/zip' });
+
+    vi.mocked(datasetsApi.inspectBundle).mockResolvedValue({
+      datasets: [
+        {
+          suggested_name: 'good',
+          data_type: 'vector',
+          format: 'shapefile',
+          primary_file: 'good.shp',
+          member_files: ['good.shp'],
+          warnings: [],
+          entry_path: 'good.shp',
+          container_path: null,
+          layer_name: null,
+        },
+        {
+          suggested_name: 'bad',
+          data_type: 'vector',
+          format: 'shapefile',
+          primary_file: 'bad.shp',
+          member_files: ['bad.shp'],
+          warnings: [],
+          entry_path: 'bad.shp',
+          container_path: null,
+          layer_name: null,
+        },
+      ],
+    });
+    vi.mocked(datasetsApi.uploadBundle).mockResolvedValue({
+      bundle_id: 'bundle-mixed',
+      jobs: [
+        createMockUploadJob({ id: 'j-good', status: 'pending', dataset_id: 'd-good' }),
+        createMockUploadJob({ id: 'j-bad', status: 'pending', dataset_id: 'd-bad' }),
+      ],
+    });
+    vi.mocked(datasetsApi.getUploadJobStatus).mockImplementation(async (id) =>
+      id === 'j-good'
+        ? createMockUploadJob({ id: 'j-good', status: 'completed', progress: 100 })
+        : createMockUploadJob({
+            id: 'j-bad',
+            status: 'failed',
+            progress: 0,
+            error_message: 'No CRS found',
+          }),
+    );
+    vi.mocked(datasetsApi.getBundleStatus).mockResolvedValue({
+      bundle_id: 'bundle-mixed',
+      jobs: [
+        {
+          id: 'j-good',
+          dataset_id: 'd-good',
+          dataset_name: 'good',
+          status: 'completed',
+          progress: 100,
+          error_message: null,
+          error_code: null,
+          created_at: '2026-04-30T00:00:00Z',
+          completed_at: '2026-04-30T00:01:00Z',
+        },
+        {
+          id: 'j-bad',
+          dataset_id: 'd-bad',
+          dataset_name: 'bad',
+          status: 'failed',
+          progress: 0,
+          error_message: 'No CRS found',
+          error_code: 'missing_crs',
+          created_at: '2026-04-30T00:00:00Z',
+          completed_at: '2026-04-30T00:01:00Z',
+        },
+      ],
+    });
+
+    render(<UploadForm onSuccess={mockOnSuccess} />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const dt = new DataTransfer();
+    dt.items.add(mockFile);
+    fireEvent.change(input, { target: { files: dt.files } });
+
+    await waitFor(() =>
+      expect(screen.getByDisplayValue('good')).toBeInTheDocument(),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /Upload 2 Datasets/i }));
+
+    // After polling resolves, BundleResultsList should appear with the
+    // failed dataset's name and error code chip.
+    await waitFor(
+      () => {
+        expect(screen.getByText('bad')).toBeInTheDocument();
+        expect(screen.getByText('missing_crs')).toBeInTheDocument();
+      },
+      { timeout: 8000 },
+    );
+    expect(datasetsApi.getBundleStatus).toHaveBeenCalledWith('bundle-mixed');
+  });
 });

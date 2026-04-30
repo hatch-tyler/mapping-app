@@ -103,9 +103,13 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as db:
         await setup_initial_admin(db)
 
-    # Clean up orphaned processing jobs from previous runs
+    # Clean up orphaned processing jobs from previous runs. Mark them
+    # `failed` with the SERVER_RESTART code so the UI can distinguish an
+    # operational restart from a data-quality failure and suggest a retry.
     async with AsyncSessionLocal() as db:
         try:
+            from app.services.upload_errors import UploadErrorCode
+
             stale_jobs = await dataset_crud.get_stale_processing_jobs(db)
             for job in stale_jobs:
                 await dataset_crud.update_upload_job(
@@ -113,9 +117,24 @@ async def lifespan(app: FastAPI):
                     job,
                     status="failed",
                     error_message="Server restarted during processing",
+                    error_code=UploadErrorCode.SERVER_RESTART.value,
                 )
             if stale_jobs:
                 logger.info("Marked %d orphaned upload jobs as failed", len(stale_jobs))
+
+            # Backfill: any historical rows already marked failed with the
+            # restart message but no error_code (pre-this-PR rows) get the
+            # new code. Idempotent and bounded — only touches rows whose
+            # message exactly matches.
+            await db.execute(
+                text(
+                    "UPDATE upload_jobs SET error_code = :code "
+                    "WHERE error_message = 'Server restarted during processing' "
+                    "AND error_code IS NULL"
+                ),
+                {"code": UploadErrorCode.SERVER_RESTART.value},
+            )
+            await db.commit()
         except Exception:
             logger.exception("Failed to clean up orphaned upload jobs")
 

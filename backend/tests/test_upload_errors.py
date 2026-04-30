@@ -35,6 +35,7 @@ class TestUploadErrorFactories:
         assert UploadErrorCode.EMPTY_FILE.value == "empty_file"
         assert UploadErrorCode.PROCESSING_FAILED.value == "processing_failed"
         assert UploadErrorCode.GDB_LAYER_UNREADABLE.value == "gdb_layer_unreadable"
+        assert UploadErrorCode.SERVER_RESTART.value == "server_restart"
 
 
 class TestWarningCodes:

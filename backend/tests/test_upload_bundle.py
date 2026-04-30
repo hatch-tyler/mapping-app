@@ -469,6 +469,40 @@ class TestBundleByNonce:
         assert resp.status_code == 404
 
 
+class TestBundleListWindow:
+    """The since_minutes window is bounded at 7 days (10080 minutes)."""
+
+    @pytest.mark.asyncio
+    async def test_accepts_seven_day_window(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        resp = await client.get(
+            "/api/v1/upload/bundles?since_minutes=10080",
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 200, resp.text
+
+    @pytest.mark.asyncio
+    async def test_rejects_window_beyond_seven_days(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        resp = await client.get(
+            "/api/v1/upload/bundles?since_minutes=10081",
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_rejects_window_below_one(
+        self, client: AsyncClient, admin_auth_headers: dict
+    ):
+        resp = await client.get(
+            "/api/v1/upload/bundles?since_minutes=0",
+            headers=admin_auth_headers,
+        )
+        assert resp.status_code == 422
+
+
 class TestBundleListEndpoint:
     @pytest.mark.asyncio
     async def test_list_recent_bundles_includes_just_uploaded(
