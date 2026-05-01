@@ -768,6 +768,29 @@ async def _process_bundle_sequentially(
 # background processor, so those rows are retrievable by bundle_id.
 
 
+_DELETED_DATASET_NAME = "(deleted)"
+
+
+def _bundle_job_detail(job: UploadJob, dataset: Dataset | None) -> BundleJobDetail:
+    """Build a ``BundleJobDetail`` row, tolerating a cleaned-up dataset.
+
+    The dataset row is deleted by the failure-cleanup path when an upload
+    fails before any features are inserted; the job survives via
+    ``ON DELETE SET NULL`` so the failure reason is still readable.
+    """
+    return BundleJobDetail(
+        id=job.id,
+        dataset_id=job.dataset_id,
+        dataset_name=dataset.name if dataset is not None else _DELETED_DATASET_NAME,
+        status=job.status,
+        progress=job.progress,
+        error_message=job.error_message,
+        error_code=job.error_code,
+        created_at=job.created_at,
+        completed_at=job.completed_at,
+    )
+
+
 @router.get("/bundles/{bundle_id}", response_model=BundleStatusResponse)
 async def get_bundle_status(
     bundle_id: UUID,
@@ -778,10 +801,13 @@ async def get_bundle_status(
 
     Authorization: the caller must have created at least one dataset in the
     bundle, OR be an admin. Bundles are small and there's no public view.
+
+    Uses LEFT JOIN so jobs whose dataset row was cleaned up by the
+    failure-cleanup path still surface (with ``dataset_name="(deleted)"``).
     """
     rows = await db.execute(
         select(UploadJob, Dataset)
-        .join(Dataset, Dataset.id == UploadJob.dataset_id)
+        .outerjoin(Dataset, Dataset.id == UploadJob.dataset_id)
         .where(UploadJob.bundle_id == bundle_id)
         .order_by(UploadJob.created_at)
     )
@@ -792,10 +818,13 @@ async def get_bundle_status(
             detail="Bundle not found",
         )
 
-    # Authorization — admin OR uploaded one of the datasets themselves.
+    # Authorization — admin OR uploaded one of the live datasets themselves.
+    # Orphaned (cleaned-up) datasets contribute nothing to the ownership
+    # check; in the (very rare) case where every dataset in a bundle has
+    # been cleaned up, only admins can view it.
     if not current_user.is_admin:
         caller_owns = any(
-            getattr(d, "created_by_id", None) == current_user.id for (_j, d) in pairs
+            d is not None and d.created_by_id == current_user.id for (_j, d) in pairs
         )
         if not caller_owns:
             raise HTTPException(
@@ -805,20 +834,7 @@ async def get_bundle_status(
 
     return BundleStatusResponse(
         bundle_id=bundle_id,
-        jobs=[
-            BundleJobDetail(
-                id=job.id,
-                dataset_id=job.dataset_id,
-                dataset_name=dataset.name,
-                status=job.status,
-                progress=job.progress,
-                error_message=job.error_message,
-                error_code=job.error_code,
-                created_at=job.created_at,
-                completed_at=job.completed_at,
-            )
-            for (job, dataset) in pairs
-        ],
+        jobs=[_bundle_job_detail(job, dataset) for (job, dataset) in pairs],
     )
 
 
@@ -841,7 +857,7 @@ async def get_bundle_by_nonce(
     """
     rows = await db.execute(
         select(UploadJob, Dataset)
-        .join(Dataset, Dataset.id == UploadJob.dataset_id)
+        .outerjoin(Dataset, Dataset.id == UploadJob.dataset_id)
         .where(UploadJob.client_nonce == nonce)
         .order_by(UploadJob.created_at)
     )
@@ -854,7 +870,7 @@ async def get_bundle_by_nonce(
 
     if not current_user.is_admin:
         caller_owns = any(
-            getattr(d, "created_by_id", None) == current_user.id for (_j, d) in pairs
+            d is not None and d.created_by_id == current_user.id for (_j, d) in pairs
         )
         if not caller_owns:
             raise HTTPException(
@@ -875,20 +891,7 @@ async def get_bundle_by_nonce(
 
     return BundleStatusResponse(
         bundle_id=bundle_id,
-        jobs=[
-            BundleJobDetail(
-                id=job.id,
-                dataset_id=job.dataset_id,
-                dataset_name=dataset.name,
-                status=job.status,
-                progress=job.progress,
-                error_message=job.error_message,
-                error_code=job.error_code,
-                created_at=job.created_at,
-                completed_at=job.completed_at,
-            )
-            for (job, dataset) in pairs
-        ],
+        jobs=[_bundle_job_detail(job, dataset) for (job, dataset) in pairs],
     )
 
 
@@ -908,12 +911,23 @@ async def list_recent_bundles(
       recent uploads in the UI.
     """
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=since_minutes)
-    rows = await db.execute(
-        select(UploadJob, Dataset)
+    # Two-pass: first find which bundles the user uploaded (joins to Dataset
+    # for ownership), then fetch every job in those bundles via LEFT JOIN so
+    # the per-bundle counts include jobs whose dataset row was cleaned up
+    # after a fast failure.
+    user_bundle_ids_q = (
+        select(UploadJob.bundle_id)
         .join(Dataset, Dataset.id == UploadJob.dataset_id)
         .where(UploadJob.bundle_id.isnot(None))
         .where(UploadJob.created_at >= cutoff)
         .where(Dataset.created_by_id == current_user.id)
+        .distinct()
+    )
+    rows = await db.execute(
+        select(UploadJob, Dataset)
+        .outerjoin(Dataset, Dataset.id == UploadJob.dataset_id)
+        .where(UploadJob.bundle_id.in_(user_bundle_ids_q))
+        .where(UploadJob.created_at >= cutoff)
         .order_by(UploadJob.created_at.desc())
     )
     # Group by bundle_id

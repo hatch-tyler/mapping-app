@@ -151,8 +151,16 @@ class UploadJob(Base):
     __tablename__ = "upload_jobs"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(), primary_key=True, default=uuid.uuid4)
-    dataset_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(), ForeignKey("datasets.id", ondelete="CASCADE")
+    # ``ondelete=SET NULL`` (not CASCADE): when the failure-cleanup path in
+    # ``process_vector_background`` deletes an orphaned dataset row, the
+    # job survives so the frontend can still poll the failure reason. Without
+    # this, fast-failing uploads (missing CRS, empty file, etc.) raced the
+    # 2-second polling interval and produced a misleading
+    # "lost connection to server" message instead of the real error.
+    dataset_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(),
+        ForeignKey("datasets.id", ondelete="SET NULL"),
+        nullable=True,
     )
     # Groups multiple UploadJobs that originated from the same multi-dataset ZIP
     bundle_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(), index=True)
@@ -175,4 +183,4 @@ class UploadJob(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Relationships
-    dataset: Mapped["Dataset"] = relationship()
+    dataset: Mapped["Dataset | None"] = relationship()

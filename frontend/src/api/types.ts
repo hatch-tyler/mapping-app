@@ -229,7 +229,10 @@ export interface ExportSelectedRequest {
 
 export interface UploadJob {
   id: string;
-  dataset_id: string;
+  /** Null after the failure-cleanup path deletes the orphan dataset row. The
+   *  job survives via ON DELETE SET NULL so the failure reason is still
+   *  readable. See backend UploadJob model. */
+  dataset_id: string | null;
   bundle_id?: string | null;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   progress: number;
@@ -284,7 +287,9 @@ export interface BundleUploadResponse {
 
 export interface BundleJobDetail {
   id: string;
-  dataset_id: string;
+  /** Null after the failure-cleanup path deletes the orphan dataset row. */
+  dataset_id: string | null;
+  /** "(deleted)" when the dataset row was cleaned up after a fast failure. */
   dataset_name: string;
   status: 'pending' | 'processing' | 'completed' | 'failed';
   progress: number;

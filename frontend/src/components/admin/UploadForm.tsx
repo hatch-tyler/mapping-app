@@ -1,13 +1,11 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import * as datasetsApi from '../../api/datasets';
 import * as projectsApi from '../../api/projects';
 import {
-  UploadJob,
   DatasetCategory,
   GeographicScope,
   Project,
   BundleDatasetInput,
-  BundleStatusResponse,
 } from '../../api/types';
 import { bundleSizeAdvisory, isBundleFile, DetectedDataset } from '../../utils/zipInspector';
 import { BundleDatasetList, BundleDatasetRow, rowsFromDetected } from './BundleDatasetList';
@@ -18,6 +16,7 @@ import {
   SingleProcessingBar,
   UploadProgressBar,
 } from './UploadProgress';
+import { usePollJob, usePollBundle } from '../../hooks/usePollJob';
 
 interface Props {
   onSuccess: () => void;
@@ -25,8 +24,16 @@ interface Props {
 
 type Phase = 'idle' | 'inspecting' | 'uploading' | 'processing' | 'completed' | 'failed';
 
-const POLL_INTERVAL = 2000;
-const MAX_POLL_FAILURES = 30;
+/** Standard "the upload was rejected before tracking could begin" message.
+ *  Surfaced when status polling 404s (the dataset row was cleaned up by the
+ *  failure-cleanup path before the first poll). The user shouldn't be told
+ *  "check the catalog" — there's nothing there. */
+const VANISHED_MESSAGE =
+  'The upload was rejected before tracking could begin. Please re-check the file (a missing CRS or invalid archive is the most common cause) and try again.';
+
+/** Status polling truly couldn't reach the server within the budget. */
+const LOST_CONNECTION_MESSAGE =
+  'Lost connection to server. Processing may still be running — refresh the catalog in a minute to check.';
 
 /** After a failed bundle upload POST, look up the bundle by the client-supplied
  *  nonce — the backend stamps every UploadJob with the nonce before the wire
@@ -55,24 +62,29 @@ export function UploadForm({ onSuccess }: Props) {
   const [bundleRows, setBundleRows] = useState<BundleDatasetRow[] | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [uploadProgress, setUploadProgress] = useState(0);
-  const [processingProgress, setProcessingProgress] = useState(0);
-  const [bundleSummary, setBundleSummary] = useState<{ total: number; completed: number; failed: number } | null>(null);
-  const [bundleResults, setBundleResults] = useState<BundleStatusResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const pollRefs = useRef<ReturnType<typeof setInterval>[]>([]);
+  // Polling targets — set to a job/bundle id once the upload POST returns
+  // (or recovery succeeds). The shared usePollJob/usePollBundle hooks own
+  // the polling loop, including budgeted lost-connection detection and
+  // immediate fast-fail on HTTP 404 (job vanished after a fast failure).
+  const [currentJobId, setCurrentJobId] = useState<string | null>(null);
+  const [currentBundleId, setCurrentBundleId] = useState<string | null>(null);
+
+  const { job: singleJob, status: singleStatus } = usePollJob(currentJobId);
+  const {
+    detail: bundleResults,
+    summary: pollBundleSummary,
+    status: bundleStatus,
+  } = usePollBundle(currentBundleId);
+
+  // Reuse the live bundle detail for the in-progress summary so the
+  // user sees per-dataset progress as it happens.
+  const bundleSummary = currentBundleId ? pollBundleSummary : null;
+  const processingProgress = singleJob?.progress ?? 0;
 
   useEffect(() => {
     projectsApi.getProjects().then((r) => setProjects(r.projects)).catch((e) => console.warn('Failed to load projects:', e));
   }, []);
-
-  useEffect(() => {
-    return () => stopAllPolling();
-  }, []);
-
-  const stopAllPolling = () => {
-    pollRefs.current.forEach((id) => clearInterval(id));
-    pollRefs.current = [];
-  };
 
   const resetForm = useCallback(() => {
     setName('');
@@ -85,121 +97,79 @@ export function UploadForm({ onSuccess }: Props) {
     setBundleRows(null);
     setPhase('idle');
     setUploadProgress(0);
-    setProcessingProgress(0);
-    setBundleSummary(null);
-    setBundleResults(null);
+    setCurrentJobId(null);
+    setCurrentBundleId(null);
     setError(null);
   }, []);
 
-  // Poll a single job until it completes or fails
-  const pollJob = (jobId: string): Promise<UploadJob> =>
-    new Promise((resolve, reject) => {
-      let failures = 0;
-      const id = setInterval(async () => {
-        try {
-          const job = await datasetsApi.getUploadJobStatus(jobId);
-          failures = 0;
-          if (job.status === 'completed' || job.status === 'failed') {
-            clearInterval(id);
-            pollRefs.current = pollRefs.current.filter((x) => x !== id);
-            resolve(job);
-          }
-        } catch {
-          failures++;
-          if (failures >= MAX_POLL_FAILURES) {
-            clearInterval(id);
-            pollRefs.current = pollRefs.current.filter((x) => x !== id);
-            reject(new Error('Lost connection to server'));
-          }
-        }
-      }, POLL_INTERVAL);
-      pollRefs.current.push(id);
-    });
+  // ----- Single-job state machine -----------------------------------------
+  // The hook drives status; this effect maps it onto the form's phase + the
+  // success/failure side effects (auto-reset, error surfacing).
+  useEffect(() => {
+    if (!currentJobId) return;
+    if (singleStatus === 'completed') {
+      setPhase('completed');
+      const t = setTimeout(() => {
+        resetForm();
+        onSuccess();
+      }, 1500);
+      return () => clearTimeout(t);
+    }
+    if (singleStatus === 'failed') {
+      setPhase('failed');
+      setError(singleJob?.error_message || 'Processing failed');
+    } else if (singleStatus === 'job-vanished') {
+      setPhase('failed');
+      setError(VANISHED_MESSAGE);
+    } else if (singleStatus === 'lost-connection') {
+      setPhase('failed');
+      setError(LOST_CONNECTION_MESSAGE);
+    }
+  }, [currentJobId, singleStatus, singleJob?.error_message, resetForm, onSuccess]);
 
-  // Single-dataset processing poll — updates progress and resolves phase
-  const pollSingleJob = (jobId: string) => {
-    let failures = 0;
-    const id = setInterval(async () => {
-      try {
-        const job = await datasetsApi.getUploadJobStatus(jobId);
-        failures = 0;
-        setProcessingProgress(job.progress);
-        if (job.status === 'completed') {
-          clearInterval(id);
-          pollRefs.current = pollRefs.current.filter((x) => x !== id);
-          setPhase('completed');
-          setTimeout(() => {
-            resetForm();
-            onSuccess();
-          }, 1500);
-        } else if (job.status === 'failed') {
-          clearInterval(id);
-          pollRefs.current = pollRefs.current.filter((x) => x !== id);
-          setPhase('failed');
-          setError(job.error_message || 'Processing failed');
-        }
-      } catch {
-        failures++;
-        if (failures >= MAX_POLL_FAILURES) {
-          clearInterval(id);
-          pollRefs.current = pollRefs.current.filter((x) => x !== id);
-          setPhase('failed');
-          setError('Lost connection to server. Processing may still be running — check the dataset list.');
-        }
-      }
-    }, POLL_INTERVAL);
-    pollRefs.current.push(id);
-  };
-
-  // Bundle-level processing poll — watches all jobs in parallel. After all
-  // jobs reach terminal status, fetches the full per-dataset detail once
-  // (dataset_name, error_code, error_message) for the BundleResultsList.
-  const pollBundleJobs = (bundleId: string, jobs: UploadJob[]) => {
-    const total = jobs.length;
-    let completed = 0;
-    let failed = 0;
-    setBundleSummary({ total, completed: 0, failed: 0 });
-
-    Promise.all(
-      jobs.map((j) =>
-        pollJob(j.id).then((result) => {
-          if (result.status === 'completed') completed++;
-          else failed++;
-          setBundleSummary({ total, completed, failed });
-          return result;
-        }).catch(() => {
-          failed++;
-          setBundleSummary({ total, completed, failed });
-        }),
-      ),
-    ).then(async () => {
-      // Fetch the canonical per-dataset detail so the UI can show which
-      // specific datasets failed and why. The poll loop only saw counts.
-      try {
-        const detail = await datasetsApi.getBundleStatus(bundleId);
-        setBundleResults(detail);
-      } catch (e) {
-        console.warn('Failed to fetch bundle results:', e);
-      }
-
+  // ----- Bundle state machine ---------------------------------------------
+  useEffect(() => {
+    if (!currentBundleId) return;
+    if (bundleStatus === 'completed') {
+      const total = pollBundleSummary.total;
+      const failed = pollBundleSummary.failed;
+      const completed = pollBundleSummary.completed;
       if (failed === 0) {
         setPhase('completed');
-        // Don't auto-reset on full success when the user has results to
-        // review. Auto-close after a longer pause to let them glance.
-        setTimeout(() => {
-          if (failed === 0) {
-            resetForm();
-            onSuccess();
-          }
+        // Auto-close after a longer pause when everything succeeded; otherwise
+        // leave the per-dataset breakdown on screen for the user to read.
+        const t = setTimeout(() => {
+          resetForm();
+          onSuccess();
         }, 4000);
-      } else {
-        setPhase(completed > 0 ? 'completed' : 'failed');
-        if (completed === 0) {
-          setError(`All ${total} datasets failed to process.`);
-        }
+        return () => clearTimeout(t);
       }
-    });
-  };
+      // Some failed.
+      setPhase(completed > 0 ? 'completed' : 'failed');
+      if (completed === 0) {
+        setError(`All ${total} datasets failed to process.`);
+      }
+    } else if (bundleStatus === 'failed') {
+      // All jobs failed.
+      const total = pollBundleSummary.total;
+      setPhase('failed');
+      setError(`All ${total} datasets failed to process.`);
+    } else if (bundleStatus === 'job-vanished') {
+      setPhase('failed');
+      setError(VANISHED_MESSAGE);
+    } else if (bundleStatus === 'lost-connection') {
+      setPhase('failed');
+      setError(LOST_CONNECTION_MESSAGE);
+    }
+  }, [
+    currentBundleId,
+    bundleStatus,
+    pollBundleSummary.total,
+    pollBundleSummary.completed,
+    pollBundleSummary.failed,
+    resetForm,
+    onSuccess,
+  ]);
 
   const handleFileSelected = useCallback(async (selectedFile: File) => {
     setFile(selectedFile);
@@ -309,7 +279,7 @@ export function UploadForm({ onSuccess }: Props) {
         );
         localStorage.setItem('lastBundleId', resp.bundle_id);
         setPhase('processing');
-        pollBundleJobs(resp.bundle_id, resp.jobs);
+        setCurrentBundleId(resp.bundle_id);
       } catch (err) {
         // The POST may have failed (502 from an OOM'd worker, dropped
         // connection, etc.) AFTER the backend committed dataset + job rows
@@ -320,28 +290,7 @@ export function UploadForm({ onSuccess }: Props) {
         if (recovered) {
           localStorage.setItem('lastBundleId', recovered.bundle_id);
           setPhase('processing');
-          try {
-            const detail = await datasetsApi.getBundleStatus(recovered.bundle_id);
-            pollBundleJobs(
-              recovered.bundle_id,
-              detail.jobs.map((j) => ({
-                id: j.id,
-                dataset_id: j.dataset_id,
-                bundle_id: recovered.bundle_id,
-                status: j.status,
-                progress: j.progress,
-                error_message: j.error_message,
-                created_at: j.created_at,
-                completed_at: j.completed_at,
-              })),
-            );
-          } catch (pollErr) {
-            setPhase('failed');
-            setError(
-              'Upload completed but tracking failed. Reload the Catalog — some datasets may have been created.',
-            );
-            console.error('Bundle recovery polling error:', pollErr);
-          }
+          setCurrentBundleId(recovered.bundle_id);
           return;
         }
 
@@ -363,7 +312,6 @@ export function UploadForm({ onSuccess }: Props) {
 
     setPhase('uploading');
     setUploadProgress(0);
-    setProcessingProgress(0);
     setError(null);
 
     try {
@@ -380,16 +328,12 @@ export function UploadForm({ onSuccess }: Props) {
         tags: tagsInput || undefined,
       };
 
-      let job: UploadJob;
-      if (isRasterFile(file.name)) {
-        job = await datasetsApi.uploadRaster(file, name, description, onUploadProgress, uploadOpts);
-      } else {
-        job = await datasetsApi.uploadVector(file, name, description, onUploadProgress, uploadOpts);
-      }
+      const job = isRasterFile(file.name)
+        ? await datasetsApi.uploadRaster(file, name, description, onUploadProgress, uploadOpts)
+        : await datasetsApi.uploadVector(file, name, description, onUploadProgress, uploadOpts);
 
       setPhase('processing');
-      setProcessingProgress(job.progress);
-      pollSingleJob(job.id);
+      setCurrentJobId(job.id);
     } catch (err) {
       setPhase('failed');
       setError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
@@ -397,7 +341,6 @@ export function UploadForm({ onSuccess }: Props) {
   };
 
   const handleReset = () => {
-    stopAllPolling();
     resetForm();
   };
 

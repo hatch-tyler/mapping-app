@@ -4,6 +4,11 @@ vi.mock('@/api/client', () => ({
   apiClient: {
     get: vi.fn(),
   },
+  // pollUntilDone (loaded via @/hooks/usePollJob) doesn't actually use
+  // these, but the dataset api module is reachable via the import graph
+  // and reads API_URL at module-eval time.
+  uploadClient: { post: vi.fn() },
+  API_URL: '',
 }));
 
 vi.mock('./toastStore', () => ({

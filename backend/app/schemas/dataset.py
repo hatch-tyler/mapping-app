@@ -85,7 +85,10 @@ class PublicStatusUpdate(BaseModel):
 
 class UploadJobResponse(BaseModel):
     id: UUID
-    dataset_id: UUID
+    # ``None`` after the failure-cleanup path deletes the orphan dataset row.
+    # The job survives via the ``ON DELETE SET NULL`` FK so the frontend can
+    # still surface the real error_message / error_code.
+    dataset_id: UUID | None = None
     bundle_id: UUID | None = None
     status: str
     progress: int
@@ -165,7 +168,10 @@ class BundleJobDetail(BaseModel):
     """A single dataset within a bundle with its human-readable name."""
 
     id: UUID
-    dataset_id: UUID
+    # ``None`` if the dataset row was cleaned up after a fast failure (see
+    # the note on ``UploadJobResponse.dataset_id``). The job row itself
+    # survives so the bundle UI can still report which slot failed.
+    dataset_id: UUID | None = None
     dataset_name: str
     status: str
     progress: int

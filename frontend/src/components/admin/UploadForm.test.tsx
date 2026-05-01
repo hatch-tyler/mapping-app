@@ -424,6 +424,107 @@ describe('UploadForm', () => {
     expect(datasetsArg[0].layer_name).toMatch(/^(roads|parcels)$/);
   });
 
+  it('surfaces the real error_message instead of a generic processing message', async () => {
+    // Pin the bug: small upload that fails fast (e.g. missing CRS) should
+    // show the typed error_message, not "Processing failed" or a network
+    // error. The job survives via the SET NULL FK, so polling reads the
+    // failure reason directly.
+    const mockFile = new File(['{}'], 'broken.geojson', {
+      type: 'application/json',
+    });
+
+    vi.mocked(datasetsApi.uploadVector).mockResolvedValue(
+      createMockUploadJob({ id: 'j-bad', status: 'pending' }),
+    );
+    vi.mocked(datasetsApi.getUploadJobStatus).mockResolvedValue(
+      createMockUploadJob({
+        id: 'j-bad',
+        status: 'failed',
+        progress: 5,
+        dataset_id: null, // dataset row was cleaned up
+        error_message:
+          'No coordinate reference system (CRS) found. Please add a .prj file.',
+        error_code: 'missing_crs',
+      }),
+    );
+
+    render(<UploadForm onSuccess={mockOnSuccess} />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const dt = new DataTransfer();
+    dt.items.add(mockFile);
+    fireEvent.change(input, { target: { files: dt.files } });
+
+    await waitFor(() => {
+      expect(screen.getByText('broken.geojson')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Upload Dataset/i }));
+
+    await waitFor(
+      () => {
+        expect(
+          screen.getByText(/No coordinate reference system \(CRS\) found/i),
+        ).toBeInTheDocument();
+      },
+      { timeout: 6000 },
+    );
+    expect(mockOnSuccess).not.toHaveBeenCalled();
+  });
+
+  it('shows "upload was rejected" when polling 404s (job vanished)', async () => {
+    // The legacy bug: a 404 polling response was treated as a transient
+    // error, leading to "Lost connection to server" after 60 seconds. Now
+    // the polling hook fast-fails on 404 and the form shows a precise
+    // "upload was rejected" message instead.
+    const mockFile = new File(['data'], 'orphaned.geojson', {
+      type: 'application/json',
+    });
+
+    vi.mocked(datasetsApi.uploadVector).mockResolvedValue(
+      createMockUploadJob({ id: 'j-gone', status: 'pending' }),
+    );
+
+    const axios = await import('axios');
+    const notFound = new Error('Request failed with status code 404') as Error & {
+      isAxiosError: boolean;
+      response: { status: number };
+      config: object;
+      toJSON: () => object;
+    };
+    notFound.isAxiosError = true;
+    notFound.response = { status: 404 };
+    notFound.config = {};
+    notFound.toJSON = () => ({});
+    // Sanity: the hook uses axios.isAxiosError; confirm our fake passes.
+    expect(axios.default.isAxiosError(notFound)).toBe(true);
+    vi.mocked(datasetsApi.getUploadJobStatus).mockRejectedValue(notFound);
+
+    render(<UploadForm onSuccess={mockOnSuccess} />);
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const dt = new DataTransfer();
+    dt.items.add(mockFile);
+    fireEvent.change(input, { target: { files: dt.files } });
+
+    await waitFor(() => {
+      expect(screen.getByText('orphaned.geojson')).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /Upload Dataset/i }));
+
+    await waitFor(
+      () => {
+        expect(
+          screen.getByText(/upload was rejected before tracking/i),
+        ).toBeInTheDocument();
+      },
+      { timeout: 4000 },
+    );
+    // Crucially, we should NOT show the misleading old "lost connection" copy.
+    expect(screen.queryByText(/Lost connection to server/)).toBeNull();
+  });
+
   it('surfaces per-dataset failures in BundleResultsList after a mixed bundle', async () => {
     // Bundle with 2 datasets where 1 fails. After polling resolves, the
     // form fetches the full bundle status and renders BundleResultsList,
