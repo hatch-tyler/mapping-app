@@ -308,6 +308,23 @@ export interface BundleSummary {
   in_progress: number;
 }
 
+export type BackupStatus = 'in_progress' | 'completed' | 'failed' | 'partial';
+export type BackupSource = 'manual' | 'scheduled' | 'unknown';
+export type BackupFileKind = 'db' | 'uploads' | 'rasters';
+
+export interface BackupRecord {
+  timestamp: string;
+  status: BackupStatus;
+  source: BackupSource;
+  created_at: string;
+  total_size_bytes: number;
+  has_db: boolean;
+  has_uploads: boolean;
+  has_rasters: boolean;
+  error_message?: string | null;
+  triggered_by?: string | null;
+}
+
 // ===== Style Configuration Types =====
 
 export type RGBAColor = [number, number, number, number];

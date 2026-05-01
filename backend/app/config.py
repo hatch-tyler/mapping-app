@@ -22,7 +22,9 @@ class Settings(BaseSettings):
     # File storage
     UPLOAD_DIR: str = "/app/data/uploads"
     RASTER_DIR: str = "/app/data/rasters"
+    BACKUP_DIR: str = "/app/data/backups"
     UPLOAD_MAX_SIZE_MB: int = 500
+    BACKUP_RETENTION_DAYS: int = 30
 
     # Email settings
     SMTP_HOST: str = ""

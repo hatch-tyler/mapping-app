@@ -122,9 +122,15 @@ runcmd:
   # take effect within 24 h. The certbot container runs `certbot renew`
   # every 12 h but doesn't signal nginx; this cron picks up any cert
   # change. Reload is a no-op if the cert hasn't changed.
+  #
+  # Daily backup at 02:00 UTC: invokes the backend's backup CLI, which
+  # writes db/uploads/rasters tarballs to /mnt/data/backups and prunes
+  # files older than BACKUP_RETENTION_DAYS.
   - |
-    CRON_LINE='0 3 * * * /usr/bin/docker exec gis-nginx nginx -s reload >> /var/log/nginx-reload.log 2>&1'
-    (crontab -u azureuser -l 2>/dev/null; echo "$CRON_LINE") | sort -u | crontab -u azureuser -
+    CRON_LINES=$(printf '%s\n' \
+      '0 3 * * * /usr/bin/docker exec gis-nginx nginx -s reload >> /var/log/nginx-reload.log 2>&1' \
+      '0 2 * * * /usr/bin/docker exec gis-backend python -m app.commands.create_backup >> /var/log/mapping-app-backup.log 2>&1')
+    (crontab -u azureuser -l 2>/dev/null; echo "$CRON_LINES") | sort -u | crontab -u azureuser -
 
   # Create application directory
   - mkdir -p /opt/mapping-app

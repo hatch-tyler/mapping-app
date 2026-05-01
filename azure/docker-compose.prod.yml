@@ -46,6 +46,8 @@ services:
       - CORS_ORIGINS=${URL_SCHEME:-https}://${DOMAIN_NAME}
       - UPLOAD_DIR=/app/data/uploads
       - RASTER_DIR=/app/data/rasters
+      - BACKUP_DIR=/app/data/backups
+      - BACKUP_RETENTION_DAYS=${BACKUP_RETENTION_DAYS:-30}
       - UPLOAD_MAX_SIZE_MB=${UPLOAD_MAX_SIZE_MB:-500}
       - INITIAL_ADMIN_EMAIL=${INITIAL_ADMIN_EMAIL:-}
       - INITIAL_ADMIN_PASSWORD=${INITIAL_ADMIN_PASSWORD:-}
@@ -60,6 +62,7 @@ services:
     volumes:
       - /mnt/data/uploads:/app/data/uploads
       - /mnt/data/rasters:/app/data/rasters
+      - /mnt/data/backups:/app/data/backups
     depends_on:
       db:
         condition: service_healthy

@@ -1,6 +1,21 @@
 #!/bin/bash
 set -euo pipefail
 
+# DEPRECATED — superseded by the in-container backup CLI.
+#
+# Use one of these instead:
+#   - Manual:    Admin panel → Datasets tab → "Backups" → "Back up now"
+#   - Scheduled: cron line in azure/scripts/cloud-init.yml runs
+#                  docker exec gis-backend python -m app.commands.create_backup
+#                daily at 02:00 UTC.
+#   - Ad-hoc:    docker exec gis-backend python -m app.commands.create_backup
+#
+# This script is kept temporarily as a fallback in case the in-container
+# path is unavailable (e.g. backend image rolled back to a version that
+# predates the backup CLI). Remove once that risk has passed.
+#
+# Original docs preserved below.
+#
 # Backup script for mapping application
 # Usage: ./backup.sh [--upload-azure]
 # Recommended: run via cron daily

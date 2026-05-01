@@ -15,6 +15,7 @@ from app.api.v1 import (
     projects,
     external_sources,
     templates,
+    backups,
 )
 
 api_router = APIRouter()
@@ -33,3 +34,4 @@ api_router.include_router(raster_export.router)
 api_router.include_router(projects.router)
 api_router.include_router(external_sources.router)
 api_router.include_router(templates.router)
+api_router.include_router(backups.router)

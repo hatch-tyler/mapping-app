@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { DatasetTable } from '../components/admin/DatasetTable';
 import { UploadModal } from '../components/admin/UploadModal';
 import { RecentUploadsModal } from '../components/admin/RecentUploadsModal';
+import { BackupsModal } from '../components/admin/BackupsModal';
 import { AddExternalSourceModal } from '../components/admin/AddExternalSourceModal';
 import { DatasetSearchBar } from '../components/admin/DatasetSearchBar';
 import { DatasetFilterPanel } from '../components/admin/DatasetFilterPanel';
@@ -11,6 +12,7 @@ import { LayoutDesigner } from '../components/templates/LayoutDesigner';
 import { Navbar } from '@/components/layout/Navbar';
 import { useDatasetStore } from '../stores/datasetStore';
 import { useToastStore } from '../stores/toastStore';
+import { useAuthStore } from '../stores/authStore';
 import { Dataset } from '../api/types';
 import { apiClient } from '../api/client';
 import * as datasetsApi from '../api/datasets';
@@ -21,7 +23,9 @@ export function UploadPage() {
   const [showAddExternal, setShowAddExternal] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
   const [showRecentUploads, setShowRecentUploads] = useState(false);
+  const [showBackups, setShowBackups] = useState(false);
   const [refreshingMetadata, setRefreshingMetadata] = useState(false);
+  const isAdmin = useAuthStore((s) => s.user?.is_admin ?? false);
   const [activeTab, setActiveTab] = useState<TabType>('datasets');
   const { datasets, loading, error, filters, fetchDatasets, setFilters, updateDataset, removeDataset } =
     useDatasetStore();
@@ -177,6 +181,15 @@ export function UploadPage() {
                   >
                     Recent Uploads
                   </button>
+                  {isAdmin && (
+                    <button
+                      onClick={() => setShowBackups(true)}
+                      className="px-3 py-1.5 text-xs font-medium text-gray-600 border border-gray-300 rounded-md hover:bg-gray-50"
+                      title="Manage database and file backups"
+                    >
+                      Backups
+                    </button>
+                  )}
                   <button
                     onClick={() => setShowAddExternal(true)}
                     className="px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-300 rounded-md hover:bg-blue-50"
@@ -250,6 +263,13 @@ export function UploadPage() {
         open={showRecentUploads}
         onClose={() => setShowRecentUploads(false)}
       />
+
+      {isAdmin && (
+        <BackupsModal
+          open={showBackups}
+          onClose={() => setShowBackups(false)}
+        />
+      )}
 
       {showAddExternal && (
         <AddExternalSourceModal
