@@ -4,9 +4,10 @@ import logging
 import math
 import uuid
 import shutil
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import geopandas as gpd
 import rasterio
@@ -21,6 +22,128 @@ logger = logging.getLogger(__name__)
 
 
 from app.utils.sql_validation import validate_table_name as _validate_table_name
+
+# Default features-per-chunk for streaming vector reads. Sized so a chunk
+# of complex polygons stays well under ~200 MB even before the per-chunk
+# DB insert (which sub-batches at 500 rows). Tunable; not currently
+# exposed as a setting because the default has worked across all formats
+# the app supports.
+_VECTOR_CHUNK_SIZE = 50_000
+
+
+@dataclass
+class VectorChunkInfo:
+    """Header info for a vector source, returned before the first chunk read.
+
+    Lets ``process_vector_background`` fail fast on empty files or missing
+    CRS without paying the cost of any feature read.
+    """
+
+    feature_count: int
+    crs: Any  # pyproj.CRS or None; loose typing to avoid an import cycle
+    fields: list[dict[str, str]]
+
+
+def _iter_vector_chunks(
+    file_path: Path,
+    *,
+    layer_name: str | None = None,
+    chunk_size: int | None = None,
+) -> tuple[VectorChunkInfo, Iterator[gpd.GeoDataFrame]]:
+    """Probe a vector source, then return an iterator that yields chunks.
+
+    Streaming reads via ``pyogrio.read_dataframe(rows=slice(start, end))``
+    keep peak memory bounded to one chunk at a time, regardless of the
+    layer's total feature count. Works for any GDAL/OGR-supported source
+    pyogrio handles (shapefile, GeoJSON, GeoPackage, FlatGeobuf,
+    OpenFileGDB feature classes, etc.). Driver is auto-detected from the
+    path/extension; ``layer_name`` is honoured for multi-layer containers.
+
+    Returns ``(info, chunks)``. ``info.feature_count`` is the total in
+    the source; iterating ``chunks`` yields GeoDataFrame slices whose
+    sum of lengths equals ``feature_count``. Each chunk preserves the
+    source CRS — caller must reproject per-chunk.
+
+    ``chunk_size`` defaults to ``_VECTOR_CHUNK_SIZE`` looked up at call
+    time (so tests can ``patch("...._VECTOR_CHUNK_SIZE", N)`` to drive
+    the chunking with synthetic small files).
+    """
+    from pyogrio import read_info, read_dataframe
+
+    if chunk_size is None:
+        chunk_size = _VECTOR_CHUNK_SIZE
+
+    info_kwargs: dict[str, Any] = {}
+    if layer_name is not None:
+        info_kwargs["layer"] = layer_name
+
+    raw_info = read_info(str(file_path), **info_kwargs)
+
+    info = VectorChunkInfo(
+        feature_count=int(raw_info.get("features", 0) or 0),
+        crs=raw_info.get("crs"),
+        fields=[
+            {"name": str(name), "dtype": str(dtype)}
+            for name, dtype in zip(
+                raw_info.get("fields", []) or [],
+                raw_info.get("dtypes", []) or [],
+            )
+        ],
+    )
+
+    def _chunks() -> Iterator[gpd.GeoDataFrame]:
+        if info.feature_count <= 0:
+            return
+        read_kwargs: dict[str, Any] = {}
+        if layer_name is not None:
+            read_kwargs["layer"] = layer_name
+        for start in range(0, info.feature_count, chunk_size):
+            count = min(chunk_size, info.feature_count - start)
+            # ``force_2d=True`` strips Z at the GDAL level — faster than
+            # post-read Python-side stripping and matches the PostGIS
+            # 2D geometry column. ``skip_features``/``max_features`` are
+            # the pyogrio-native row-window kwargs (the older "rows="
+            # form is geopandas-only and silently ignored here).
+            yield read_dataframe(
+                str(file_path),
+                skip_features=start,
+                max_features=count,
+                force_2d=True,
+                **read_kwargs,
+            )
+
+    return info, _chunks()
+
+
+def _merge_bounds(acc: list[float] | None, chunk_bounds: Any) -> list[float]:
+    """Combine a per-chunk total_bounds with the running accumulator.
+
+    ``chunk_bounds`` is a 4-tuple ``[minx, miny, maxx, maxy]`` (numpy
+    array from ``GeoDataFrame.total_bounds``).
+    """
+    cb = [float(x) for x in chunk_bounds]
+    if acc is None:
+        return cb
+    return [
+        min(acc[0], cb[0]),
+        min(acc[1], cb[1]),
+        max(acc[2], cb[2]),
+        max(acc[3], cb[3]),
+    ]
+
+
+def _strip_z(geom: Any) -> Any:
+    """Return a 2D copy of a possibly-3D shapely geometry.
+
+    PostGIS columns are GEOMETRY(Geometry, 4326) without Z; stripping in
+    Python avoids a DB-side cast on every insert. No-op if the geometry
+    is None or already 2D.
+    """
+    if geom is None or not getattr(geom, "has_z", False):
+        return geom
+    from shapely.ops import transform
+
+    return transform(lambda x, y, z=None: (x, y), geom)
 
 
 def _serialize_properties(row: Any) -> dict[str, Any]:
@@ -195,12 +318,23 @@ class FileProcessor:
         gdf: gpd.GeoDataFrame,
         job_id: uuid.UUID | None = None,
         batch_size: int = 500,
+        cumulative_offset: int = 0,
+        grand_total: int | None = None,
     ) -> None:
-        """Insert features in multi-row batches for performance."""
+        """Insert features in multi-row batches for performance.
+
+        ``cumulative_offset`` and ``grand_total`` let chunked callers
+        report accurate progress across multiple invocations:
+        ``progress = 5 + ((cumulative_offset + batch_end) / grand_total) * 90``.
+        Default values preserve the single-call behaviour
+        (``progress = 5 + (batch_end / len(gdf)) * 90``) so the snapshot
+        endpoint at ``api/v1/datasets.py`` keeps working unchanged.
+        """
         if not _validate_table_name(table_name):
             raise ValueError(f"Invalid table name: {table_name}")
 
         total = len(gdf)
+        progress_total = grand_total if grand_total is not None else total
         rows = list(gdf.iterrows())
 
         for batch_start in range(0, total, batch_size):
@@ -227,8 +361,9 @@ class FileProcessor:
             await db.commit()
 
             # Update job progress (5% to 95% range for insert phase)
-            if job_id is not None:
-                progress = 5 + int((batch_end / total) * 90)
+            if job_id is not None and progress_total > 0:
+                done = cumulative_offset + batch_end
+                progress = 5 + int((done / progress_total) * 90)
                 try:
                     from app.crud import dataset as dataset_crud
 
@@ -282,70 +417,96 @@ class FileProcessor:
                             if missing:
                                 raise UploadError.invalid_shapefile_bundle(missing)
 
-                # Read file in thread pool to avoid blocking event loop
-                if layer_name is not None:
-                    try:
-                        gdf = await asyncio.to_thread(
-                            gpd.read_file,
-                            str(file_path),
-                            layer=layer_name,
-                            driver="OpenFileGDB",
-                        )
-                    except Exception as e:
+                # Probe the source for header info (feature count, CRS,
+                # field schema). Cheap — does not read any feature rows.
+                try:
+                    info, chunks = await asyncio.to_thread(
+                        _iter_vector_chunks,
+                        file_path,
+                        layer_name=layer_name,
+                    )
+                except Exception as e:
+                    if layer_name is not None:
                         raise UploadError(
                             UploadErrorCode.GDB_LAYER_UNREADABLE,
                             f"Could not read GDB layer '{layer_name}': {e}",
                         ) from e
-                else:
-                    gdf = await asyncio.to_thread(gpd.read_file, str(file_path))
+                    raise
 
-                if gdf.empty:
+                if info.feature_count <= 0:
                     raise UploadError.empty_file()
-
-                # Reject if no CRS defined; reproject to WGS84 if needed
-                if gdf.crs is None:
+                if info.crs is None:
                     raise UploadError.missing_crs()
-                if gdf.crs.to_epsg() != 4326:
-                    gdf = gdf.to_crs(epsg=4326)
 
-                # Strip Z coordinates if present (PostGIS column is 2D)
-                if gdf.geometry.has_z.any():
-                    from shapely.ops import transform
-
-                    gdf["geometry"] = gdf.geometry.apply(
-                        lambda geom: (
-                            transform(lambda x, y, z=None: (x, y), geom)
-                            if geom and geom.has_z
-                            else geom
-                        )
-                    )
-
-                geom_types = gdf.geometry.geom_type.unique()
-                geom_type = geom_types[0] if len(geom_types) == 1 else "Geometry"
-                _bounds = gdf.total_bounds.tolist()
                 table_name = f"vector_data_{str(dataset_id).replace('-', '_')}"
-
                 await self._create_vector_table(db, table_name)
-                await self._insert_features_batched(db, table_name, gdf, job_id=job_id)
 
-                # Extract file metadata
-                file_metadata = {
-                    "crs": str(gdf.crs) if gdf.crs else None,
-                    "crs_epsg": gdf.crs.to_epsg() if gdf.crs else None,
-                    "field_count": len([c for c in gdf.columns if c != "geometry"]),
-                    "fields": [
-                        {"name": c, "dtype": str(gdf[c].dtype)}
-                        for c in gdf.columns
-                        if c != "geometry"
-                    ],
-                }
+                # Streaming accumulators. Memory stays bounded to one
+                # chunk at a time regardless of layer size.
+                geom_types: set[str] = set()
+                bounds: list[float] | None = None
+                features_processed = 0
+                source_crs_str: str | None = None
+                source_crs_epsg: int | None = None
+                fields: list[dict[str, str]] | None = None
 
-                # Additional metadata
-                file_metadata["total_features"] = len(gdf)
-                file_metadata["total_bounds"] = gdf.total_bounds.tolist()
-                file_metadata["geometry_types"] = (
-                    gdf.geometry.geom_type.unique().tolist()
+                while True:
+                    chunk = await asyncio.to_thread(next, chunks, None)
+                    if chunk is None:
+                        break
+
+                    # Capture schema info from the first chunk only —
+                    # all chunks share the same fields and source CRS.
+                    if fields is None:
+                        source_crs_str = str(chunk.crs) if chunk.crs else None
+                        source_crs_epsg = (
+                            chunk.crs.to_epsg() if chunk.crs is not None else None
+                        )
+                        fields = [
+                            {"name": c, "dtype": str(chunk[c].dtype)}
+                            for c in chunk.columns
+                            if c != "geometry"
+                        ]
+
+                    # Reproject to WGS84 per chunk. (Z was already
+                    # dropped at the read by force_2d=True in
+                    # _iter_vector_chunks, so no Python-side strip
+                    # step needed here.)
+                    if chunk.crs is not None and chunk.crs.to_epsg() != 4326:
+                        chunk = chunk.to_crs(epsg=4326)
+
+                    geom_types.update(chunk.geometry.geom_type.unique().tolist())
+                    bounds = _merge_bounds(bounds, chunk.total_bounds)
+
+                    # Insert this chunk in 500-row sub-batches; pass the
+                    # cumulative offset so progress reflects total work.
+                    await self._insert_features_batched(
+                        db,
+                        table_name,
+                        chunk,
+                        job_id=job_id,
+                        cumulative_offset=features_processed,
+                        grand_total=info.feature_count,
+                    )
+                    features_processed += len(chunk)
+
+                # Single-vs-mixed geometry type: use the unique value if
+                # there's exactly one across all chunks, otherwise the
+                # PostGIS-friendly placeholder "Geometry".
+                geom_type = (
+                    next(iter(geom_types)) if len(geom_types) == 1 else "Geometry"
                 )
+                bounds_list = bounds if bounds is not None else [0.0, 0.0, 0.0, 0.0]
+
+                file_metadata: dict[str, Any] = {
+                    "crs": source_crs_str,
+                    "crs_epsg": source_crs_epsg,
+                    "field_count": len(fields or []),
+                    "fields": fields or [],
+                    "total_features": features_processed,
+                    "total_bounds": bounds_list,
+                    "geometry_types": sorted(geom_types),
+                }
 
                 # GeoPackage embedded metadata + shapefile companion FGDC XML
                 file_metadata.update(self._extract_gpkg_metadata(file_path))
@@ -355,7 +516,7 @@ class FileProcessor:
                 dataset = await dataset_crud.get_dataset(db, dataset_id)
                 if dataset:
                     dataset.geometry_type = geom_type
-                    dataset.feature_count = len(gdf)
+                    dataset.feature_count = features_processed
                     dataset.table_name = table_name
                     dataset.service_metadata = file_metadata
                     await db.commit()
@@ -373,7 +534,7 @@ class FileProcessor:
                 logger.info(
                     "Background vector processing completed: dataset=%s features=%d",
                     dataset_id,
-                    len(gdf),
+                    features_processed,
                 )
 
             except Exception as e:
@@ -400,6 +561,26 @@ class FileProcessor:
                                     else UploadErrorCode.PROCESSING_FAILED.value
                                 ),
                             )
+
+                        # Drop a partially-populated table if a chunk
+                        # failed mid-stream. dataset.table_name is set
+                        # only on full success, so we reconstruct the
+                        # deterministic name from dataset_id (matches
+                        # the formula used in the success path).
+                        partial_table = (
+                            f"vector_data_{str(dataset_id).replace('-', '_')}"
+                        )
+                        if _validate_table_name(partial_table):
+                            try:
+                                await err_db.execute(
+                                    text(f'DROP TABLE IF EXISTS "{partial_table}"')
+                                )
+                                await err_db.commit()
+                            except Exception:
+                                logger.exception(
+                                    "Failed to drop orphaned vector table %s",
+                                    partial_table,
+                                )
 
                         # Clean up orphaned dataset if no table was created
                         dataset = await dataset_crud.get_dataset(err_db, dataset_id)

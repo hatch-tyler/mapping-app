@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -v \
     fastapi uvicorn[standard] python-multipart \
     sqlalchemy[asyncio] asyncpg geoalchemy2 alembic \
-    geopandas shapely pyproj rasterio rio-tiler fiona \
+    geopandas shapely pyproj rasterio rio-tiler fiona pyogrio \
     python-jose[cryptography] "passlib[bcrypt]" "bcrypt==4.0.1" \
     pydantic pydantic-settings aiofiles email-validator aiosmtplib \
     lxml defusedxml \

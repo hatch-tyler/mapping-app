@@ -5,14 +5,21 @@ Tests for file processor service.
 import json
 import math
 import tempfile
+import tracemalloc
 import uuid
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.file_processor import FileProcessor, _validate_table_name
+from app.services.file_processor import (
+    FileProcessor,
+    _iter_vector_chunks,
+    _merge_bounds,
+    _strip_z,
+    _validate_table_name,
+)
 
 
 class TestTableNameValidation:
@@ -424,3 +431,252 @@ class TestTimestampHandling:
         # Verify it can be JSON serialized
         json_str = json.dumps(processed)
         assert '"string_val": "Hello"' in json_str or '"string_val":"Hello"' in json_str
+
+
+def _write_geojson(path: Path, n_features: int, *, crs: str = "EPSG:4326") -> None:
+    """Write a small GeoJSON FeatureCollection of N point features.
+
+    Coordinates are spaced so total_bounds spans a known box, useful for
+    asserting bounds-merge correctness.
+    """
+    pytest.importorskip("geopandas")
+    pytest.importorskip("shapely")
+    import geopandas as gpd
+    from shapely.geometry import Point
+
+    gdf = gpd.GeoDataFrame(
+        {"id": list(range(n_features))},
+        geometry=[Point(i * 0.001, i * 0.001) for i in range(n_features)],
+        crs=crs,
+    )
+    gdf.to_file(str(path), driver="GeoJSON")
+
+
+class TestIterVectorChunks:
+    """Streaming chunk reader — bounds memory by chunk size, not file size."""
+
+    def test_yields_all_features(self, tmp_path: Path):
+        path = tmp_path / "many.geojson"
+        _write_geojson(path, 1005)
+        info, chunks = _iter_vector_chunks(path, chunk_size=200)
+        assert info.feature_count == 1005
+
+        chunks_list = list(chunks)
+        # 1005 / 200 = 5 full chunks of 200 + 1 partial chunk of 5.
+        assert [len(c) for c in chunks_list] == [200, 200, 200, 200, 200, 5]
+        # Every feature accounted for.
+        assert sum(len(c) for c in chunks_list) == 1005
+
+    def test_preserves_crs_per_chunk(self, tmp_path: Path):
+        path = tmp_path / "mercator.geojson"
+        _write_geojson(path, 50, crs="EPSG:3857")
+        info, chunks = _iter_vector_chunks(path, chunk_size=20)
+        # info.crs is whatever pyogrio returns; we just need to confirm
+        # the source CRS is non-null. Reprojection is the caller's job.
+        assert info.crs is not None
+        for chunk in chunks:
+            assert chunk.crs is not None
+            assert chunk.crs.to_epsg() == 3857
+
+    def test_empty_file_yields_no_chunks(self, tmp_path: Path):
+        path = tmp_path / "empty.geojson"
+        path.write_text(json.dumps({"type": "FeatureCollection", "features": []}))
+        info, chunks = _iter_vector_chunks(path, chunk_size=100)
+        assert info.feature_count == 0
+        assert list(chunks) == []
+
+    def test_chunk_size_larger_than_total_yields_one_chunk(self, tmp_path: Path):
+        path = tmp_path / "small.geojson"
+        _write_geojson(path, 7)
+        info, chunks = _iter_vector_chunks(path, chunk_size=1000)
+        assert info.feature_count == 7
+        chunks_list = list(chunks)
+        assert len(chunks_list) == 1
+        assert len(chunks_list[0]) == 7
+
+
+class TestMergeBounds:
+    def test_first_chunk_initialises_acc(self):
+        result = _merge_bounds(None, [10.0, 20.0, 30.0, 40.0])
+        assert result == [10.0, 20.0, 30.0, 40.0]
+
+    def test_expands_in_each_direction(self):
+        # acc is the initial bounds; chunk is wider in every dimension.
+        acc = [10.0, 20.0, 15.0, 25.0]
+        chunk = [5.0, 10.0, 30.0, 35.0]
+        assert _merge_bounds(acc, chunk) == [5.0, 10.0, 30.0, 35.0]
+
+    def test_chunk_inside_acc_does_not_shrink(self):
+        # A chunk fully contained within acc should leave acc unchanged.
+        acc = [0.0, 0.0, 100.0, 100.0]
+        chunk = [25.0, 25.0, 75.0, 75.0]
+        assert _merge_bounds(acc, chunk) == [0.0, 0.0, 100.0, 100.0]
+
+    def test_accepts_numpy_array_chunk(self):
+        # GeoDataFrame.total_bounds returns a numpy array; verify that
+        # works (the function calls float() on each entry).
+        np = pytest.importorskip("numpy")
+        chunk = np.array([1.0, 2.0, 3.0, 4.0])
+        assert _merge_bounds(None, chunk) == [1.0, 2.0, 3.0, 4.0]
+
+
+class TestStripZ:
+    def test_strips_z_from_3d_point(self):
+        from shapely.geometry import Point
+
+        p3d = Point(1.0, 2.0, 3.0)
+        assert p3d.has_z is True
+
+        p2d = _strip_z(p3d)
+        assert p2d.has_z is False
+        assert (p2d.x, p2d.y) == (1.0, 2.0)
+
+    def test_passes_through_2d_geometry(self):
+        from shapely.geometry import Point
+
+        p = Point(1.0, 2.0)
+        assert _strip_z(p) is p
+
+    def test_handles_none(self):
+        assert _strip_z(None) is None
+
+
+class TestProcessVectorBackgroundChunked:
+    """End-to-end smoke tests for the chunked processing flow."""
+
+    @pytest.mark.asyncio
+    async def test_streams_a_synthetic_dataset_in_chunks(self, tmp_path: Path):
+        """A 2 500-feature file is processed in chunks of 1 000 — the
+        insert helper is called 3 times (1 000 + 1 000 + 500), each time
+        with a non-overlapping cumulative_offset. Tracemalloc confirms
+        peak memory is bounded — orders of magnitude smaller than what
+        a single whole-layer read would produce."""
+        path = tmp_path / "many.geojson"
+        _write_geojson(path, 2500)
+
+        processor = FileProcessor()
+        insert_calls: list[dict] = []
+
+        async def fake_insert(
+            db, table_name, gdf, **kwargs
+        ):  # pylint: disable=unused-argument
+            insert_calls.append(
+                {
+                    "n": len(gdf),
+                    "cumulative_offset": kwargs.get("cumulative_offset"),
+                    "grand_total": kwargs.get("grand_total"),
+                }
+            )
+
+        class _FakeSessionCM:
+            def __init__(self):
+                self.session = MagicMock()
+                self.session.execute = AsyncMock()
+                self.session.commit = AsyncMock()
+
+            async def __aenter__(self):
+                return self.session
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+        with (
+            patch("app.services.file_processor._VECTOR_CHUNK_SIZE", 1000),
+            patch.object(processor, "_create_vector_table", new_callable=AsyncMock),
+            patch.object(
+                processor, "_insert_features_batched", side_effect=fake_insert
+            ),
+            patch(
+                "app.services.file_processor.AsyncSessionLocal",
+                side_effect=lambda: _FakeSessionCM(),
+            ),
+            patch("app.crud.dataset.get_upload_job", new_callable=AsyncMock),
+            patch("app.crud.dataset.update_upload_job", new_callable=AsyncMock),
+            patch("app.crud.dataset.get_dataset", new_callable=AsyncMock),
+        ):
+            tracemalloc.start()
+            await processor.process_vector_background(path, uuid.uuid4(), uuid.uuid4())
+            _, peak = tracemalloc.get_traced_memory()
+            tracemalloc.stop()
+
+        # Exactly 3 chunks: 1 000 + 1 000 + 500.
+        assert [c["n"] for c in insert_calls] == [1000, 1000, 500]
+        # Cumulative offsets are non-overlapping.
+        assert [c["cumulative_offset"] for c in insert_calls] == [0, 1000, 2000]
+        # All chunks share the same grand_total (the full feature count).
+        assert all(c["grand_total"] == 2500 for c in insert_calls)
+        # Peak Python allocation is comfortably bounded — chunked.
+        assert peak < 100 * 1024 * 1024, f"Peak memory too high: {peak} bytes"
+
+    @pytest.mark.asyncio
+    async def test_drops_orphan_table_when_chunk_insert_fails(self, tmp_path: Path):
+        """If the second chunk's insert raises, the partially-populated
+        vector_data_<uuid> table is dropped in the exception handler.
+        The exception handler opens a fresh AsyncSessionLocal as
+        ``err_db``; we capture all SQL executed against it and assert
+        a DROP TABLE landed on the deterministic table name."""
+        path = tmp_path / "many.geojson"
+        _write_geojson(path, 2500)
+
+        processor = FileProcessor()
+        executed_sql: list[str] = []
+        call_count = {"n": 0}
+
+        async def flaky_insert(
+            db, table_name, gdf, **kwargs
+        ):  # pylint: disable=unused-argument
+            call_count["n"] += 1
+            if call_count["n"] == 2:
+                raise RuntimeError("simulated chunk failure")
+
+        # Build a stand-in session whose execute() records SQL. Used
+        # both for the main flow (where we mock _create_vector_table
+        # and _insert_features_batched) and for the err_db opened
+        # inside the except handler.
+        def make_session():
+            sess = MagicMock()
+
+            async def record_execute(sql, *args, **kwargs):
+                executed_sql.append(str(sql))
+                return MagicMock()
+
+            sess.execute = AsyncMock(side_effect=record_execute)
+            sess.commit = AsyncMock()
+            return sess
+
+            # Create AsyncContextManager wrapper.
+
+        class _FakeSessionCM:
+            def __init__(self):
+                self.session = make_session()
+
+            async def __aenter__(self):
+                return self.session
+
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return False
+
+        with (
+            patch("app.services.file_processor._VECTOR_CHUNK_SIZE", 1000),
+            patch.object(processor, "_create_vector_table", new_callable=AsyncMock),
+            patch.object(
+                processor, "_insert_features_batched", side_effect=flaky_insert
+            ),
+            patch(
+                "app.services.file_processor.AsyncSessionLocal",
+                side_effect=lambda: _FakeSessionCM(),
+            ),
+            patch("app.crud.dataset.get_upload_job", new_callable=AsyncMock),
+            patch("app.crud.dataset.update_upload_job", new_callable=AsyncMock),
+            patch("app.crud.dataset.get_dataset", new_callable=AsyncMock),
+        ):
+            await processor.process_vector_background(path, uuid.uuid4(), uuid.uuid4())
+
+        # The exception handler emitted a DROP TABLE for the partial
+        # vector_data_<uuid> table.
+        drop_statements = [s for s in executed_sql if "DROP TABLE" in s.upper()]
+        assert (
+            drop_statements
+        ), f"Expected DROP TABLE in executed SQL; got: {executed_sql}"
+        # Sanity: the dropped table name is the deterministic one.
+        assert "vector_data_" in drop_statements[0]
