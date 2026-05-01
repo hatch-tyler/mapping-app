@@ -7,6 +7,7 @@ import { StyleEditor } from '../styling/StyleEditor';
 import { RasterStyleEditor } from '../styling/RasterStyleEditor';
 import { MetadataModal } from '../catalog/MetadataModal';
 import { rgbaToString, DEFAULT_STYLE } from '../../utils/styleInterpreter';
+import { canSaveDatasetStyle } from '../../utils/permissions';
 import * as datasetsApi from '../../api/datasets';
 
 const STORAGE_KEY = 'layer-panel:expanded';
@@ -96,6 +97,17 @@ export function LayerManager() {
     }
   }
 
+  /** Apply a new style locally — no API call. Available to every user
+   *  so they can preview style changes for their own session. */
+  const handleStyleApply = (styleConfig: StyleConfig | RasterStyleConfig) => {
+    if (!styleDataset) return;
+    updateDataset(styleDataset.id, {
+      style_config: styleConfig as unknown as Record<string, unknown>,
+    });
+  };
+
+  /** Persist the new style for everyone via PUT /datasets/{id}.
+   *  Caller must have already passed the canSaveDatasetStyle gate. */
   const handleStyleSave = async (styleConfig: StyleConfig | RasterStyleConfig) => {
     if (!styleDataset) return;
     try {
@@ -104,11 +116,13 @@ export function LayerManager() {
         { style_config: styleConfig as unknown as Record<string, unknown> }
       );
       updateDataset(styleDataset.id, updated);
-      setStyleDataset(null);
     } catch (err) {
       console.error('Failed to save style:', err);
+      throw err;
     }
   };
+
+  const userCanSaveStyle = canSaveDatasetStyle(user);
 
   const getFillColor = (dataset: Dataset): string => {
     const config = dataset.style_config as Partial<StyleConfig> | undefined;
@@ -222,11 +236,11 @@ export function LayerManager() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </button>
-        {user?.is_admin && (dataset.data_type === 'vector' || dataset.data_type === 'raster') && (
+        {(dataset.data_type === 'vector' || dataset.data_type === 'raster') && (
           <button
             onClick={() => setStyleDataset(dataset)}
             className="p-0.5 rounded text-gray-400 hover:text-purple-600 shrink-0"
-            title="Edit layer style"
+            title={userCanSaveStyle ? 'Edit layer style' : 'Customize layer style for your session'}
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01" />
@@ -356,14 +370,16 @@ export function LayerManager() {
       {styleDataset && styleDataset.data_type === 'raster' && (
         <RasterStyleEditor
           dataset={styleDataset}
-          onSave={handleStyleSave}
+          onApply={handleStyleApply}
+          onSave={userCanSaveStyle ? handleStyleSave : undefined}
           onClose={() => setStyleDataset(null)}
         />
       )}
       {styleDataset && styleDataset.data_type !== 'raster' && (
         <StyleEditor
           dataset={styleDataset}
-          onSave={handleStyleSave}
+          onApply={handleStyleApply}
+          onSave={userCanSaveStyle ? handleStyleSave : undefined}
           onClose={() => setStyleDataset(null)}
         />
       )}

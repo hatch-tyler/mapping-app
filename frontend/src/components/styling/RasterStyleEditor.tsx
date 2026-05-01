@@ -5,7 +5,13 @@ import { COLOR_RAMPS, generateRampPreview, getCategoryColor } from '../../utils/
 
 interface Props {
   dataset: Dataset;
-  onSave: (styleConfig: RasterStyleConfig) => void;
+  /** Apply locally to the user's session — no API call. Available to
+   *  all users for personal map preview. Omit on pages without a live
+   *  map (e.g. the admin Datasets table). */
+  onApply?: (styleConfig: RasterStyleConfig) => void;
+  /** Persist the new style for everyone via PUT /datasets/{id}.
+   *  Pass undefined for users without editor/admin role. */
+  onSave?: (styleConfig: RasterStyleConfig) => Promise<void> | void;
   onClose: () => void;
 }
 
@@ -23,7 +29,7 @@ function ColorRampPreview({ rampName, selected, onClick }: { rampName: string; s
   );
 }
 
-export function RasterStyleEditor({ dataset, onSave, onClose }: Props) {
+export function RasterStyleEditor({ dataset, onApply, onSave, onClose }: Props) {
   const existing = dataset.style_config as Partial<RasterStyleConfig> | undefined;
 
   const [mode, setMode] = useState<RasterMode>(existing?.raster_mode || 'continuous');
@@ -77,26 +83,42 @@ export function RasterStyleEditor({ dataset, onSave, onClose }: Props) {
     return () => { cancelled = true; };
   }, [dataset.id]);
 
+  const buildConfig = (): RasterStyleConfig => {
+    const config: RasterStyleConfig = {
+      raster_mode: mode,
+      band: 1,
+      nodata_transparent: true,
+    };
+    if (mode === 'continuous') {
+      config.color_ramp = colorRamp;
+      if (minValue !== '') config.min_value = parseFloat(minValue);
+      if (maxValue !== '') config.max_value = parseFloat(maxValue);
+    } else {
+      config.value_map = valueMap;
+    }
+    return config;
+  };
+
+  const handleApply = () => {
+    onApply?.(buildConfig());
+    onClose();
+  };
+
   const handleSave = async () => {
+    if (!onSave) return;
     setSaving(true);
     try {
-      const config: RasterStyleConfig = {
-        raster_mode: mode,
-        band: 1,
-        nodata_transparent: true,
-      };
-      if (mode === 'continuous') {
-        config.color_ramp = colorRamp;
-        if (minValue !== '') config.min_value = parseFloat(minValue);
-        if (maxValue !== '') config.max_value = parseFloat(maxValue);
-      } else {
-        config.value_map = valueMap;
-      }
+      const config = buildConfig();
       await onSave(config);
+      onApply?.(config);
+      onClose();
     } finally {
       setSaving(false);
     }
   };
+
+  const canSave = !!onSave;
+  const canApply = !!onApply;
 
   const updateValueColor = (key: string, color: string) => {
     // Parse hex to RGBA
@@ -313,20 +335,45 @@ export function RasterStyleEditor({ dataset, onSave, onClose }: Props) {
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-3 border-t border-gray-200 flex justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving || loading}
-            className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
-          >
-            {saving ? 'Saving...' : 'Apply Style'}
-          </button>
+        <div className="px-6 py-3 border-t border-gray-200">
+          <div className="flex justify-end gap-2 items-center">
+            <button
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+            >
+              Cancel
+            </button>
+            {canApply && (
+              <button
+                onClick={handleApply}
+                disabled={saving || loading}
+                className={`px-4 py-2 text-sm font-medium rounded-md disabled:opacity-50 ${
+                  canSave
+                    ? 'text-blue-700 border border-blue-300 hover:bg-blue-50'
+                    : 'text-white bg-blue-600 hover:bg-blue-700'
+                }`}
+                title="Apply locally to your map for this session"
+              >
+                Apply
+              </button>
+            )}
+            {canSave && (
+              <button
+                onClick={handleSave}
+                disabled={saving || loading}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 disabled:opacity-50"
+                title="Save the style so it persists for everyone"
+              >
+                {saving ? 'Saving...' : 'Save for everyone'}
+              </button>
+            )}
+          </div>
+          {!canSave && canApply && (
+            <p className="mt-2 text-xs text-gray-500 text-right">
+              Apply changes the style for your session only. Saving for
+              all users requires editor or admin access.
+            </p>
+          )}
         </div>
       </div>
     </div>

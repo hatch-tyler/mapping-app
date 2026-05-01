@@ -9,6 +9,8 @@ import { RasterStyleEditor } from '../styling/RasterStyleEditor';
 import { apiClient } from '@/api/client';
 import { useToastStore } from '@/stores/toastStore';
 import { useImportStore } from '@/stores/importStore';
+import { useAuthStore } from '@/stores/authStore';
+import { canSaveDatasetStyle } from '@/utils/permissions';
 import * as projectsApi from '../../api/projects';
 
 interface Props {
@@ -38,6 +40,8 @@ export function DatasetTable({
   onDelete,
   onUpdate,
 }: Props) {
+  const user = useAuthStore((s) => s.user);
+  const userCanSaveStyle = canSaveDatasetStyle(user);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
   const [shareModalDataset, setShareModalDataset] = useState<Dataset | null>(null);
   const [styleModalDataset, setStyleModalDataset] = useState<Dataset | null>(null);
@@ -286,7 +290,7 @@ export function DatasetTable({
                       </button>
                     )
                   )}
-                  {onUpdate && (dataset.data_type === 'vector' || dataset.data_type === 'raster') && (
+                  {onUpdate && userCanSaveStyle && (dataset.data_type === 'vector' || dataset.data_type === 'raster') && (
                     <button
                       onClick={() => setStyleModalDataset(dataset)}
                       className="p-1.5 rounded text-purple-600 hover:bg-purple-50"
@@ -366,13 +370,13 @@ export function DatasetTable({
       {styleModalDataset && styleModalDataset.data_type === 'raster' ? (
         <RasterStyleEditor
           dataset={styleModalDataset}
-          onSave={handleStyleSave}
+          onSave={userCanSaveStyle ? handleStyleSave : undefined}
           onClose={() => setStyleModalDataset(null)}
         />
       ) : styleModalDataset ? (
         <StyleEditor
           dataset={styleModalDataset}
-          onSave={handleStyleSave}
+          onSave={userCanSaveStyle ? handleStyleSave : undefined}
           onClose={() => setStyleModalDataset(null)}
         />
       ) : null}
