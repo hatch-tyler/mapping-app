@@ -79,14 +79,20 @@ def _iter_vector_chunks(
 
     raw_info = read_info(str(file_path), **info_kwargs)
 
+    # pyogrio returns numpy arrays for the schema fields; ``arr or []``
+    # raises ``ValueError: truth value of an empty array is ambiguous``.
+    # Coerce explicitly via an is-None check to handle both numpy arrays
+    # and the (rare) missing-key case.
+    _fields = raw_info.get("fields")
+    _dtypes = raw_info.get("dtypes")
     info = VectorChunkInfo(
         feature_count=int(raw_info.get("features", 0) or 0),
         crs=raw_info.get("crs"),
         fields=[
             {"name": str(name), "dtype": str(dtype)}
             for name, dtype in zip(
-                raw_info.get("fields", []) or [],
-                raw_info.get("dtypes", []) or [],
+                _fields if _fields is not None else [],
+                _dtypes if _dtypes is not None else [],
             )
         ],
     )
