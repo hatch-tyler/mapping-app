@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     UPLOAD_MAX_SIZE_MB: int = 500
     BACKUP_RETENTION_DAYS: int = 30
 
+    # Off-VM backup replication to Azure Blob Storage. When neither
+    # AZURE_STORAGE_CONNECTION_STRING nor AZURE_STORAGE_ACCOUNT_URL is
+    # set, replication is disabled and only the local copies under
+    # BACKUP_DIR are produced.
+    AZURE_BACKUP_CONTAINER: str = ""
+    AZURE_STORAGE_CONNECTION_STRING: str = ""
+    AZURE_STORAGE_ACCOUNT_URL: str = ""
+
     # Email settings
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587

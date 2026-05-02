@@ -56,3 +56,17 @@ output "vm_name" {
   description = "Name of the Azure VM"
   value       = azurerm_linux_virtual_machine.main.name
 }
+
+output "backup_storage_account_name" {
+  description = "Name of the Azure Storage account that holds off-VM backup copies (empty when disabled)."
+  value       = var.enable_backup_blob_storage ? local.backup_storage_account_name : ""
+}
+
+output "backup_storage_container_url" {
+  description = "Public URL of the backup blob container (empty when disabled). Reads still require auth — the container is private."
+  value = (
+    var.enable_backup_blob_storage
+    ? "https://${local.backup_storage_account_name}.blob.core.windows.net/${var.backup_storage_container_name}"
+    : ""
+  )
+}

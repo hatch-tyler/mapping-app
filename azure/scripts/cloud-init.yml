@@ -161,6 +161,12 @@ runcmd:
     SMTP_PASSWORD=
     SMTP_FROM_EMAIL=noreply@${domain_name}
     SMTP_FROM_NAME=GIS Application
+
+    # Off-VM backup replication (Azure Blob). Both values are blank when
+    # enable_backup_blob_storage = false in Terraform — replication is
+    # then skipped silently and only local copies are written.
+    AZURE_BACKUP_CONTAINER=${azure_backup_container}
+    AZURE_STORAGE_ACCOUNT_URL=${azure_storage_account_url}
     ENVEOF
 
   # Fix .env indentation (remove leading whitespace from heredoc)

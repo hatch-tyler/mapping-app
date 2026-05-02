@@ -236,3 +236,126 @@ async def test_tar_dir_returns_false_for_empty(backup_dirs):
     wrote = await backup_service._tar_dir(backup_dirs["uploads"], out)
     assert wrote is False
     assert not out.exists()
+
+
+# --- Off-VM blob replication ----------------------------------------------
+
+
+class _FakeBlobClient:
+    """Minimal stand-in for BlobBackupClient used in tests."""
+
+    def __init__(self, *, fail_on_upload: bool = False) -> None:
+        self.uploaded: list[tuple[str, int]] = []
+        self.deleted: list[str] = []
+        self.fail_on_upload = fail_on_upload
+
+    def upload(self, local_path: Path, blob_name: str) -> None:
+        if self.fail_on_upload:
+            raise RuntimeError("simulated blob upload failure")
+        self.uploaded.append((blob_name, local_path.stat().st_size))
+
+    def delete(self, blob_name: str) -> None:
+        self.deleted.append(blob_name)
+
+
+@pytest.mark.asyncio
+async def test_run_backup_replicates_to_blob_when_configured(backup_dirs):
+    """When BlobBackupClient.from_settings returns a client, every artifact
+    gets uploaded and the marker records remote_replicated=True."""
+    (backup_dirs["uploads"] / "u.txt").write_text("hi")
+
+    fake = _FakeBlobClient()
+    with patch.object(backup_service, "_run_pg_dump", side_effect=_fake_pg_dump), patch(
+        "app.services.backup_service.BlobBackupClient.from_settings",
+        return_value=fake,
+    ):
+        result = await run_backup(source="manual")
+
+    assert result.status == "completed"
+    assert result.remote_replicated is True
+    assert result.remote_error is None
+    blob_names = {name for name, _ in fake.uploaded}
+    assert any(n.startswith("db_") and n.endswith(".sql.gz") for n in blob_names)
+    assert any(n.startswith("uploads_") and n.endswith(".tar.gz") for n in blob_names)
+    # No rasters dir contents, so no rasters blob.
+    assert not any(n.startswith("rasters_") for n in blob_names)
+
+
+@pytest.mark.asyncio
+async def test_run_backup_succeeds_locally_when_blob_upload_fails(backup_dirs):
+    """A blob upload error must NOT fail the local backup. The record
+    keeps status=completed but flags remote_replicated=False with the
+    error captured for the admin UI."""
+    fake = _FakeBlobClient(fail_on_upload=True)
+    with patch.object(backup_service, "_run_pg_dump", side_effect=_fake_pg_dump), patch(
+        "app.services.backup_service.BlobBackupClient.from_settings",
+        return_value=fake,
+    ):
+        result = await run_backup(source="scheduled")
+
+    assert result.status == "completed"
+    assert result.db_file is not None and result.db_file.exists()
+    assert result.remote_replicated is False
+    assert result.remote_error is not None
+    assert "simulated blob upload failure" in result.remote_error
+
+
+@pytest.mark.asyncio
+async def test_run_backup_skips_replication_when_unconfigured(backup_dirs):
+    """No client → remote_replicated=False, no error (silent skip)."""
+    with patch.object(backup_service, "_run_pg_dump", side_effect=_fake_pg_dump), patch(
+        "app.services.backup_service.BlobBackupClient.from_settings",
+        return_value=None,
+    ):
+        result = await run_backup(source="manual")
+
+    assert result.status == "completed"
+    assert result.remote_replicated is False
+    assert result.remote_error is None
+
+
+@pytest.mark.asyncio
+async def test_delete_backup_also_deletes_blobs(backup_dirs):
+    """Pruning a local backup must remove the blob copies too, so the
+    container doesn't drift past the retention window."""
+    d = backup_dirs["backup"]
+    ts = "20260202_010203"
+    (d / f"db_{ts}.sql.gz").write_bytes(b"x")
+    (d / f"uploads_{ts}.tar.gz").write_bytes(b"y")
+    (d / f".completed_{ts}").write_text(json.dumps({}))
+
+    fake = _FakeBlobClient()
+    with patch(
+        "app.services.backup_service.BlobBackupClient.from_settings",
+        return_value=fake,
+    ):
+        await delete_backup(ts)
+
+    assert list(d.iterdir()) == []
+    assert set(fake.deleted) == {
+        f"db_{ts}.sql.gz",
+        f"uploads_{ts}.tar.gz",
+        f"rasters_{ts}.tar.gz",
+    }
+
+
+@pytest.mark.asyncio
+async def test_delete_backup_swallows_blob_delete_errors(backup_dirs):
+    """A blob-side failure must not prevent local files from being
+    deleted — the prune is the source of truth for retention."""
+    d = backup_dirs["backup"]
+    ts = "20260202_010203"
+    (d / f"db_{ts}.sql.gz").write_bytes(b"x")
+    (d / f".completed_{ts}").write_text(json.dumps({}))
+
+    class _ExplodingClient(_FakeBlobClient):
+        def delete(self, blob_name: str) -> None:
+            raise RuntimeError("network down")
+
+    with patch(
+        "app.services.backup_service.BlobBackupClient.from_settings",
+        return_value=_ExplodingClient(),
+    ):
+        await delete_backup(ts)
+
+    assert list(d.iterdir()) == []

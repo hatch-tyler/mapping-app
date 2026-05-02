@@ -34,6 +34,14 @@ initial_admin_email     = "admin@example.com"   # CHANGE: your admin email
 initial_admin_full_name = "Administrator"
 gunicorn_workers        = 4
 
+# Off-VM backup replication
+# Provisions a private Azure Storage account + container that the VM
+# replicates backups to via managed identity. Disable to keep backups
+# local-only on the data disk.
+enable_backup_blob_storage      = true
+backup_storage_replication_type = "LRS"  # use "GRS" to add geo-redundancy (~2x cost)
+# backup_storage_account_name   = ""     # leave empty to auto-derive a unique name
+
 # Tags (optional)
 tags = {
   managed_by = "terraform"

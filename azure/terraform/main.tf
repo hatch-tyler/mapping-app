@@ -156,6 +156,94 @@ resource "azurerm_virtual_machine_data_disk_attachment" "data" {
   caching            = "ReadWrite"
 }
 
+# --- Off-VM Backup Storage (Azure Blob) ---
+#
+# Backups are written locally to /mnt/data/backups (the managed data
+# disk) and — when enable_backup_blob_storage is true — replicated to a
+# private blob container so they survive loss of that disk. The VM's
+# system-assigned managed identity authenticates against the storage
+# account, so no keys live in the .env file.
+
+resource "random_string" "backup_storage_suffix" {
+  count   = var.enable_backup_blob_storage && var.backup_storage_account_name == "" ? 1 : 0
+  length  = 4
+  upper   = false
+  special = false
+  numeric = true
+}
+
+locals {
+  # Storage account names are globally unique, 3-24 lowercase
+  # alphanumerics. We strip non-alphanumerics from project_name and
+  # environment, then append a random suffix unless the caller supplied
+  # an explicit name.
+  backup_storage_account_name = (
+    var.enable_backup_blob_storage
+    ? (
+      var.backup_storage_account_name != ""
+      ? var.backup_storage_account_name
+      : substr(
+        "${replace(lower(var.project_name), "/[^a-z0-9]/", "")}${replace(lower(var.environment), "/[^a-z0-9]/", "")}bk${random_string.backup_storage_suffix[0].result}",
+        0,
+        24,
+      )
+    )
+    : ""
+  )
+}
+
+resource "azurerm_storage_account" "backups" {
+  count                    = var.enable_backup_blob_storage ? 1 : 0
+  name                     = local.backup_storage_account_name
+  resource_group_name      = azurerm_resource_group.main.name
+  location                 = azurerm_resource_group.main.location
+  account_tier             = "Standard"
+  account_replication_type = var.backup_storage_replication_type
+  # Shared keys remain enabled because the azurerm provider's
+  # azurerm_storage_container resource reaches the data plane via the
+  # account key. The runtime path (the backend container) uses the
+  # VM's managed identity, so keys are never embedded in app config —
+  # they stay an admin-only escape hatch for Terraform.
+  shared_access_key_enabled = true
+  # Backup data is sensitive (DB dump, uploads); refuse anonymous reads.
+  allow_nested_items_to_be_public = false
+  min_tls_version                 = "TLS1_2"
+
+  blob_properties {
+    versioning_enabled = false
+  }
+
+  tags = azurerm_resource_group.main.tags
+}
+
+resource "azurerm_storage_container" "backups" {
+  count                 = var.enable_backup_blob_storage ? 1 : 0
+  name                  = var.backup_storage_container_name
+  storage_account_name  = azurerm_storage_account.backups[0].name
+  container_access_type = "private"
+}
+
+# User-assigned identity for the VM. Using user-assigned (rather than
+# system-assigned) lets the role assignment reference a stable
+# principal_id at plan time, which avoids the chicken-and-egg between
+# adding identity to the VM and adding a role assignment that
+# depends on it. The identity outlives any single VM instance.
+resource "azurerm_user_assigned_identity" "vm" {
+  count               = var.enable_backup_blob_storage ? 1 : 0
+  name                = "${var.project_name}-${var.environment}-vm-identity"
+  resource_group_name = azurerm_resource_group.main.name
+  location            = azurerm_resource_group.main.location
+
+  tags = azurerm_resource_group.main.tags
+}
+
+resource "azurerm_role_assignment" "vm_backup_blob_writer" {
+  count                = var.enable_backup_blob_storage ? 1 : 0
+  scope                = azurerm_storage_account.backups[0].id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_user_assigned_identity.vm[0].principal_id
+}
+
 # --- Virtual Machine ---
 
 resource "azurerm_linux_virtual_machine" "main" {
@@ -172,6 +260,18 @@ resource "azurerm_linux_virtual_machine" "main" {
   admin_ssh_key {
     username   = var.admin_username
     public_key = file(var.ssh_public_key_path)
+  }
+
+  # User-assigned managed identity. The backend container uses it via
+  # IMDS (DefaultAzureCredential) to authenticate against the backup
+  # storage account without any secret in the .env file. The block is
+  # only present when blob backups are enabled.
+  dynamic "identity" {
+    for_each = var.enable_backup_blob_storage ? [1] : []
+    content {
+      type         = "UserAssigned"
+      identity_ids = [azurerm_user_assigned_identity.vm[0].id]
+    }
   }
 
   os_disk {
@@ -200,6 +300,14 @@ resource "azurerm_linux_virtual_machine" "main" {
     initial_admin_full_name = var.initial_admin_full_name
     upload_max_size_mb      = var.upload_max_size_mb
     url_scheme              = local.use_custom_domain ? "https" : "http"
+    azure_backup_container = (
+      var.enable_backup_blob_storage ? var.backup_storage_container_name : ""
+    )
+    azure_storage_account_url = (
+      var.enable_backup_blob_storage
+      ? "https://${local.backup_storage_account_name}.blob.core.windows.net"
+      : ""
+    )
   }))
 
   tags = azurerm_resource_group.main.tags

@@ -48,6 +48,8 @@ class BackupRecord(BaseModel):
     has_rasters: bool
     error_message: str | None = None
     triggered_by: str | None = None
+    remote_replicated: bool = False
+    remote_error: str | None = None
 
 
 def _to_record(b: BackupFileSet) -> BackupRecord:
@@ -62,6 +64,8 @@ def _to_record(b: BackupFileSet) -> BackupRecord:
         has_rasters=b.rasters_file is not None,
         error_message=b.error_message,
         triggered_by=b.triggered_by,
+        remote_replicated=b.remote_replicated,
+        remote_error=b.remote_error,
     )
 
 

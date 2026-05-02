@@ -41,6 +41,7 @@ from typing import Literal
 from sqlalchemy.engine.url import make_url
 
 from app.config import settings
+from app.services.blob_backup import BlobBackupClient, blob_names_for_timestamp
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +69,16 @@ class BackupInProgressError(RuntimeError):
 
 @dataclass(frozen=True)
 class BackupFileSet:
-    """One backup's on-disk presence and metadata."""
+    """One backup's on-disk presence and metadata.
+
+    ``remote_replicated`` and ``remote_error`` describe the off-VM
+    Azure Blob copy. They're independent of ``status`` — a backup can
+    be ``completed`` locally but with ``remote_replicated=False`` if
+    the blob upload failed (the local copy on the data disk is still
+    good; only the off-VM safety net is missing). When blob
+    replication is not configured at all, ``remote_replicated`` is
+    ``False`` and ``remote_error`` is ``None``.
+    """
 
     timestamp: str
     db_file: Path | None
@@ -80,6 +90,8 @@ class BackupFileSet:
     source: BackupSource
     error_message: str | None = None
     triggered_by: str | None = None
+    remote_replicated: bool = False
+    remote_error: str | None = None
 
 
 def _ts_now() -> str:
@@ -201,6 +213,8 @@ def _build_record(d: Path, ts: str) -> BackupFileSet:
         source=meta.get("source", "unknown"),
         error_message=error,
         triggered_by=meta.get("triggered_by"),
+        remote_replicated=bool(meta.get("remote_replicated", False)),
+        remote_error=meta.get("remote_error"),
     )
 
 
@@ -251,6 +265,22 @@ def _delete_backup_sync(timestamp: str) -> None:
             p.unlink(missing_ok=True)
         except OSError:
             logger.exception("Failed to remove backup file %s", p)
+
+    # Off-VM blob copies (if any) — best-effort. A failure here just
+    # leaves orphan blobs that the user can sweep up later; it must
+    # not block deletion of the local files.
+    client = BlobBackupClient.from_settings()
+    if client is not None:
+        for blob_name in blob_names_for_timestamp(timestamp):
+            try:
+                client.delete(blob_name)
+            except Exception:
+                logger.warning(
+                    "Failed to delete blob %s during prune of %s",
+                    blob_name,
+                    timestamp,
+                    exc_info=True,
+                )
 
 
 async def prune_old_backups(retention_days: int | None = None) -> int:
@@ -376,6 +406,34 @@ def _write_marker(path: Path, payload: dict) -> None:
     path.write_text(json.dumps(payload, default=str))
 
 
+async def _replicate_to_blob(
+    timestamp: str, artifacts: list[Path]
+) -> tuple[bool, str | None]:
+    """Upload a finished backup's artifacts to Azure Blob Storage.
+
+    Returns ``(replicated, error)``:
+
+    * ``(False, None)``  — replication is not configured; nothing to do.
+    * ``(True, None)``   — every artifact uploaded successfully.
+    * ``(False, "...")`` — replication is configured but at least one
+      upload failed; the local copy is unaffected.
+
+    The SDK is synchronous; the upload runs in a worker thread so the
+    event loop stays responsive during multi-hundred-MB uploads.
+    """
+    client = await asyncio.to_thread(BlobBackupClient.from_settings)
+    if client is None:
+        return False, None
+
+    try:
+        for path in artifacts:
+            await asyncio.to_thread(client.upload, path, path.name)
+        return True, None
+    except Exception as e:
+        logger.exception("Blob replication failed for backup %s", timestamp)
+        return False, f"{type(e).__name__}: {e}"[:1000]
+
+
 async def run_backup(
     *,
     source: BackupSource = "manual",
@@ -414,6 +472,20 @@ async def run_backup(
         db_size = _safe_size(paths["db"])
         uploads_size = _safe_size(paths["uploads"]) if uploads_written else 0
         rasters_size = _safe_size(paths["rasters"]) if rasters_written else 0
+
+        # Replicate to Azure Blob (best-effort — see ``blob_backup``).
+        # Local artifacts are already on the persistent data disk; if
+        # the off-VM copy fails we record the error but keep the
+        # backup as ``completed``.
+        artifacts_to_replicate: list[Path] = [paths["db"]]
+        if uploads_written:
+            artifacts_to_replicate.append(paths["uploads"])
+        if rasters_written:
+            artifacts_to_replicate.append(paths["rasters"])
+        remote_replicated, remote_error = await _replicate_to_blob(
+            ts, artifacts_to_replicate
+        )
+
         ended_at = datetime.now(timezone.utc)
         completed_payload = {
             **in_progress_payload,
@@ -421,14 +493,17 @@ async def run_backup(
             "db_size_bytes": db_size,
             "uploads_size_bytes": uploads_size,
             "rasters_size_bytes": rasters_size,
+            "remote_replicated": remote_replicated,
+            "remote_error": remote_error,
         }
         _write_marker(markers["completed"], completed_payload)
         markers["in_progress"].unlink(missing_ok=True)
         logger.info(
-            "Backup %s completed (source=%s, size=%d bytes)",
+            "Backup %s completed (source=%s, size=%d bytes, remote=%s)",
             ts,
             source,
             db_size + uploads_size + rasters_size,
+            "yes" if remote_replicated else ("error" if remote_error else "off"),
         )
         return _build_record(d, ts)
 

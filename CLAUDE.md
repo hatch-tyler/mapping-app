@@ -200,6 +200,11 @@ MVT auto-enables for datasets with 10,000+ features.
 - All external ArcGIS MapServer, ImageServer, FeatureServer, WMS, and WFS requests are routed through the backend proxy (`/api/v1/external-sources/{id}/proxy`) to avoid CORS and CSP issues. The proxy uses a shared `httpx.AsyncClient` with connection pooling and opportunistic http→https upgrade.
 - A 60-second TTL cache on the proxy endpoint avoids a DB lookup per tile request.
 
+### Backups
+- Daily at 02:00 UTC, host cron runs `docker exec gis-backend python -m app.commands.create_backup`. Manual runs come from the Admin → Backups UI (`POST /api/v1/admin/backups/`). Both go through `app.services.backup_service.run_backup`.
+- Local artifacts live on the persistent managed data disk at `/mnt/data/backups` — survives VM resize. Retention is `BACKUP_RETENTION_DAYS` (default 30); `prune_old_backups` runs after each scheduled backup.
+- Off-VM replication to Azure Blob Storage is wired through `app.services.blob_backup.BlobBackupClient`. When `AZURE_BACKUP_CONTAINER` plus one of (`AZURE_STORAGE_CONNECTION_STRING`, `AZURE_STORAGE_ACCOUNT_URL`) is set, each backup is uploaded after local writes succeed; pruning a local backup also deletes the corresponding blobs. Failures don't fail the backup — they're recorded as `remote_replicated=False` + `remote_error` on the record. In production the VM authenticates via user-assigned managed identity (no secrets in `.env`), provisioned by Terraform with `Storage Blob Data Contributor` on the storage account.
+
 ### Upload CRS Enforcement
 - Uploads without a coordinate reference system (CRS) are **rejected** with a descriptive error. The app does not assume WGS84. Users must add a `.prj` file or define a CRS before uploading.
 
@@ -275,3 +280,6 @@ MVT auto-enables for datasets with 10,000+ features.
 | Upload | `backend/app/api/v1/upload.py` | Bundle upload with sequential processing + recovery endpoints |
 | State | `frontend/src/stores/importStore.ts` | Persistent import polling across navigation |
 | State | `frontend/src/stores/toastStore.ts` | In-app toast notification system |
+| Backups | `backend/app/services/backup_service.py` | pg_dump + uploads/rasters tarballs, marker-based status |
+| Backups | `backend/app/services/blob_backup.py` | Optional off-VM replication to Azure Blob |
+| Backups | `backend/app/commands/create_backup.py` | Cron entry point invoked from the host |

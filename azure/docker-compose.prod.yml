@@ -59,6 +59,12 @@ services:
       - SMTP_PASSWORD=${SMTP_PASSWORD:-}
       - SMTP_FROM_EMAIL=${SMTP_FROM_EMAIL:-noreply@${DOMAIN_NAME}}
       - SMTP_FROM_NAME=${SMTP_FROM_NAME:-GIS Application}
+      # Off-VM backup replication. Set AZURE_BACKUP_CONTAINER plus one
+      # of (AZURE_STORAGE_CONNECTION_STRING, AZURE_STORAGE_ACCOUNT_URL)
+      # to enable. Leave blank to keep backups local-only.
+      - AZURE_BACKUP_CONTAINER=${AZURE_BACKUP_CONTAINER:-}
+      - AZURE_STORAGE_CONNECTION_STRING=${AZURE_STORAGE_CONNECTION_STRING:-}
+      - AZURE_STORAGE_ACCOUNT_URL=${AZURE_STORAGE_ACCOUNT_URL:-}
     volumes:
       - /mnt/data/uploads:/app/data/uploads
       - /mnt/data/rasters:/app/data/rasters

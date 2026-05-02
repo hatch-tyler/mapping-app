@@ -109,6 +109,51 @@ variable "gunicorn_workers" {
   default     = 4
 }
 
+# Off-VM backup replication (Azure Blob Storage)
+variable "enable_backup_blob_storage" {
+  description = <<-EOT
+    Provision a private Azure Storage account + container that the VM
+    replicates backups to. When true, the VM also gets a system-assigned
+    managed identity with Storage Blob Data Contributor on the account,
+    so the backend authenticates without secrets in the env file.
+    Set to false to keep backups local-only on the data disk.
+  EOT
+  type        = bool
+  default     = true
+}
+
+variable "backup_storage_account_name" {
+  description = <<-EOT
+    Name of the storage account for off-VM backups. Must be globally
+    unique, 3-24 lowercase alphanumerics. Leave empty to derive a name
+    from project_name + environment + a 4-char random suffix.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "backup_storage_replication_type" {
+  description = <<-EOT
+    Storage account replication. LRS keeps three copies in one
+    datacenter (cheapest). GRS adds asynchronous replication to a
+    paired region — recommended if the data must survive a regional
+    Azure outage. ZRS spreads across availability zones in one region.
+  EOT
+  type        = string
+  default     = "LRS"
+
+  validation {
+    condition     = contains(["LRS", "ZRS", "GRS", "GZRS"], var.backup_storage_replication_type)
+    error_message = "Replication type must be one of: LRS, ZRS, GRS, GZRS."
+  }
+}
+
+variable "backup_storage_container_name" {
+  description = "Name of the blob container that holds backup artifacts."
+  type        = string
+  default     = "backups"
+}
+
 # Tags
 variable "tags" {
   description = "Additional tags for all resources"
