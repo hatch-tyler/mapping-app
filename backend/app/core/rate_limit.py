@@ -10,6 +10,8 @@ from threading import Lock
 
 from fastapi import HTTPException, Request, status
 
+from app.config import settings
+
 
 class RateLimiter:
     def __init__(self, max_requests: int, window_seconds: int):
@@ -35,7 +37,9 @@ class RateLimiter:
 
 
 # Auth rate limiters
-_login_limiter = RateLimiter(max_requests=10, window_seconds=60)
+_login_limiter = RateLimiter(
+    max_requests=settings.LOGIN_RATE_LIMIT_PER_MINUTE, window_seconds=60
+)
 _password_reset_limiter = RateLimiter(max_requests=5, window_seconds=300)
 
 

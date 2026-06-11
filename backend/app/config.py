@@ -16,6 +16,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
+    # Auth rate limiting (per client IP). Defaults match production; the
+    # dev/CI stack relaxes LOGIN_RATE_LIMIT_PER_MINUTE so the e2e suite's
+    # repeated logins don't trip the limiter.
+    LOGIN_RATE_LIMIT_PER_MINUTE: int = 10
+
     # CORS
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
 
