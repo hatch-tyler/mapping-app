@@ -9,8 +9,7 @@ These tests do not hit Azure. They exercise:
 from __future__ import annotations
 
 import sys
-from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -34,7 +33,9 @@ def test_from_settings_returns_none_when_unconfigured(reset_settings):
     assert BlobBackupClient.from_settings() is None
 
 
-def test_from_settings_returns_none_when_only_container_set(reset_settings, monkeypatch):
+def test_from_settings_returns_none_when_only_container_set(
+    reset_settings, monkeypatch
+):
     """A container alone is not enough — auth must also be configured."""
     monkeypatch.setattr(blob_backup.settings, "AZURE_BACKUP_CONTAINER", "backups")
     assert BlobBackupClient.from_settings() is None
@@ -118,6 +119,7 @@ def test_upload_streams_file_with_overwrite(tmp_path):
 
 def test_delete_swallows_resource_not_found(monkeypatch):
     """A missing blob is not an error — pruning is idempotent."""
+
     # Build a fake ResourceNotFoundError class and inject the module so
     # blob_backup.delete() can catch it without importing real azure.
     class _ResourceNotFoundError(Exception):
