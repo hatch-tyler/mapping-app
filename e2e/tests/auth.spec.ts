@@ -24,11 +24,18 @@ test.describe('Authentication', () => {
     await page.goto('/login');
     await page.getByLabel(/email/i).fill('wrong@example.com');
     await page.getByLabel(/password/i).fill('wrongpassword');
+
+    // Wait for the login request to return (401) so the error has rendered
+    // before asserting — avoids a 5s race against slower CI runners.
+    const loginResponse = page.waitForResponse(
+      (r) => r.url().includes('/auth/login') && r.request().method() === 'POST',
+    );
     await page.getByRole('button', { name: /sign in|log in/i }).click();
+    await loginResponse;
 
     // Should stay on login page with an error
     await expect(page).toHaveURL(/login/);
-    await expect(page.getByText(/invalid|incorrect|error/i)).toBeVisible();
+    await expect(page.getByText(/invalid|incorrect|error/i)).toBeVisible({ timeout: 10000 });
   });
 
   test('should redirect to login after logout', async ({ page }) => {
