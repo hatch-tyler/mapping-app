@@ -11,20 +11,20 @@ packages:
   - jq
   - unzip
 
-# Install Docker and Docker Compose
-runcmd:
-  # Install Docker
-  - install -m 0755 -d /etc/apt/keyrings
-  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-  - chmod a+r /etc/apt/keyrings/docker.asc
-  - |
-    echo -e "Types: deb\nURIs: https://download.docker.com/linux/ubuntu\nSuites: $$(. /etc/os-release && echo $$VERSION_CODENAME)\nComponents: stable\nSigned-By: /etc/apt/keyrings/docker.asc" > /etc/apt/sources.list.d/docker.sources
-  - apt-get update
-  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  - systemctl enable docker
-  - systemctl start docker
-  - usermod -aG docker ${admin_username}
+# Disable Azure's default mount of the ephemeral resource disk at /mnt.
+# The resource disk is zeroed on every VM stop/deallocate/resize. When /mnt is
+# the ephemeral mount, the managed-disk mount /mnt/data is nested under it and
+# can silently lose a boot race (incidents 2026-04-30 and 2026-06-04) —
+# stranding the managed disk and landing Postgres data on ephemeral storage.
+# Leaving ephemeral unmounted makes /mnt/data a clean top-level managed mount.
+mounts:
+  - [ ephemeral0, null ]
 
+# Order matters: the managed data disk MUST be mounted at /mnt/data BEFORE
+# Docker starts, because a docker.service drop-in (written below) makes the
+# daemon refuse to start unless /mnt/data is mounted. So the disk-setup block
+# runs first, then Docker is installed and started.
+runcmd:
   # Detect, format, and mount the managed data disk at /mnt/data.
   #
   # Critical: this must FAIL LOUDLY if the disk can't be set up rather than
@@ -77,8 +77,9 @@ runcmd:
 
     mkdir -p /mnt/data
     if ! grep -q "$$DISK_UUID" /etc/fstab; then
-      echo "UUID=$$DISK_UUID /mnt/data ext4 defaults,nofail,x-systemd.requires=cloud-init.service 0 2" >> /etc/fstab
+      echo "UUID=$$DISK_UUID /mnt/data ext4 defaults,nofail 0 2" >> /etc/fstab
     fi
+    systemctl daemon-reload
     mount -a
 
     # Sanity-check: /mnt/data must be a mount point on the expected device.
@@ -97,6 +98,26 @@ runcmd:
 
     echo "[disk-setup] /mnt/data successfully mounted on $$DATA_DISK"
     touch /var/log/cloud-init-data-disk-OK
+
+  # Guard: Docker (and thus Postgres) must not start unless the managed data
+  # disk is mounted at /mnt/data. Without this, a failed or missing mount lets
+  # Postgres initialize an empty database on the OS disk — silent data loss.
+  # RequiresMountsFor makes dockerd refuse to start when /mnt/data isn't
+  # mounted, turning a silent data wipe into a loud, recoverable outage.
+  - mkdir -p /etc/systemd/system/docker.service.d
+  - printf '[Unit]\nRequiresMountsFor=/mnt/data\n' > /etc/systemd/system/docker.service.d/10-require-data-mount.conf
+
+  # Install Docker and Docker Compose (only after the data disk is mounted)
+  - install -m 0755 -d /etc/apt/keyrings
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+  - chmod a+r /etc/apt/keyrings/docker.asc
+  - |
+    echo -e "Types: deb\nURIs: https://download.docker.com/linux/ubuntu\nSuites: $$(. /etc/os-release && echo $$VERSION_CODENAME)\nComponents: stable\nSigned-By: /etc/apt/keyrings/docker.asc" > /etc/apt/sources.list.d/docker.sources
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker ${admin_username}
 
   # Create directory structure on data disk
   - mkdir -p /mnt/data/postgres
