@@ -265,9 +265,12 @@ async def test_run_backup_replicates_to_blob_when_configured(backup_dirs):
     (backup_dirs["uploads"] / "u.txt").write_text("hi")
 
     fake = _FakeBlobClient()
-    with patch.object(backup_service, "_run_pg_dump", side_effect=_fake_pg_dump), patch(
-        "app.services.backup_service.BlobBackupClient.from_settings",
-        return_value=fake,
+    with (
+        patch.object(backup_service, "_run_pg_dump", side_effect=_fake_pg_dump),
+        patch(
+            "app.services.backup_service.BlobBackupClient.from_settings",
+            return_value=fake,
+        ),
     ):
         result = await run_backup(source="manual")
 
@@ -287,9 +290,12 @@ async def test_run_backup_succeeds_locally_when_blob_upload_fails(backup_dirs):
     keeps status=completed but flags remote_replicated=False with the
     error captured for the admin UI."""
     fake = _FakeBlobClient(fail_on_upload=True)
-    with patch.object(backup_service, "_run_pg_dump", side_effect=_fake_pg_dump), patch(
-        "app.services.backup_service.BlobBackupClient.from_settings",
-        return_value=fake,
+    with (
+        patch.object(backup_service, "_run_pg_dump", side_effect=_fake_pg_dump),
+        patch(
+            "app.services.backup_service.BlobBackupClient.from_settings",
+            return_value=fake,
+        ),
     ):
         result = await run_backup(source="scheduled")
 
@@ -303,9 +309,12 @@ async def test_run_backup_succeeds_locally_when_blob_upload_fails(backup_dirs):
 @pytest.mark.asyncio
 async def test_run_backup_skips_replication_when_unconfigured(backup_dirs):
     """No client → remote_replicated=False, no error (silent skip)."""
-    with patch.object(backup_service, "_run_pg_dump", side_effect=_fake_pg_dump), patch(
-        "app.services.backup_service.BlobBackupClient.from_settings",
-        return_value=None,
+    with (
+        patch.object(backup_service, "_run_pg_dump", side_effect=_fake_pg_dump),
+        patch(
+            "app.services.backup_service.BlobBackupClient.from_settings",
+            return_value=None,
+        ),
     ):
         result = await run_backup(source="manual")
 
