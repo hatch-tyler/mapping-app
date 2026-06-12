@@ -5,6 +5,7 @@ on:
     branches: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -124,7 +125,8 @@ jobs:
 
   e2e:
     runs-on: ubuntu-latest
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+    # Runs on PRs, manual dispatch, and master pushes so the suite can be
+    # validated before merging (not just after).
     needs: [frontend-build, backend-test]
     defaults:
       run:
@@ -138,10 +140,19 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: Start app stack
         working-directory: .
+        # docker-compose.yml supplies dev defaults (non-insecure SECRET_KEY,
+        # seeded admin admin@example.com/admin123, relaxed login rate limit)
+        # so the backend boots and the suite can authenticate with no .env.
         run: docker compose up -d --wait
       - run: npx playwright test
         env:
           BASE_URL: http://localhost:5173
+      - name: Dump stack logs on failure
+        if: failure()
+        working-directory: .
+        run: |
+          docker compose ps
+          docker compose logs --no-color --tail=300
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -78,7 +78,17 @@ function createRefreshInterceptor(client: typeof apiClient) {
         _retry?: boolean;
       };
 
-      if (error.response?.status === 401 && !originalRequest._retry) {
+      // A 401 from the login endpoint means bad credentials, not an expired
+      // access token. Let it propagate so the login form can show the error,
+      // instead of triggering a token refresh that fails and reloads /login
+      // (which wipes the form and the error message).
+      const isLoginRequest = originalRequest.url?.includes('/auth/login');
+
+      if (
+        error.response?.status === 401 &&
+        !originalRequest._retry &&
+        !isLoginRequest
+      ) {
         originalRequest._retry = true;
 
         try {
